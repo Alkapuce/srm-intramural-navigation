@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,6 +16,30 @@ import sources
 
 
 class SourceControlTest(unittest.TestCase):
+    def test_cli_restores_empty_submodule_directory_and_preserves_extra_files(self):
+        consumer = self.root / 'consumer'
+        scripts = consumer / 'scripts'
+        (scripts / 'internal').mkdir(parents=True)
+        project = Path(__file__).resolve().parents[1]
+        for name in ('prepare-sources.py', 'internal/source_control.py'):
+            shutil.copy2(project / 'scripts' / name, scripts / name)
+        (consumer / 'docker').mkdir()
+        repo = dict(self.repo, url=self.path.as_uri())
+        (consumer / 'docker/sources.lock.json').write_text(json.dumps({'repositories': [repo]}))
+        target = consumer / repo['path']
+        target.mkdir(parents=True)  # A plain root clone leaves empty submodule directories.
+        command = [sys.executable, str(scripts / 'prepare-sources.py')]
+        for _ in range(2):
+            result = subprocess.run(command, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(git(target, 'rev-parse', 'HEAD'), repo['commit'])
+            self.assertEqual((target / 'code.txt').read_text(), 'upstream\n')
+        extra = target / 'personal.txt'
+        extra.write_text('preserve this work\n')
+        result = subprocess.run(command, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(extra.read_text(), 'preserve this work\n')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
