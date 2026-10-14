@@ -1,0 +1,18 @@
+{
+  "fault": "transport_link",
+  "position_before": [
+    0.023026336281433458,
+    -0.0026579840936360195
+  ],
+  "speed_before_mps": 0.15124740061216077,
+  "unsafe_hold_after_cancel_m": 0.06195032519009648,
+  "mcu_speed_after_cancel_mps": 0.1720842366391569,
+  "physical_speed_after_cancel_mps": 0.17208423663915803,
+  "upstream_zero_after_cancel": true,
+  "stopped_after_link_restored": true,
+  "position_after": [
+    0.10635505840076472,
+    -0.006133270833048389
+  ],
+  "mission_state_after": "CANCELLED"
+}

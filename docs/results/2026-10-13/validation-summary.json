@@ -1,0 +1,931 @@
+{
+  "dates": "2026-10-12 to 2026-10-13",
+  "unit_tests_passed": 59,
+  "clean_build_packages": 31,
+  "normal": {
+    "sensors": {
+      "rounds": [
+        {
+          "run": 1,
+          "duration_sim_seconds": 76.07,
+          "parking_error_m": 0.03091001195838935,
+          "min_pole_clearance_m": 1.0465654460031073,
+          "min_boundary_clearance_m": 0.7018439092651692,
+          "maximum_absolute_yaw_rad": 4.408620652521573e-18,
+          "phases": [
+            "ENTER",
+            "LOWER",
+            "LOWER",
+            "LOWER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "LOWER_EXIT",
+            "RETURN"
+          ],
+          "samples": 3906,
+          "lower_winding_rad": 6.281565131134833,
+          "upper_winding_rad": -6.2809985323258335,
+          "max_reference_deviation_m": 0.02811357899769904
+        },
+        {
+          "run": 2,
+          "duration_sim_seconds": 75.96500000000002,
+          "parking_error_m": 0.02128653059276122,
+          "min_pole_clearance_m": 1.0475646856901917,
+          "min_boundary_clearance_m": 0.7035835129514743,
+          "maximum_absolute_yaw_rad": 7.279117142709994e-18,
+          "phases": [
+            "ENTER",
+            "LOWER",
+            "LOWER",
+            "LOWER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "LOWER_EXIT",
+            "RETURN"
+          ],
+          "samples": 3902,
+          "lower_winding_rad": 6.284073178231628,
+          "upper_winding_rad": -6.283627953951956,
+          "max_reference_deviation_m": 0.02736648235494054
+        },
+        {
+          "run": 3,
+          "duration_sim_seconds": 75.72999999999999,
+          "parking_error_m": 0.03018930145108689,
+          "min_pole_clearance_m": 1.0467064803651693,
+          "min_boundary_clearance_m": 0.7035575628270836,
+          "maximum_absolute_yaw_rad": 8.814002888048535e-18,
+          "phases": [
+            "ENTER",
+            "LOWER",
+            "LOWER",
+            "LOWER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "LOWER_EXIT",
+            "RETURN"
+          ],
+          "samples": 3889,
+          "lower_winding_rad": 6.28261961753877,
+          "upper_winding_rad": -6.282612700715179,
+          "max_reference_deviation_m": 0.027331445340005898
+        },
+        {
+          "run": 4,
+          "duration_sim_seconds": 76.00999999999999,
+          "parking_error_m": 0.02902365403023457,
+          "min_pole_clearance_m": 1.04674965661888,
+          "min_boundary_clearance_m": 0.7042685342259105,
+          "maximum_absolute_yaw_rad": 9.43290593152708e-18,
+          "phases": [
+            "ENTER",
+            "LOWER",
+            "LOWER",
+            "LOWER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "LOWER_EXIT",
+            "RETURN"
+          ],
+          "samples": 3903,
+          "lower_winding_rad": 6.282833636847222,
+          "upper_winding_rad": -6.283533072748094,
+          "max_reference_deviation_m": 0.0268497959851714
+        },
+        {
+          "run": 5,
+          "duration_sim_seconds": 75.91499999999996,
+          "parking_error_m": 0.026245249273093213,
+          "min_pole_clearance_m": 1.0459017840136455,
+          "min_boundary_clearance_m": 0.701709302882386,
+          "maximum_absolute_yaw_rad": 9.487078972346514e-18,
+          "phases": [
+            "ENTER",
+            "LOWER",
+            "LOWER",
+            "LOWER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "LOWER_EXIT",
+            "RETURN"
+          ],
+          "samples": 3898,
+          "lower_winding_rad": 6.2836803711568265,
+          "upper_winding_rad": -6.283158902651024,
+          "max_reference_deviation_m": 0.026992284858171775
+        }
+      ],
+      "cancel": {
+        "state": "CANCELLED",
+        "actual_motion_before_cancel": true,
+        "zero_command_and_stationary": true,
+        "reset": "IDLE"
+      },
+      "observed_lidar_hz": 20.000252082834418,
+      "command_stats": {
+        "maximum_speed_mps": 0.35,
+        "maximum_absolute_wz": 0.0,
+        "nonfinite": 0
+      },
+      "lidar_rate_time_basis": "simulation sensor stamps; native wall-time counter recorded separately",
+      "max_return_to_entry_deviations_m": [
+        0.06898916335643818,
+        0.0787399790998951,
+        0.0783306038252469,
+        0.08307233303573108,
+        0.07819402785908265
+      ]
+    },
+    "ideal": {
+      "rounds": [
+        {
+          "run": 1,
+          "duration_sim_seconds": 76.94500000000001,
+          "parking_error_m": 0.053746607498687135,
+          "min_pole_clearance_m": 1.052443297942827,
+          "min_boundary_clearance_m": 0.7159784968446763,
+          "maximum_absolute_yaw_rad": 6.439139845138424e-18,
+          "phases": [
+            "ENTER",
+            "LOWER",
+            "LOWER",
+            "LOWER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "LOWER_EXIT",
+            "RETURN"
+          ],
+          "samples": 3951,
+          "lower_winding_rad": 6.2798833316449825,
+          "upper_winding_rad": -6.279670940888417,
+          "max_reference_deviation_m": 0.029121007667464872
+        },
+        {
+          "run": 2,
+          "duration_sim_seconds": 76.745,
+          "parking_error_m": 0.05375612159488799,
+          "min_pole_clearance_m": 1.052603680563644,
+          "min_boundary_clearance_m": 0.7159314034705337,
+          "maximum_absolute_yaw_rad": 7.244505420582571e-18,
+          "phases": [
+            "ENTER",
+            "LOWER",
+            "LOWER",
+            "LOWER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "LOWER_EXIT",
+            "RETURN"
+          ],
+          "samples": 3940,
+          "lower_winding_rad": 6.283185659739917,
+          "upper_winding_rad": -6.283184059202833,
+          "max_reference_deviation_m": 0.029093244456302722
+        },
+        {
+          "run": 3,
+          "duration_sim_seconds": 76.74499999999998,
+          "parking_error_m": 0.053349052824382494,
+          "min_pole_clearance_m": 1.0523260827767371,
+          "min_boundary_clearance_m": 0.7160337832457984,
+          "maximum_absolute_yaw_rad": 6.717888198328318e-18,
+          "phases": [
+            "ENTER",
+            "LOWER",
+            "LOWER",
+            "LOWER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "LOWER_EXIT",
+            "RETURN"
+          ],
+          "samples": 3941,
+          "lower_winding_rad": 6.283165634046674,
+          "upper_winding_rad": -6.2832417361646815,
+          "max_reference_deviation_m": 0.028302913186477728
+        },
+        {
+          "run": 4,
+          "duration_sim_seconds": 76.79499999999999,
+          "parking_error_m": 0.053306459804833214,
+          "min_pole_clearance_m": 1.052347228642414,
+          "min_boundary_clearance_m": 0.7158324696370562,
+          "maximum_absolute_yaw_rad": 6.302897942528834e-18,
+          "phases": [
+            "ENTER",
+            "LOWER",
+            "LOWER",
+            "LOWER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "LOWER_EXIT",
+            "RETURN"
+          ],
+          "samples": 3943,
+          "lower_winding_rad": 6.283137274268224,
+          "upper_winding_rad": -6.283221447988999,
+          "max_reference_deviation_m": 0.032188795059771534
+        },
+        {
+          "run": 5,
+          "duration_sim_seconds": 76.695,
+          "parking_error_m": 0.05329530187259446,
+          "min_pole_clearance_m": 1.0524516866414733,
+          "min_boundary_clearance_m": 0.7159516242731359,
+          "maximum_absolute_yaw_rad": 4.617279965850141e-18,
+          "phases": [
+            "ENTER",
+            "LOWER",
+            "LOWER",
+            "LOWER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "UPPER",
+            "LOWER_EXIT",
+            "RETURN"
+          ],
+          "samples": 3938,
+          "lower_winding_rad": 6.283183682210839,
+          "upper_winding_rad": -6.283187571174951,
+          "max_reference_deviation_m": 0.03209384825813208
+        }
+      ],
+      "cancel": {
+        "state": "CANCELLED",
+        "actual_motion_before_cancel": true,
+        "zero_command_and_stationary": true,
+        "reset": "IDLE"
+      },
+      "observed_lidar_hz": 20.000249224289398,
+      "command_stats": {
+        "maximum_speed_mps": 0.35,
+        "maximum_absolute_wz": 0.0,
+        "nonfinite": 0
+      },
+      "lidar_rate_time_basis": "simulation sensor stamps; native wall-time counter recorded separately",
+      "max_return_to_entry_deviations_m": [
+        0.10024151035768676,
+        0.10376131160233915,
+        0.10244793504909329,
+        0.10382661469288662,
+        0.10402147711318066
+      ]
+    }
+  },
+  "persistent": [
+    {
+      "scenario": "entry",
+      "target": [
+        1.5,
+        0.75
+      ],
+      "blocked_segment": 0,
+      "blocked_hold_wall_seconds": 1.5,
+      "moving_pose_at_insertion": [
+        0.17929879666665893,
+        0.09606080000860304
+      ],
+      "blocked_pose": [
+        0.2931175474951634,
+        0.1500602763668975
+      ],
+      "obstacle_standoff_m": 1.3477733215036765,
+      "parking_error_m": 0.04049728066527688,
+      "min_static_clearance_m": 0.7061618541976813,
+      "history": [
+        "ENTER",
+        "LOWER",
+        "LOWER",
+        "LOWER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "LOWER_EXIT",
+        "RETURN"
+      ],
+      "elapsed_sim_seconds": 140.455,
+      "samples": 7093,
+      "persistent": true,
+      "bypass_count": 4,
+      "min_dynamic_clearance_m": 0.20046911291947483
+    },
+    {
+      "scenario": "lower",
+      "target": [
+        2.44,
+        -0.06
+      ],
+      "blocked_segment": 1,
+      "blocked_hold_wall_seconds": 1.5,
+      "moving_pose_at_insertion": [
+        1.9754688400181164,
+        0.9637688780545324
+      ],
+      "blocked_pose": [
+        1.9950145525636294,
+        0.8691491499512521
+      ],
+      "obstacle_standoff_m": 1.0302088095552675,
+      "parking_error_m": 0.03789241333749639,
+      "min_static_clearance_m": 0.704135370389432,
+      "history": [
+        "ENTER",
+        "LOWER",
+        "LOWER",
+        "LOWER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "LOWER_EXIT",
+        "RETURN"
+      ],
+      "elapsed_sim_seconds": 130.05499999999998,
+      "samples": 6572,
+      "persistent": true,
+      "bypass_count": 3,
+      "min_dynamic_clearance_m": 0.2087974715848399
+    },
+    {
+      "scenario": "upper",
+      "target": [
+        2.44,
+        2.94
+      ],
+      "blocked_segment": 4,
+      "blocked_hold_wall_seconds": 1.5,
+      "moving_pose_at_insertion": [
+        3.53812956388024,
+        2.4960458581929754
+      ],
+      "blocked_pose": [
+        3.4430362908068077,
+        2.5044837584055673
+      ],
+      "obstacle_standoff_m": 1.09350637737876,
+      "parking_error_m": 0.04083733657639857,
+      "min_static_clearance_m": 0.7033409389140255,
+      "history": [
+        "ENTER",
+        "LOWER",
+        "LOWER",
+        "LOWER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "LOWER_EXIT",
+        "RETURN"
+      ],
+      "elapsed_sim_seconds": 114.555,
+      "samples": 5798,
+      "persistent": true,
+      "bypass_count": 3,
+      "min_dynamic_clearance_m": 0.17209785282189144
+    },
+    {
+      "scenario": "cross",
+      "target": [
+        3.5,
+        2.5
+      ],
+      "blocked_segment": 3,
+      "blocked_hold_wall_seconds": 1.5,
+      "moving_pose_at_insertion": [
+        5.009746669579755,
+        0.9496656367236701
+      ],
+      "blocked_pose": [
+        5.007552529520615,
+        1.0325667304972146
+      ],
+      "obstacle_standoff_m": 2.1038239065348696,
+      "parking_error_m": 0.03829546961701677,
+      "min_static_clearance_m": 0.22697096889798168,
+      "history": [
+        "ENTER",
+        "LOWER",
+        "LOWER",
+        "LOWER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "LOWER_EXIT",
+        "RETURN"
+      ],
+      "elapsed_sim_seconds": 125.05499999999995,
+      "samples": 6321,
+      "persistent": true,
+      "bypass_count": 6,
+      "min_dynamic_clearance_m": 0.15375249799646978
+    }
+  ],
+  "persistent_audit": [
+    {
+      "scenario": "entry",
+      "run": 1,
+      "true_winding_rad": {
+        "lower_pole": 6.281757721271345,
+        "upper_pole": -6.27987297572624
+      },
+      "max_reference_deviation_m": 0.8634900192327702,
+      "minimum_box_center_distance_while_blocked_m": 0.7964231168748358,
+      "minimum_dynamic_clearance_m": 0.20046911291947483,
+      "max_return_to_entry_deviation_m": 0.03741016876079467,
+      "blocked_samples": 375
+    },
+    {
+      "scenario": "lower",
+      "run": 2,
+      "true_winding_rad": {
+        "lower_pole": 6.283524888561777,
+        "upper_pole": -6.283247965141518
+      },
+      "max_reference_deviation_m": 0.8729887561473223,
+      "minimum_box_center_distance_while_blocked_m": 0.8484142682501978,
+      "minimum_dynamic_clearance_m": 0.2087974715848399,
+      "max_return_to_entry_deviation_m": 0.08030835869124929,
+      "blocked_samples": 385
+    },
+    {
+      "scenario": "upper",
+      "run": 3,
+      "true_winding_rad": {
+        "lower_pole": 6.283089721842002,
+        "upper_pole": -6.282937157606091
+      },
+      "max_reference_deviation_m": 0.7900891657787399,
+      "minimum_box_center_distance_while_blocked_m": 0.8539233865892857,
+      "minimum_dynamic_clearance_m": 0.17209785282189144,
+      "max_return_to_entry_deviation_m": 0.07163832240903757,
+      "blocked_samples": 307
+    },
+    {
+      "scenario": "cross",
+      "run": 4,
+      "true_winding_rad": {
+        "lower_pole": 6.283423630335939,
+        "upper_pole": -6.28330482832289
+      },
+      "max_reference_deviation_m": 0.8330278229610306,
+      "minimum_box_center_distance_while_blocked_m": 0.866232466100076,
+      "minimum_dynamic_clearance_m": 0.15375249799646978,
+      "max_return_to_entry_deviation_m": 0.0688978814023762,
+      "blocked_samples": 395
+    }
+  ],
+  "removal": [
+    {
+      "scenario": "entry",
+      "target": [
+        1.5,
+        0.75
+      ],
+      "blocked_segment": 0,
+      "blocked_hold_wall_seconds": 1.5,
+      "moving_pose_at_insertion": [
+        0.1809010894213462,
+        0.09697559684620854
+      ],
+      "blocked_pose": [
+        0.28202639769656873,
+        0.14509382635460874
+      ],
+      "obstacle_standoff_m": 1.359915870494313,
+      "parking_error_m": 0.032990876982412244,
+      "min_static_clearance_m": 0.7022958605569256,
+      "history": [
+        "ENTER",
+        "LOWER",
+        "LOWER",
+        "LOWER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "LOWER_EXIT",
+        "RETURN"
+      ],
+      "elapsed_sim_seconds": 80.46000000000001,
+      "samples": 4087,
+      "persistent": false,
+      "bypass_count": 0,
+      "min_dynamic_clearance_m": null
+    },
+    {
+      "scenario": "lower",
+      "target": [
+        2.44,
+        -0.06
+      ],
+      "blocked_segment": 1,
+      "blocked_hold_wall_seconds": 1.5,
+      "moving_pose_at_insertion": [
+        1.9691750730675204,
+        0.961295846030492
+      ],
+      "blocked_pose": [
+        1.9927273775179435,
+        0.8754236690703808
+      ],
+      "obstacle_standoff_m": 1.0368559395977193,
+      "parking_error_m": 0.02928010495247998,
+      "min_static_clearance_m": 0.7024019289227956,
+      "history": [
+        "ENTER",
+        "LOWER",
+        "LOWER",
+        "LOWER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "LOWER_EXIT",
+        "RETURN"
+      ],
+      "elapsed_sim_seconds": 80.39500000000001,
+      "samples": 4085,
+      "persistent": false,
+      "bypass_count": 0,
+      "min_dynamic_clearance_m": null
+    },
+    {
+      "scenario": "upper",
+      "target": [
+        2.44,
+        2.94
+      ],
+      "blocked_segment": 4,
+      "blocked_hold_wall_seconds": 1.5,
+      "moving_pose_at_insertion": [
+        3.5410744222414405,
+        2.496993308888464
+      ],
+      "blocked_pose": [
+        3.458148698636582,
+        2.504243459824189
+      ],
+      "obstacle_standoff_m": 1.107479360909881,
+      "parking_error_m": 0.022076317345287002,
+      "min_static_clearance_m": 0.7012838461687831,
+      "history": [
+        "ENTER",
+        "LOWER",
+        "LOWER",
+        "LOWER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "LOWER_EXIT",
+        "RETURN"
+      ],
+      "elapsed_sim_seconds": 80.445,
+      "samples": 4087,
+      "persistent": false,
+      "bypass_count": 0,
+      "min_dynamic_clearance_m": null
+    },
+    {
+      "scenario": "cross",
+      "target": [
+        3.5,
+        2.5
+      ],
+      "blocked_segment": 3,
+      "blocked_hold_wall_seconds": 1.5,
+      "moving_pose_at_insertion": [
+        5.009073237972284,
+        0.9454130787892943
+      ],
+      "blocked_pose": [
+        5.0065469163739476,
+        1.0688857944986527
+      ],
+      "obstacle_standoff_m": 2.0779248014361835,
+      "parking_error_m": 0.031856372480584046,
+      "min_static_clearance_m": 0.7028189696265157,
+      "history": [
+        "ENTER",
+        "LOWER",
+        "LOWER",
+        "LOWER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "LOWER_EXIT",
+        "RETURN"
+      ],
+      "elapsed_sim_seconds": 80.55500000000004,
+      "samples": 4091,
+      "persistent": false,
+      "bypass_count": 0,
+      "min_dynamic_clearance_m": null
+    }
+  ],
+  "removal_audit": [
+    {
+      "scenario": "entry",
+      "run": 1,
+      "true_winding_rad": {
+        "lower_pole": 6.282028625964518,
+        "upper_pole": -6.2804879755556815
+      },
+      "max_reference_deviation_m": 0.027329005752226226,
+      "minimum_box_center_distance_while_blocked_m": 1.359915870494313,
+      "minimum_dynamic_clearance_m": null,
+      "max_return_to_entry_deviation_m": 0.08195125896834453,
+      "blocked_samples": 195
+    },
+    {
+      "scenario": "lower",
+      "run": 2,
+      "true_winding_rad": {
+        "lower_pole": 6.283483068090782,
+        "upper_pole": -6.283387557042149
+      },
+      "max_reference_deviation_m": 0.02881700187503796,
+      "minimum_box_center_distance_while_blocked_m": 1.0368559395977193,
+      "minimum_dynamic_clearance_m": null,
+      "max_return_to_entry_deviation_m": 0.07948694777292813,
+      "blocked_samples": 197
+    },
+    {
+      "scenario": "upper",
+      "run": 3,
+      "true_winding_rad": {
+        "lower_pole": 6.2832692028028845,
+        "upper_pole": -6.283880851458301
+      },
+      "max_reference_deviation_m": 0.0274166847744601,
+      "minimum_box_center_distance_while_blocked_m": 1.107479360909881,
+      "minimum_dynamic_clearance_m": null,
+      "max_return_to_entry_deviation_m": 0.0741660240780897,
+      "blocked_samples": 194
+    },
+    {
+      "scenario": "cross",
+      "run": 4,
+      "true_winding_rad": {
+        "lower_pole": 6.282848445798416,
+        "upper_pole": -6.282377879135323
+      },
+      "max_reference_deviation_m": 0.027053982800343154,
+      "minimum_box_center_distance_while_blocked_m": 2.0779248014361835,
+      "minimum_dynamic_clearance_m": null,
+      "max_return_to_entry_deviation_m": 0.08346689714407761,
+      "blocked_samples": 197
+    }
+  ],
+  "cancel_bypass": [
+    {
+      "scenario": "cancel-bypass",
+      "state": "CANCELLED",
+      "bypass_count": 1,
+      "stopped": true
+    }
+  ],
+  "no_route": [
+    {
+      "scenario": "no-route",
+      "state": "CANCELLED",
+      "bypass_count": 0,
+      "stopped": true
+    }
+  ],
+  "faults": {
+    "pointcloud": {
+      "fault": "pointcloud",
+      "position_before": [
+        0.024157682020556136,
+        -0.0027788355179260865
+      ],
+      "speed_before_mps": 0.15433983615193042,
+      "suspended_child": "lidar_adapter",
+      "fault_reason": "Localization stale: TF stamp age 1.010 simulation seconds",
+      "zero_command_and_stop": true,
+      "position_after": [
+        0.28353111799467634,
+        -0.0026774034271656705
+      ],
+      "mission_state_after": "FAULT"
+    },
+    "localization": {
+      "fault": "localization",
+      "position_before": [
+        0.025283555280291064,
+        -0.0030847284909007564
+      ],
+      "speed_before_mps": 0.15875094882345514,
+      "suspended_child": "small_gicp_relocalization_node",
+      "fault_reason": "Localization stale: TF stamp age 1.005 simulation seconds",
+      "zero_command_and_stop": true,
+      "position_after": [
+        0.17990165975537453,
+        -0.0037450837815421207
+      ],
+      "mission_state_after": "FAULT"
+    },
+    "tf": {
+      "fault": "tf",
+      "position_before": [
+        0.02308079698482891,
+        -0.0024743538257795184
+      ],
+      "speed_before_mps": 0.150828776863298,
+      "suspended_child": "sensor_scan_generation_node",
+      "fault_reason": "Localization stale: TF stamp age 0.960 simulation seconds",
+      "zero_command_and_stop": true,
+      "position_after": [
+        0.2607426561171781,
+        -0.004319438425987752
+      ],
+      "mission_state_after": "FAULT"
+    },
+    "control": {
+      "fault": "control",
+      "position_before": [
+        0.0233664762870072,
+        -0.0031887345191685943
+      ],
+      "speed_before_mps": 0.15022311232768418,
+      "suspended_child": "velocity_smoother",
+      "zero_command_and_stop": true,
+      "state_after_injection": "RUNNING",
+      "position_after": [
+        0.1255455879716792,
+        -0.0051560182957801825
+      ],
+      "mission_state_after": "CANCELLED"
+    },
+    "transport_link": {
+      "fault": "transport_link",
+      "position_before": [
+        0.023026336281433458,
+        -0.0026579840936360195
+      ],
+      "speed_before_mps": 0.15124740061216077,
+      "unsafe_hold_after_cancel_m": 0.06195032519009648,
+      "mcu_speed_after_cancel_mps": 0.1720842366391569,
+      "physical_speed_after_cancel_mps": 0.17208423663915803,
+      "upstream_zero_after_cancel": true,
+      "stopped_after_link_restored": true,
+      "position_after": [
+        0.10635505840076472,
+        -0.006133270833048389
+      ],
+      "mission_state_after": "CANCELLED"
+    }
+  },
+  "mapping": {
+    "points": 6428,
+    "clouds": 159,
+    "frames": 1597,
+    "skipped_tf": 0,
+    "mission_history": [
+      "ENTER",
+      "LOWER",
+      "LOWER",
+      "LOWER",
+      "UPPER",
+      "UPPER",
+      "UPPER",
+      "UPPER",
+      "LOWER_EXIT",
+      "RETURN"
+    ],
+    "note": "Exploratory registered cloud; navigation still initialized from analytic prior"
+  },
+  "clean_reproduction": [
+    {
+      "run": 1,
+      "duration_sim_seconds": 76.39500000000001,
+      "parking_error_m": 0.028514354400198085,
+      "min_pole_clearance_m": 1.0463863415286634,
+      "min_boundary_clearance_m": 0.7034379907521142,
+      "maximum_absolute_yaw_rad": 4.8504396547481505e-18,
+      "phases": [
+        "ENTER",
+        "LOWER",
+        "LOWER",
+        "LOWER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "LOWER_EXIT",
+        "RETURN"
+      ],
+      "samples": 3923,
+      "lower_winding_rad": 6.282104819304229,
+      "upper_winding_rad": -6.280906762131712,
+      "max_reference_deviation_m": 0.028258882161153864
+    }
+  ],
+  "upstream": [
+    {
+      "arrival": {
+        "status": 4,
+        "initial_pose": [
+          0.013655779765262964,
+          -0.08993217680550843
+        ],
+        "goal": [
+          1.0,
+          0.0
+        ],
+        "reached_pose": [
+          0.9364216872334781,
+          -0.08068080403385752
+        ],
+        "error_m": 0.10272095206815114,
+        "ground_truth_displacement_m": 0.923612118481842,
+        "immediate_result_observation": {
+          "pose": [
+            0.8640624600291045,
+            -0.07538907314319276
+          ],
+          "tf_age_sim_seconds": 0.35099990100000034
+        },
+        "final_tf_age_sim_seconds": 0.29399994100000026,
+        "ground_truth_stopped_for_seconds": 2
+      },
+      "cancellation": {
+        "status": 5,
+        "zero_command": true,
+        "movement_before_cancel_m": 0.05091487427652364,
+        "ground_truth_stopped_for_seconds": 2
+      }
+    },
+    {
+      "arrival": {
+        "status": 4,
+        "initial_pose": [
+          0.013464830256044578,
+          -0.08590079773287591
+        ],
+        "goal": [
+          1.0,
+          0.0
+        ],
+        "reached_pose": [
+          0.9404724871625534,
+          -0.07290704567307227
+        ],
+        "error_m": 0.09412205954709989,
+        "ground_truth_displacement_m": 0.9255828330417775,
+        "immediate_result_observation": {
+          "pose": [
+            0.8690405902071752,
+            -0.07580558378092614
+          ],
+          "tf_age_sim_seconds": 0.35699990600000003
+        },
+        "final_tf_age_sim_seconds": 0.4389999010000002,
+        "ground_truth_stopped_for_seconds": 2
+      },
+      "cancellation": {
+        "status": 5,
+        "zero_command": true,
+        "movement_before_cancel_m": 0.05044204824795217,
+        "ground_truth_stopped_for_seconds": 2
+      }
+    }
+  ],
+  "signal_before_trials": 12,
+  "signal_before_failures": 11,
+  "signal_after_passes": 12,
+  "asan_terrain_cycles_passed": 20,
+  "physical_disconnect_stop_verified": false,
+  "nuc_hardware_validated": false,
+  "vehicle_hardware_validated": false,
+  "historical_limit": "Unattributed historical terrain_analysis_ext release exit -11 was not reproduced in bounded stress tests.",
+  "provenance": {
+    "kind": "selected fields from local validation result; values unchanged",
+    "original_sha256": "c8b64511b73ebf191919b2c4250efd93558d05dcabab5baba1d68cb78196f3af",
+    "simulation_only": true
+  }
+}

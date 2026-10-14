@@ -1,0 +1,54 @@
+[
+  {
+    "scenario": "entry",
+    "run": 1,
+    "true_winding_rad": {
+      "lower_pole": 6.281757721271345,
+      "upper_pole": -6.27987297572624
+    },
+    "max_reference_deviation_m": 0.8634900192327702,
+    "minimum_box_center_distance_while_blocked_m": 0.7964231168748358,
+    "minimum_dynamic_clearance_m": 0.20046911291947483,
+    "max_return_to_entry_deviation_m": 0.03741016876079467,
+    "blocked_samples": 375
+  },
+  {
+    "scenario": "lower",
+    "run": 2,
+    "true_winding_rad": {
+      "lower_pole": 6.283524888561777,
+      "upper_pole": -6.283247965141518
+    },
+    "max_reference_deviation_m": 0.8729887561473223,
+    "minimum_box_center_distance_while_blocked_m": 0.8484142682501978,
+    "minimum_dynamic_clearance_m": 0.2087974715848399,
+    "max_return_to_entry_deviation_m": 0.08030835869124929,
+    "blocked_samples": 385
+  },
+  {
+    "scenario": "upper",
+    "run": 3,
+    "true_winding_rad": {
+      "lower_pole": 6.283089721842002,
+      "upper_pole": -6.282937157606091
+    },
+    "max_reference_deviation_m": 0.7900891657787399,
+    "minimum_box_center_distance_while_blocked_m": 0.8539233865892857,
+    "minimum_dynamic_clearance_m": 0.17209785282189144,
+    "max_return_to_entry_deviation_m": 0.07163832240903757,
+    "blocked_samples": 307
+  },
+  {
+    "scenario": "cross",
+    "run": 4,
+    "true_winding_rad": {
+      "lower_pole": 6.283423630335939,
+      "upper_pole": -6.28330482832289
+    },
+    "max_reference_deviation_m": 0.8330278229610306,
+    "minimum_box_center_distance_while_blocked_m": 0.866232466100076,
+    "minimum_dynamic_clearance_m": 0.15375249799646978,
+    "max_return_to_entry_deviation_m": 0.0688978814023762,
+    "blocked_samples": 395
+  }
+]
