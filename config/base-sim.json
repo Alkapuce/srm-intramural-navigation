@@ -1,0 +1,9 @@
+{
+  "purpose": "Simulation only: identity command-to-physical velocity, not SRM firmware calibration",
+  "calibrated_for_vehicle": false,
+  "body_to_protocol": [[1.0, 0.0], [0.0, 1.0]],
+  "max_body_speed_mps": 0.35,
+  "max_body_acceleration_mps2": 0.6,
+  "max_protocol_axis": 0.35,
+  "input_timeout_seconds": 0.3
+}

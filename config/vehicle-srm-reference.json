@@ -1,0 +1,70 @@
+{
+  "purpose": "Independently authored interface facts from SRM references; not measured vehicle calibration",
+  "vehicle_context": {
+    "reported_by": "user",
+    "reported_on": "2026-09-30",
+    "vehicle_identity": "SRM previous-season sentry",
+    "organizer_handoff_status": "not configured and not delivered for debugging",
+    "reference_parameter_policy": "Use recorded SRM scalar interface parameters as initial values; competition rules and navigation protocol take precedence.",
+    "physical_configuration_verified": false,
+    "firmware_verified": false,
+    "photo": {
+      "local_path": "docs/09_30real_debug/IMG_20260930_170648.jpg",
+      "sha256": "f1b54754c81c8a4e6c3a726c7f2e02f5b676660701c494544d7e1384f585fd5f",
+      "uploaded": false,
+      "limits": "Visual layout only; no metric extrinsics, footprint, firmware or motion calibration."
+    }
+  },
+  "references": {
+    "control-2026": {
+      "commit": "3b889edcbf4676f236e6e2cd3030fde9853ed9be",
+      "paths": ["Hardware/stm32-f4/Src/usart.c", "Modules/master_machine/navigator.c", "Modules/master_machine/navigator.h", "UserApp/robot/sentry_mecanum/robot.c", "UserApp/components/chassis/chassis_mecanum/chassis.c", "CMakeLists.txt"]
+    },
+    "srm_auto_sentry": {
+      "commit": "fc5362f1ba476bdd464b3362f389127f34923f19",
+      "paths": ["src/standard_robot_pp_ros2-master/src/standard_robot_pp_ros2/config/standard_robot_pp_ros2.yaml", "src/standard_robot_pp_ros2-master/src/standard_robot_pp_ros2/include/packet_typedef.hpp", "src/standard_robot_pp_ros2-master/src/standard_robot_pp_ros2/src/standard_robot_pp_ros2.cpp", "src/pb_rmsimulation/src/rm_nav_bringup/launch/bringup_real.launch.py", "src/pb_rmsimulation/src/rm_nav_bringup/config/reality/MID360_config.json", "src/pb_rmsimulation/src/rm_nav_bringup/config/reality/measurement_params_real.yaml", "src/pb_rmsimulation/src/rm_nav_bringup/config/reality/pointlio_mid360_real.yaml", "src/pb_rmsimulation/src/rm_nav_bringup/config/reality/nav2_params_real.yaml"]
+    }
+  },
+  "serial": {
+    "baud": 115200,
+    "data_bits": 8,
+    "stop_bits": 1,
+    "parity": "none",
+    "flow_control": "none",
+    "reference_device_hint": "/dev/ttyACM0",
+    "competition_command_bytes": 19,
+    "competition_payload_bytes": 12,
+    "send_frequency_hz": 100,
+    "reference_firmware_compatible": false,
+    "reference_upper_command_bytes": 20,
+    "reference_lower_min_command_buffer_bytes": 23
+  },
+  "mid360": {
+    "host_ip": "192.168.1.50",
+    "lidar_ip": "192.168.1.184",
+    "lidar_ports": {"cmd_data": 56100, "push_msg": 56200, "point_data": 56300, "imu_data": 56400, "log_data": 56500},
+    "host_ports": {"cmd_data": 56101, "push_msg": 56201, "point_data": 56301, "imu_data": 56401, "log_data": 56501},
+    "publish_frequency_hz": 10.0,
+    "frame_id": "livox_frame",
+    "public_driver_xfer_format": 1,
+    "reference_fork_xfer_format": 4,
+    "driver_extrinsic_degrees": [0.0, 2.0, -90.0],
+    "base_to_lidar_xyz_m": [0.15, -0.15, 0.22],
+    "base_to_lidar_rpy_rad": [0.0, 0.0, 0.0],
+    "extrinsics_measured_for_current_vehicle": false
+  },
+  "point_lio": {
+    "lidar_type": 1,
+    "scan_line": 4,
+    "timestamp_unit": 3,
+    "blind_m": 0.5,
+    "imu_interval_seconds": 0.005,
+    "acc_norm": 1.0,
+    "lidar_to_imu_translation_m": [-0.011, -0.02329, 0.04412],
+    "lidar_to_imu_rotation": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+  },
+  "geometry": {
+    "reference_nav2_radius_m": 0.27,
+    "footprint_measured_for_current_vehicle": false
+  }
+}

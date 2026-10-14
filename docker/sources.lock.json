@@ -1,0 +1,70 @@
+{
+  "repositories": [
+    {
+      "path": "nav_ws/src/pb2025_robot_description",
+      "url": "https://github.com/SMBU-PolarBear-Robotics-Team/pb2025_robot_description.git",
+      "commit": "a0541dddcbfe376f369a6345b532a10923ad9149",
+      "recursive": false
+    },
+    {
+      "path": "nav_ws/src/pb2025_sentry_nav",
+      "url": "https://github.com/SMBU-PolarBear-Robotics-Team/pb2025_sentry_nav.git",
+      "commit": "9c124ebb0c0b6b64714390ea3c92f27490f63f9d",
+      "recursive": true,
+      "patch": {
+        "path": "patches/pb2025-terrain-shutdown.patch",
+        "sha256": "b2a04a6665d8f9e4c4bbef66d5a8e7bbc7304bc1297a7de2739dbb137cf205c0"
+      }
+    },
+    {
+      "path": "nav_ws/src/rmoss_core",
+      "url": "https://github.com/SMBU-PolarBear-Robotics-Team/rmoss_core.git",
+      "commit": "8209ec517dfbb7ecac613cf0c9534d67ff918b7d",
+      "recursive": false
+    },
+    {
+      "path": "nav_ws/src/rmoss_gazebo",
+      "url": "https://github.com/SMBU-PolarBear-Robotics-Team/rmoss_gazebo.git",
+      "commit": "7443ff06c345752d0e23172c479d99b27207e2c7",
+      "recursive": false,
+      "patch": {
+        "path": "patches/rmoss-gazebo-simulation-fixes.patch",
+        "sha256": "3ea2d4ec35a37cddb7ffd1a12fb4220483101064f9ca62a0a090b9b87524739f"
+      }
+    },
+    {
+      "path": "nav_ws/src/rmoss_gz_resources",
+      "url": "https://github.com/SMBU-PolarBear-Robotics-Team/rmoss_gz_resources.git",
+      "commit": "b5c759f08844dfda19c79aa870866ace8d4c7b3a",
+      "recursive": false
+    },
+    {
+      "path": "nav_ws/src/rmoss_interfaces",
+      "url": "https://github.com/SMBU-PolarBear-Robotics-Team/rmoss_interfaces.git",
+      "commit": "424f50c831b3e74fa72446969362cdabb2e22cd1",
+      "recursive": false
+    },
+    {
+      "path": "nav_ws/src/rmu_gazebo_simulator",
+      "url": "https://github.com/SMBU-PolarBear-Robotics-Team/rmu_gazebo_simulator.git",
+      "commit": "61c49f5f0a9fd1ab9d867fb30c49520f5d5a0ee7",
+      "recursive": false,
+      "patch": {
+        "path": "patches/rmu-simulator-python-entrypoint.patch",
+        "sha256": "2fabd498c67d21c75793fccf6647bbcd81f3a5f2f280644f6e4b25ee3ecae735"
+      }
+    },
+    {
+      "path": "nav_ws/src/sdformat_tools",
+      "url": "https://github.com/gezp/sdformat_tools.git",
+      "commit": "47c2d1a37372281e5627d444f7537efc0bba11df",
+      "recursive": false
+    },
+    {
+      "path": "cache/small_gicp",
+      "url": "https://github.com/koide3/small_gicp.git",
+      "commit": "2c6c7831bc1f5ada2ee5300027fe7d7aee66827d",
+      "recursive": false
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <!-- The GPU scan is ~1 MiB; the default 512 KiB segment cannot hold one sample. -->
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>intramural_shm</transport_id><type>SHM</type>
+        <maxMessageSize>2097152</maxMessageSize><segment_size>33554432</segment_size>
+      </transport_descriptor>
+      <transport_descriptor>
+        <transport_id>intramural_udp</transport_id><type>UDPv4</type>
+        <interfaceWhiteList><address>127.0.0.1</address></interfaceWhiteList>
+      </transport_descriptor>
+    </transport_descriptors>
+    <participant profile_name="intramural_participant" is_default_profile="true">
+      <rtps>
+        <userTransports>
+          <transport_id>intramural_shm</transport_id><transport_id>intramural_udp</transport_id>
+        </userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+      </rtps>
+    </participant>
+    <!-- Only service reply writers: allow DDS reply-reader discovery before send. -->
+    <publisher profile_name="service">
+      <qos>
+        <reliability>
+          <kind>RELIABLE</kind>
+          <max_blocking_time><sec>5</sec><nanosec>0</nanosec></max_blocking_time>
+        </reliability>
+      </qos>
+    </publisher>
+  </profiles>
+</dds>

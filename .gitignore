@@ -1,0 +1,44 @@
+# Registered Git submodules remain tracked; other downloaded/generated files do not.
+cache/
+artifacts/
+build/
+.ruff_cache/
+nav_ws/build/
+nav_ws/install/
+nav_ws/log/
+nav_ws/src/*
+!nav_ws/src/intramural_base/
+!nav_ws/src/intramural_mission/
+__pycache__/
+*.pyc
+
+core
+core.*
+
+simulation/generated/
+
+# Personal deployment inputs and large sensor/map recordings.
+config/local/
+.env
+.env.*
+*.db3
+*.mcap
+*.bag
+*.pcd
+
+# Local field draft contains credentials/unverified procedures; keep off GitHub.
+docs/real_debug/
+docs/09_30real_debug/
+
+# Local planning, agent instructions and maintenance records.
+/AGENTS.md
+/PLAN.md
+**/AGENTS.md
+/docs/development.md
+/docs/repository-scope.md
+/docs/log/
+/docs/evidence/
+/.vscode/
+
+AGENTS.md
+PLAN.md

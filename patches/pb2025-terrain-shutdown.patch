@@ -1,0 +1,158 @@
+diff --git a/loam_interface/src/loam_interface.cpp b/loam_interface/src/loam_interface.cpp
+index 9fca1b7..3848089 100644
+--- a/loam_interface/src/loam_interface.cpp
++++ b/loam_interface/src/loam_interface.cpp
+@@ -36,6 +36,7 @@ LoamInterfaceNode::LoamInterfaceNode(const rclcpp::NodeOptions & options)
+   this->get_parameter("lidar_frame", lidar_frame_);
+ 
+   base_frame_to_lidar_initialized_ = false;
++  tf_odom_to_lidar_odom_.setIdentity();
+ 
+   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+   tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
+@@ -53,6 +54,9 @@ LoamInterfaceNode::LoamInterfaceNode(const rclcpp::NodeOptions & options)
+ 
+ void LoamInterfaceNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg)
+ {
++  if (!base_frame_to_lidar_initialized_) {
++    return;  // Independent subscriptions can deliver a cloud before the mount transform is known.
++  }
+   // NOTE: Input point cloud message is based on the `lidar_odom`
+   // Here we transform it to the REAL `odom` frame
+   auto out = std::make_shared<sensor_msgs::msg::PointCloud2>();
+diff --git a/sensor_scan_generation/include/sensor_scan_generation/sensor_scan_generation.hpp b/sensor_scan_generation/include/sensor_scan_generation/sensor_scan_generation.hpp
+index f797a04..44763f7 100644
+--- a/sensor_scan_generation/include/sensor_scan_generation/sensor_scan_generation.hpp
++++ b/sensor_scan_generation/include/sensor_scan_generation/sensor_scan_generation.hpp
+@@ -37,6 +37,8 @@ public:
+   explicit SensorScanGenerationNode(const rclcpp::NodeOptions & options);
+ 
+ private:
++  void odometryHandler(const nav_msgs::msg::Odometry::ConstSharedPtr & odometry);
++
+   void laserCloudAndOdometryHandler(
+     const nav_msgs::msg::Odometry::ConstSharedPtr & odometry,
+     const sensor_msgs::msg::PointCloud2::ConstSharedPtr & laserCloud2);
+@@ -70,7 +72,6 @@ private:
+     nav_msgs::msg::Odometry, sensor_msgs::msg::PointCloud2>;
+   std::unique_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
+ 
+-  tf2::Transform tf_lidar_to_robot_base_;
+ };
+ 
+ }  // namespace sensor_scan_generation
+diff --git a/sensor_scan_generation/src/sensor_scan_generation.cpp b/sensor_scan_generation/src/sensor_scan_generation.cpp
+index 28168e3..88cd94b 100644
+--- a/sensor_scan_generation/src/sensor_scan_generation.cpp
++++ b/sensor_scan_generation/src/sensor_scan_generation.cpp
+@@ -51,6 +51,8 @@ SensorScanGenerationNode::SensorScanGenerationNode(const rclcpp::NodeOptions & o
+ 
+   odometry_sub_.subscribe(this, "lidar_odometry", qos_profile);
+   laser_cloud_sub_.subscribe(this, "registered_scan", qos_profile);
++  odometry_sub_.registerCallback(
++    std::bind(&SensorScanGenerationNode::odometryHandler, this, std::placeholders::_1));
+ 
+   sync_ = std::make_unique<message_filters::Synchronizer<SyncPolicy>>(
+     SyncPolicy(100), odometry_sub_, laser_cloud_sub_);
+@@ -60,26 +62,32 @@ SensorScanGenerationNode::SensorScanGenerationNode(const rclcpp::NodeOptions & o
+       std::placeholders::_2));
+ }
+ 
++void SensorScanGenerationNode::odometryHandler(
++  const nav_msgs::msg::Odometry::ConstSharedPtr & odometry_msg)
++{
++  tf2::Transform tf_odom_to_lidar;
++  tf2::fromMsg(odometry_msg->pose.pose, tf_odom_to_lidar);
++  try {
++    const auto stamp = odometry_msg->header.stamp;
++    const auto chassis = tf_odom_to_lidar * getTransform(lidar_frame_, base_frame_, stamp);
++    const auto robot = tf_odom_to_lidar * getTransform(lidar_frame_, robot_base_frame_, stamp);
++    // Navigation pose follows source odometry; a delayed cloud must not delay TF.
++    publishTransform(chassis, odometry_msg->header.frame_id, base_frame_, stamp);
++    publishOdometry(robot, odometry_msg->header.frame_id, robot_base_frame_, stamp);
++  } catch (const tf2::TransformException & ex) {
++    RCLCPP_WARN_THROTTLE(
++      this->get_logger(), *this->get_clock(), 2000,
++      "Frame transform unavailable; odometry withheld: %s", ex.what());
++  }
++}
++
+ void SensorScanGenerationNode::laserCloudAndOdometryHandler(
+   const nav_msgs::msg::Odometry::ConstSharedPtr & odometry_msg,
+   const sensor_msgs::msg::PointCloud2::ConstSharedPtr & pcd_msg)
+ {
+-  tf2::Transform tf_lidar_to_chassis;
+-  tf2::Transform tf_odom_to_chassis;
+-  tf2::Transform tf_odom_to_robot_base;
+   tf2::Transform tf_odom_to_lidar;
+ 
+   tf2::fromMsg(odometry_msg->pose.pose, tf_odom_to_lidar);
+-  tf_lidar_to_robot_base_ = getTransform(lidar_frame_, robot_base_frame_, pcd_msg->header.stamp);
+-  tf_lidar_to_chassis = getTransform(lidar_frame_, base_frame_, pcd_msg->header.stamp);
+-
+-  tf_odom_to_chassis = tf_odom_to_lidar * tf_lidar_to_chassis;
+-  tf_odom_to_robot_base = tf_odom_to_lidar * tf_lidar_to_robot_base_;
+-
+-  publishTransform(
+-    tf_odom_to_chassis, odometry_msg->header.frame_id, base_frame_, pcd_msg->header.stamp);
+-  publishOdometry(
+-    tf_odom_to_robot_base, odometry_msg->header.frame_id, robot_base_frame_, pcd_msg->header.stamp);
+ 
+   sensor_msgs::msg::PointCloud2 out;
+   pcl_ros::transformPointCloud(lidar_frame_, tf_odom_to_lidar.inverse(), *pcd_msg, out);
+@@ -89,16 +97,11 @@ void SensorScanGenerationNode::laserCloudAndOdometryHandler(
+ tf2::Transform SensorScanGenerationNode::getTransform(
+   const std::string & target_frame, const std::string & source_frame, const rclcpp::Time & time)
+ {
+-  try {
+-    auto transform_stamped = tf_buffer_->lookupTransform(
+-      target_frame, source_frame, time, rclcpp::Duration::from_seconds(0.5));
+-    tf2::Transform transform;
+-    tf2::fromMsg(transform_stamped.transform, transform);
+-    return transform;
+-  } catch (tf2::TransformException & ex) {
+-    RCLCPP_WARN(this->get_logger(), "TF lookup failed: %s. Returning identity.", ex.what());
+-    return tf2::Transform::getIdentity();
+-  }
++  auto transform_stamped = tf_buffer_->lookupTransform(
++    target_frame, source_frame, time, rclcpp::Duration::from_seconds(0.05));
++  tf2::Transform transform;
++  tf2::fromMsg(transform_stamped.transform, transform);
++  return transform;
+ }
+ 
+ void SensorScanGenerationNode::publishTransform(
+diff --git a/terrain_analysis/src/terrainAnalysis.cpp b/terrain_analysis/src/terrainAnalysis.cpp
+index 2a537f0..a8545d2 100644
+--- a/terrain_analysis/src/terrainAnalysis.cpp
++++ b/terrain_analysis/src/terrainAnalysis.cpp
+@@ -272,8 +272,10 @@ int main(int argc, char ** argv)
+ 
+   rclcpp::Rate rate(100);
+   bool status = rclcpp::ok();
+-  while (status) {
+-    rclcpp::spin_some(nh);
++  rclcpp::executors::SingleThreadedExecutor executor;
++  executor.add_node(nh);
++  while (status && rclcpp::ok()) {
++    executor.spin_some();
+     if (newlaserCloud) {
+       newlaserCloud = false;
+ 
+diff --git a/terrain_analysis_ext/src/terrainAnalysisExt.cpp b/terrain_analysis_ext/src/terrainAnalysisExt.cpp
+index 16dbeb4..0d1e506 100644
+--- a/terrain_analysis_ext/src/terrainAnalysisExt.cpp
++++ b/terrain_analysis_ext/src/terrainAnalysisExt.cpp
+@@ -240,8 +240,10 @@ int main(int argc, char **argv) {
+ 
+   rclcpp::Rate rate(100);
+   bool status = rclcpp::ok();
+-  while (status) {
+-    rclcpp::spin_some(nh);
++  rclcpp::executors::SingleThreadedExecutor executor;
++  executor.add_node(nh);
++  while (status && rclcpp::ok()) {
++    executor.spin_some();
+ 
+     if (newlaserCloud) {
+       newlaserCloud = false;

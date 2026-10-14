@@ -1,0 +1,11 @@
+{
+  "purpose": "Vehicle template: fill only after measured axis, scale, and firmware validation",
+  "calibrated_for_vehicle": false,
+  "firmware_protocol_verified": false,
+  "link_loss_stop_verified": false,
+  "body_to_protocol": [[null, null], [null, null]],
+  "max_body_speed_mps": 0.1,
+  "max_body_acceleration_mps2": 0.2,
+  "max_protocol_axis": 0.2,
+  "input_timeout_seconds": 0.3
+}

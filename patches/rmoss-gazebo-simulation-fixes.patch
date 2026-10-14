@@ -1,0 +1,286 @@
+diff --git a/rmoss_gz_base/include/rmoss_gz_base/gz_gimbal_encoder.hpp b/rmoss_gz_base/include/rmoss_gz_base/gz_gimbal_encoder.hpp
+index 5861205..9370a1e 100644
+--- a/rmoss_gz_base/include/rmoss_gz_base/gz_gimbal_encoder.hpp
++++ b/rmoss_gz_base/include/rmoss_gz_base/gz_gimbal_encoder.hpp
+@@ -35,10 +35,19 @@ public:
+     rclcpp::Node::SharedPtr node,
+     std::shared_ptr<ignition::transport::Node> gz_node,
+     const std::string & gz_joint_state_topic);
+-  ~IgnGimbalEncoder() {}
++  ~IgnGimbalEncoder() {stop();}
+ 
+ public:
+-  void enable(bool enable) {enable_ = enable;}
++  void enable(bool enable)
++  {
++    std::lock_guard<std::mutex> lock(callback_gate_->mutex);
++    enable_ = enable;
++  }
++  void stop()
++  {
++    std::lock_guard<std::mutex> lock(callback_gate_->mutex);
++    callback_gate_->active = false;
++  }
+   Sensor<rmoss_interfaces::msg::Gimbal>::SharedPtr get_position_sensor() {return position_sensor_;}
+   Sensor<rmoss_interfaces::msg::Gimbal>::SharedPtr get_velocity_sensor() {return velocity_sensor_;}
+ 
+@@ -47,6 +56,7 @@ private:
+ 
+   rclcpp::Node::SharedPtr node_;
+   std::shared_ptr<ignition::transport::Node> gz_node_;
++  std::shared_ptr<CallbackGate> callback_gate_{std::make_shared<CallbackGate>()};
+   bool enable_{false};
+   // info
+   std::shared_ptr<DataSensor<rmoss_interfaces::msg::Gimbal>> position_sensor_;
+diff --git a/rmoss_gz_base/include/rmoss_gz_base/gz_gimbal_imu.hpp b/rmoss_gz_base/include/rmoss_gz_base/gz_gimbal_imu.hpp
+index cf98290..85dd123 100644
+--- a/rmoss_gz_base/include/rmoss_gz_base/gz_gimbal_imu.hpp
++++ b/rmoss_gz_base/include/rmoss_gz_base/gz_gimbal_imu.hpp
+@@ -33,9 +33,18 @@ public:
+     rclcpp::Node::SharedPtr node,
+     std::shared_ptr<ignition::transport::Node> gz_node,
+     const std::string & gz_gimbal_imu_topic);
+-  ~IgnGimbalImu() {}
++  ~IgnGimbalImu() {stop();}
+ 
+-  void enable(bool enable) {enable_ = enable;}
++  void enable(bool enable)
++  {
++    std::lock_guard<std::mutex> lock(callback_gate_->mutex);
++    enable_ = enable;
++  }
++  void stop()
++  {
++    std::lock_guard<std::mutex> lock(callback_gate_->mutex);
++    callback_gate_->active = false;
++  }
+   Sensor<rmoss_interfaces::msg::Gimbal>::SharedPtr get_position_sensor() {return position_sensor_;}
+ 
+ private:
+@@ -44,6 +53,7 @@ private:
+ private:
+   rclcpp::Node::SharedPtr node_;
+   std::shared_ptr<ignition::transport::Node> gz_node_;
++  std::shared_ptr<CallbackGate> callback_gate_{std::make_shared<CallbackGate>()};
+   bool enable_{false};
+   // sensor data
+   double last_yaw_angle_{0};
+diff --git a/rmoss_gz_base/include/rmoss_gz_base/gz_odometry.hpp b/rmoss_gz_base/include/rmoss_gz_base/gz_odometry.hpp
+index 020140a..8257801 100644
+--- a/rmoss_gz_base/include/rmoss_gz_base/gz_odometry.hpp
++++ b/rmoss_gz_base/include/rmoss_gz_base/gz_odometry.hpp
+@@ -33,9 +33,18 @@ public:
+     rclcpp::Node::SharedPtr node,
+     std::shared_ptr<ignition::transport::Node> gz_node,
+     const std::string & gz_odom_topic);
+-  ~IgnOdometry() {}
+-
+-  void enable(bool enable) {enable_ = enable;}
++  ~IgnOdometry() {stop();}
++
++  void enable(bool enable)
++  {
++    std::lock_guard<std::mutex> lock(callback_gate_->mutex);
++    enable_ = enable;
++  }
++  void stop()
++  {
++    std::lock_guard<std::mutex> lock(callback_gate_->mutex);
++    callback_gate_->active = false;
++  }
+   Sensor<nav_msgs::msg::Odometry>::SharedPtr get_odometry_sensor() {return odometry_sensor_;}
+ 
+ private:
+@@ -44,6 +53,7 @@ private:
+ private:
+   rclcpp::Node::SharedPtr node_;
+   std::shared_ptr<ignition::transport::Node> gz_node_;
++  std::shared_ptr<CallbackGate> callback_gate_{std::make_shared<CallbackGate>()};
+   bool enable_{false};
+   std::shared_ptr<DataSensor<nav_msgs::msg::Odometry>> odometry_sensor_;
+ };
+diff --git a/rmoss_gz_base/include/rmoss_gz_base/hardware_interface.hpp b/rmoss_gz_base/include/rmoss_gz_base/hardware_interface.hpp
+index 0deebb7..5749259 100644
+--- a/rmoss_gz_base/include/rmoss_gz_base/hardware_interface.hpp
++++ b/rmoss_gz_base/include/rmoss_gz_base/hardware_interface.hpp
+@@ -16,6 +16,7 @@
+ #define RMOSS_GZ_BASE__HARDWARE_INTERFACE_HPP_
+ 
+ #include <memory>
++#include <mutex>
+ #include <vector>
+ 
+ #include "rclcpp/rclcpp.hpp"
+@@ -23,6 +24,14 @@
+ namespace rmoss_gz_base
+ {
+ 
++// Kept alive by transport callbacks after their owning wrapper is destroyed.
++// Closing the gate waits for an active callback and rejects queued callbacks.
++struct CallbackGate
++{
++  std::mutex mutex;
++  bool active{true};
++};
++
+ template<class DataT>
+ class Actuator
+ {
+diff --git a/rmoss_gz_base/include/rmoss_gz_base/rmua19_robot_base_node.hpp b/rmoss_gz_base/include/rmoss_gz_base/rmua19_robot_base_node.hpp
+index 907b936..a506036 100644
+--- a/rmoss_gz_base/include/rmoss_gz_base/rmua19_robot_base_node.hpp
++++ b/rmoss_gz_base/include/rmoss_gz_base/rmua19_robot_base_node.hpp
+@@ -42,6 +42,7 @@ class Rmua19RobotBaseNode
+ {
+ public:
+   explicit Rmua19RobotBaseNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
++  ~Rmua19RobotBaseNode();
+ 
+ public:
+   rclcpp::node_interfaces::NodeBaseInterface::SharedPtr get_node_base_interface()
+diff --git a/rmoss_gz_base/src/gz_module/gz_gimbal_encoder.cpp b/rmoss_gz_base/src/gz_module/gz_gimbal_encoder.cpp
+index 2d21530..f01e060 100644
+--- a/rmoss_gz_base/src/gz_module/gz_gimbal_encoder.cpp
++++ b/rmoss_gz_base/src/gz_module/gz_gimbal_encoder.cpp
+@@ -28,7 +28,14 @@ IgnGimbalEncoder::IgnGimbalEncoder(
+   const std::string & gz_joint_state_topic)
+ : node_(node), gz_node_(gz_node)
+ {
+-  gz_node_->Subscribe(gz_joint_state_topic, &IgnGimbalEncoder::gz_Joint_state_cb, this);
++  auto gate = callback_gate_;
++  gz_node_->Subscribe<ignition::msgs::Model>(gz_joint_state_topic,
++    [this, gate](const ignition::msgs::Model & msg) {
++      std::lock_guard<std::mutex> lock(gate->mutex);
++      if (gate->active) {
++        this->gz_Joint_state_cb(msg);
++      }
++    });
+   position_sensor_ = std::make_shared<DataSensor<rmoss_interfaces::msg::Gimbal>>();
+   velocity_sensor_ = std::make_shared<DataSensor<rmoss_interfaces::msg::Gimbal>>();
+ }
+diff --git a/rmoss_gz_base/src/gz_module/gz_gimbal_imu.cpp b/rmoss_gz_base/src/gz_module/gz_gimbal_imu.cpp
+index 64876b5..4776418 100644
+--- a/rmoss_gz_base/src/gz_module/gz_gimbal_imu.cpp
++++ b/rmoss_gz_base/src/gz_module/gz_gimbal_imu.cpp
+@@ -47,7 +47,14 @@ IgnGimbalImu::IgnGimbalImu(
+   const std::string & gz_gimbal_imu_topic)
+ : node_(node), gz_node_(gz_node)
+ {
+-  gz_node_->Subscribe(gz_gimbal_imu_topic, &IgnGimbalImu::gz_imu_cb, this);
++  auto gate = callback_gate_;
++  gz_node_->Subscribe<ignition::msgs::IMU>(gz_gimbal_imu_topic,
++    [this, gate](const ignition::msgs::IMU & msg) {
++      std::lock_guard<std::mutex> lock(gate->mutex);
++      if (gate->active) {
++        this->gz_imu_cb(msg);
++      }
++    });
+   position_sensor_ = std::make_shared<DataSensor<rmoss_interfaces::msg::Gimbal>>();
+ }
+ 
+diff --git a/rmoss_gz_base/src/gz_module/gz_odometry.cpp b/rmoss_gz_base/src/gz_module/gz_odometry.cpp
+index bf167f3..6f0cefa 100644
+--- a/rmoss_gz_base/src/gz_module/gz_odometry.cpp
++++ b/rmoss_gz_base/src/gz_module/gz_odometry.cpp
+@@ -27,7 +27,14 @@ IgnOdometry::IgnOdometry(
+   const std::string & gz_odom_topic)
+ : node_(node), gz_node_(gz_node)
+ {
+-  gz_node_->Subscribe(gz_odom_topic, &IgnOdometry::gz_odometry_cb, this);
++  auto gate = callback_gate_;
++  gz_node_->Subscribe<ignition::msgs::Odometry>(gz_odom_topic,
++    [this, gate](const ignition::msgs::Odometry & msg) {
++      std::lock_guard<std::mutex> lock(gate->mutex);
++      if (gate->active) {
++        this->gz_odometry_cb(msg);
++      }
++    });
+   odometry_sensor_ = std::make_shared<DataSensor<nav_msgs::msg::Odometry>>();
+ }
+ 
+diff --git a/rmoss_gz_base/src/rmua19_robot_base_node.cpp b/rmoss_gz_base/src/rmua19_robot_base_node.cpp
+index ee9d7c8..33f4a8e 100644
+--- a/rmoss_gz_base/src/rmua19_robot_base_node.cpp
++++ b/rmoss_gz_base/src/rmua19_robot_base_node.cpp
+@@ -92,6 +92,17 @@ Rmua19RobotBaseNode::Rmua19RobotBaseNode(const rclcpp::NodeOptions & options)
+   }
+ }
+ 
++Rmua19RobotBaseNode::~Rmua19RobotBaseNode()
++{
++  // Transport callbacks capture controller pointers through the data sensors.
++  // Stop them before controllers/publishers are destroyed in reverse order.
++  gz_gimbal_encoder_->stop();
++  gz_gimbal_imu_->stop();
++  if (gz_chassis_odometry_) {
++    gz_chassis_odometry_->stop();
++  }
++}
++
+ void Rmua19RobotBaseNode::robot_status_cb(
+   const rmoss_interfaces::msg::RobotStatus::SharedPtr msg)
+ {
+diff --git a/rmoss_gz_plugins/plugins/light_bar_controller/LightBarController.cc b/rmoss_gz_plugins/plugins/light_bar_controller/LightBarController.cc
+index c26de1a..4d434ed 100644
+--- a/rmoss_gz_plugins/plugins/light_bar_controller/LightBarController.cc
++++ b/rmoss_gz_plugins/plugins/light_bar_controller/LightBarController.cc
+@@ -20,6 +20,7 @@
+ #include <ignition/gazebo/components/Name.hh>
+ #include <ignition/gazebo/components/Link.hh>
+ #include <ignition/gazebo/components/Material.hh>
++#include <ignition/gazebo/components/VisualCmd.hh>
+ 
+ #include <ignition/gazebo/SdfEntityCreator.hh>
+ 
+@@ -85,7 +86,7 @@ class ignition::gazebo::systems::LightBarControllerPrivate
+ public:
+     void OnCmd(const ignition::msgs::Int32 &_msg);
+     void Init(ignition::gazebo::EntityComponentManager &_ecm);
+-    void UpdateVisualEnitiies();
++    void UpdateVisualEnitiies(EntityComponentManager &_ecm);
+ 
+ public:
+     transport::Node node;
+@@ -181,7 +182,7 @@ void LightBarController::PreUpdate(const ignition::gazebo::UpdateInfo &_info,
+         }
+     }
+     if(!this->dataPtr->isDone){
+-        this->dataPtr->UpdateVisualEnitiies();
++        this->dataPtr->UpdateVisualEnitiies(_ecm);
+         // check
+         bool flag = true;
+         for(auto &info: this->dataPtr->visualEntityInfos){
+@@ -223,17 +224,25 @@ void LightBarControllerPrivate::Init(ignition::gazebo::EntityComponentManager &_
+     }
+ }
+ 
+-void LightBarControllerPrivate::UpdateVisualEnitiies(){
++void LightBarControllerPrivate::UpdateVisualEnitiies(EntityComponentManager &_ecm){
+     for(auto &info: this->visualEntityInfos){
+         if(info.state == 0){
+-            this->creator->RequestRemoveEntity(info.entity);
+-        }else if(info.state == 1){
+-            info.entity = this->creator->CreateEntities(&(info.visualSdf));
+-            this->creator->SetParent(info.entity , info.parentEntity);
++            // Keep the entity: remove/recreate races with asynchronous renderers
++            // and can create duplicate visuals with the same scoped name.
++            ignition::msgs::Visual command;
++            command.set_id(info.entity);
++            *command.mutable_material() = convert<ignition::msgs::Material>(
++                *info.visualSdf.Material());
++            auto component = _ecm.Component<components::VisualCmd>(info.entity);
++            if(component){
++                component->Data() = command;
++                _ecm.SetChanged(info.entity, components::VisualCmd::typeId,
++                                ComponentState::OneTimeChange);
++            }else{
++                _ecm.CreateComponent(info.entity, components::VisualCmd(command));
++            }
++            info.state = 2;
+         }
+-        if(info.state<2){
+-            info.state++;
+-        }  
+     }
+ }
+ 

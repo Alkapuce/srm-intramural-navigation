@@ -1,0 +1,36 @@
+[submodule "nav_ws/src/pb2025_robot_description"]
+	path = nav_ws/src/pb2025_robot_description
+	url = https://github.com/SMBU-PolarBear-Robotics-Team/pb2025_robot_description.git
+	ignore = dirty
+[submodule "nav_ws/src/pb2025_sentry_nav"]
+	path = nav_ws/src/pb2025_sentry_nav
+	url = https://github.com/SMBU-PolarBear-Robotics-Team/pb2025_sentry_nav.git
+	ignore = dirty
+[submodule "nav_ws/src/rmoss_core"]
+	path = nav_ws/src/rmoss_core
+	url = https://github.com/SMBU-PolarBear-Robotics-Team/rmoss_core.git
+	ignore = dirty
+[submodule "nav_ws/src/rmoss_gazebo"]
+	path = nav_ws/src/rmoss_gazebo
+	url = https://github.com/SMBU-PolarBear-Robotics-Team/rmoss_gazebo.git
+	ignore = dirty
+[submodule "nav_ws/src/rmoss_gz_resources"]
+	path = nav_ws/src/rmoss_gz_resources
+	url = https://github.com/SMBU-PolarBear-Robotics-Team/rmoss_gz_resources.git
+	ignore = dirty
+[submodule "nav_ws/src/rmoss_interfaces"]
+	path = nav_ws/src/rmoss_interfaces
+	url = https://github.com/SMBU-PolarBear-Robotics-Team/rmoss_interfaces.git
+	ignore = dirty
+[submodule "nav_ws/src/rmu_gazebo_simulator"]
+	path = nav_ws/src/rmu_gazebo_simulator
+	url = https://github.com/SMBU-PolarBear-Robotics-Team/rmu_gazebo_simulator.git
+	ignore = dirty
+[submodule "nav_ws/src/sdformat_tools"]
+	path = nav_ws/src/sdformat_tools
+	url = https://github.com/gezp/sdformat_tools.git
+	ignore = dirty
+[submodule "cache/small_gicp"]
+	path = cache/small_gicp
+	url = https://github.com/koide3/small_gicp.git
+	ignore = dirty

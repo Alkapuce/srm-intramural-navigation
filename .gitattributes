@@ -1,0 +1,2 @@
+*.patch -whitespace
+算法组校内赛规则/sentry_robot_cylinder.xacro -text whitespace=cr-at-eol
