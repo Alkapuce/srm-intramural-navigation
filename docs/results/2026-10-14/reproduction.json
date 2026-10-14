@@ -1,0 +1,152 @@
+{
+  "date": "2026-10-14",
+  "tested_root_commit": "ccb9a30846bce3c98aeb0d0c47d9f76471282b54",
+  "environment": "WSL2; existing Ubuntu 22.04/Humble/Fortress image; NVIDIA D3D12",
+  "image_rebuilt": false,
+  "fresh_clone": {
+    "recursive_sources": 16,
+    "top_level_sources": 9,
+    "portable_patches": 3,
+    "preexisting_workspace_install": false,
+    "old_internal_history_present": false,
+    "sources": [
+      {
+        "path": "nav_ws/src/pb2025_robot_description",
+        "expected_base": "a0541dddcbfe376f369a6345b532a10923ad9149",
+        "actual_head": "a0541dddcbfe376f369a6345b532a10923ad9149",
+        "branch": "(detached)",
+        "state": "upstream",
+        "matches": true
+      },
+      {
+        "path": "nav_ws/src/pb2025_sentry_nav",
+        "expected_base": "9c124ebb0c0b6b64714390ea3c92f27490f63f9d",
+        "actual_head": "9c124ebb0c0b6b64714390ea3c92f27490f63f9d",
+        "branch": "(detached)",
+        "state": "applied-patch",
+        "matches": true
+      },
+      {
+        "path": "nav_ws/src/rmoss_core",
+        "expected_base": "8209ec517dfbb7ecac613cf0c9534d67ff918b7d",
+        "actual_head": "8209ec517dfbb7ecac613cf0c9534d67ff918b7d",
+        "branch": "(detached)",
+        "state": "upstream",
+        "matches": true
+      },
+      {
+        "path": "nav_ws/src/rmoss_gazebo",
+        "expected_base": "7443ff06c345752d0e23172c479d99b27207e2c7",
+        "actual_head": "7443ff06c345752d0e23172c479d99b27207e2c7",
+        "branch": "(detached)",
+        "state": "applied-patch",
+        "matches": true
+      },
+      {
+        "path": "nav_ws/src/rmoss_gz_resources",
+        "expected_base": "b5c759f08844dfda19c79aa870866ace8d4c7b3a",
+        "actual_head": "b5c759f08844dfda19c79aa870866ace8d4c7b3a",
+        "branch": "(detached)",
+        "state": "upstream",
+        "matches": true
+      },
+      {
+        "path": "nav_ws/src/rmoss_interfaces",
+        "expected_base": "424f50c831b3e74fa72446969362cdabb2e22cd1",
+        "actual_head": "424f50c831b3e74fa72446969362cdabb2e22cd1",
+        "branch": "(detached)",
+        "state": "upstream",
+        "matches": true
+      },
+      {
+        "path": "nav_ws/src/rmu_gazebo_simulator",
+        "expected_base": "61c49f5f0a9fd1ab9d867fb30c49520f5d5a0ee7",
+        "actual_head": "61c49f5f0a9fd1ab9d867fb30c49520f5d5a0ee7",
+        "branch": "(detached)",
+        "state": "applied-patch",
+        "matches": true
+      },
+      {
+        "path": "nav_ws/src/sdformat_tools",
+        "expected_base": "47c2d1a37372281e5627d444f7537efc0bba11df",
+        "actual_head": "47c2d1a37372281e5627d444f7537efc0bba11df",
+        "branch": "(detached)",
+        "state": "upstream",
+        "matches": true
+      },
+      {
+        "path": "cache/small_gicp",
+        "expected_base": "2c6c7831bc1f5ada2ee5300027fe7d7aee66827d",
+        "actual_head": "2c6c7831bc1f5ada2ee5300027fe7d7aee66827d",
+        "branch": "(detached)",
+        "state": "upstream",
+        "matches": true
+      }
+    ]
+  },
+  "clean_build_packages": 31,
+  "tests_passed": 60,
+  "simulation": {
+    "localization": "sensors",
+    "transport": "serial-sim",
+    "gui": false,
+    "rounds": [
+      {
+        "run": 1,
+        "duration_sim_seconds": 76.745,
+        "parking_error_m": 0.03509284521211023,
+        "min_pole_clearance_m": 1.0453690051825353,
+        "min_boundary_clearance_m": 0.7054810604595048,
+        "maximum_absolute_yaw_rad": 4.62368735504496e-18,
+        "phases": [
+          "ENTER",
+          "LOWER",
+          "LOWER",
+          "LOWER",
+          "UPPER",
+          "UPPER",
+          "UPPER",
+          "UPPER",
+          "LOWER_EXIT",
+          "RETURN"
+        ],
+        "samples": 3940,
+        "lower_winding_rad": 6.281447206312223,
+        "upper_winding_rad": -6.280634382978575,
+        "max_reference_deviation_m": 0.02781543121665311
+      }
+    ],
+    "cancel": {
+      "state": "CANCELLED",
+      "actual_motion_before_cancel": true,
+      "zero_command_and_stationary": true,
+      "reset": "IDLE"
+    },
+    "command_stats": {
+      "maximum_speed_mps": 0.35,
+      "maximum_absolute_wz": 0.0,
+      "nonfinite": 0
+    },
+    "shutdown": {
+      "exit_code": 0,
+      "child_failures": false,
+      "forced_termination": false,
+      "gui": false,
+      "transport": "serial-sim"
+    }
+  },
+  "regressions": {
+    "empty_source_directory_cli": "prior behavior fails; fixed behavior passes; repeated prepare preserves extra files",
+    "reproduction_entry": "prior pre-build package check fails; isolated build before installed-package check passes"
+  },
+  "nuc_hardware_validated": false,
+  "vehicle_hardware_validated": false,
+  "physical_disconnect_stop_verified": false,
+  "input_sha256": {
+    "build.log": "2e4385166576337639a4d494a748d3694e69e7421bd0f648a0fa466d34f32a3f",
+    "tests.log": "17769bab736f24ef10b40c0547cdc994ab73c389959b1671b03a92ca3e237c38",
+    "results.json": "16d26a7f0b948cfe4410b04587233bdae6d4431a3b18a601a203c8079e68e7ca",
+    "shutdown.json": "8a7a8721283a9479936386bf49767e490bdc8210e7e6cf3a672e55a2f7c9d25c",
+    "implementation-sha256.json": "6ea071686ce40d63e1479a4d51d8142b19f21ecaa7322a8df024dabbbe216228"
+  }
+}

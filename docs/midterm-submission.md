@@ -14,6 +14,8 @@
 | 精选调试结果与未完成边界 | [仿真验收](validation.md)、[结果 JSON](results/2026-10-13/validation-summary.json) |
 | 可重复验证 | [测试](../tests)、[验收入口](../scripts/README.md) |
 
+2026-10-14 已从干净交付克隆完成 31 包独立构建、60 项测试与传感器/模拟串口完整路线，取消、复位及退出通过，回位误差 0.0351 m；见[克隆复验结果](results/2026-10-14/reproduction.json)。
+
 9 个顶层公开依赖以固定 Git 子模块纳入，pb2025 的 7 个子模块递归获取，包含 Point-LIO、small_gicp 重定位及 Nav2 插件。仓库保存 3 个完整补丁；不依赖开发者未发布的本地提交，也不依赖相邻 SRM 队内源码。
 
 ```bash

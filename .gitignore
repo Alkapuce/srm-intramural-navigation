@@ -39,6 +39,7 @@ docs/09_30real_debug/
 /docs/log/
 /docs/evidence/
 /.vscode/
+/.playwright-cli/
 
 AGENTS.md
 PLAN.md
