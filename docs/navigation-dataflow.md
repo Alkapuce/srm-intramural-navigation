@@ -86,8 +86,8 @@ Gazebo 初始底盘世界位置是 `(3.4, 9.5)`，导航 map 中的起点接近 
 ## 复核入口
 
 - [运行和验收](validation.md)
-- [上游导航启动文件](../nav_ws/src/pb2025_sentry_nav/pb2025_nav_bringup/launch/rm_navigation_simulation_launch.py)
-- [上游导航节点及速度 remap](../nav_ws/src/pb2025_sentry_nav/pb2025_nav_bringup/launch/navigation_launch.py)
+- [上游导航启动文件](https://github.com/SMBU-PolarBear-Robotics-Team/pb2025_sentry_nav/blob/9c124ebb0c0b6b64714390ea3c92f27490f63f9d/pb2025_nav_bringup/launch/rm_navigation_simulation_launch.py)
+- [上游导航节点及速度 remap](https://github.com/SMBU-PolarBear-Robotics-Team/pb2025_sentry_nav/blob/9c124ebb0c0b6b64714390ea3c92f27490f63f9d/pb2025_nav_bringup/launch/navigation_launch.py)
 - [本阶段参数](../config/stage2-nav.yaml)
 - 实际图、TF 发布者、时钟参数和消息计数保存在每轮验收的 `graph.json` / `live-interfaces.json` / `tf-authorities.tsv` / `results.json`。
 
