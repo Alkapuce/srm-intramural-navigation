@@ -30,7 +30,7 @@ class OrganizerModelTests(unittest.TestCase):
         self.out = Path(self.temp.name)
 
     def test_source_geometry_frames_and_sensor_origin(self):
-        path = ROOT / "算法组校内赛规则/sentry_robot_cylinder.xacro"
+        path = ROOT / "simulation/models/sentry_robot_cylinder.xacro"
         original = path.read_bytes()
         sdf, info = build_robot(ROOT, self.c, self.public, self.out)
         body = sdf.find("model/link[@name='base_footprint']")

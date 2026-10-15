@@ -27,7 +27,7 @@ files += list((root / "nav_ws/src/intramural_mission").rglob("*.py"))
 files += list((root / "nav_ws/src/intramural_base").rglob("*.py"))
 files += list((root / "config").glob("*.json"))
 files += [root / "config/fastdds-services.xml"]
-files += [root / 'config/arena-gui.config', root / '算法组校内赛规则/sentry_robot_cylinder.xacro',
+files += [root / 'config/arena-gui.config', root / 'simulation/models/sentry_robot_cylinder.xacro',
           root / 'nav_ws/src/intramural_mission/package.xml']
 (out / "implementation-sha256.json").write_text(json.dumps({
     str(file.relative_to(root)): hashlib.sha256(file.read_bytes()).hexdigest()

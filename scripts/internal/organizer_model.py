@@ -14,7 +14,7 @@ from intramural_mission.proximity import lidar_to_body
 
 
 def build_robot(root, c, public_robot, out):
-    source = root / "算法组校内赛规则/sentry_robot_cylinder.xacro"
+    source = root / "simulation/models/sentry_robot_cylinder.xacro"
     pose = c["lidar_pose"]
     if len(pose) != 6 or not all(math.isfinite(v) for v in pose):
         raise ValueError("Six finite lidar installation coordinates required")

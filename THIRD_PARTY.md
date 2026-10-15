@@ -17,4 +17,4 @@
 
 相邻 SRM 上下位机仓库仅用于经用户允许的只读接口核对，具体事实来源记录在 `config/vehicle-srm-reference.json`；它们不属于开源依赖，也不参与本项目构建或运行。
 
-`算法组校内赛规则/sentry_robot_cylinder.xacro` 是赛方直接提供的比赛模型，按原始字节保留并单独记录来源，根 Apache-2.0 不重授其许可。模型的碰撞及惯性由自有转换工具接入，缺失的私有网格以锁定公开 MID-360 资源替代；来源、变换及仿真假设见[模型接入记录](docs/debug-log.md)。
+[`simulation/models/sentry_robot_cylinder.xacro`](simulation/models/sentry_robot_cylinder.xacro) 是赛方直接提供的比赛模型，按原始字节保留并单独记录来源，根 Apache-2.0 不重授其许可。模型的碰撞及惯性由自有转换工具接入，缺失的私有网格以锁定公开 MID-360 资源替代；模型参数、变换及仿真假设见[模型说明](docs/vehicle/reference.md#赛方提供的模型2026-10-12)。

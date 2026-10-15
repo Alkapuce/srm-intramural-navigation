@@ -22,7 +22,7 @@
 
 ## 赛方提供的模型（2026-10-12）
 
-用户确认 [sentry_robot_cylinder.xacro](../../算法组校内赛规则/sentry_robot_cylinder.xacro) 由赛方提供。这份文件单独记为赛方模型资料，可作为本赛建模依据；同名文件存在于队内参考仓库，不改变本次提供来源，也不意味着允许复制队内其他模型资源或实现。
+赛方提供的 [sentry_robot_cylinder.xacro](../../simulation/models/sentry_robot_cylinder.xacro) 作为独立仿真资源保留。这份文件可作为本赛建模依据；同名文件存在于队内参考仓库，不改变本次提供来源，也不意味着允许复制队内其他模型资源或实现。
 
 只读比较参考提交 `fc5362f1ba476bdd464b3362f389127f34923f19` 的 `src/pb_rmsimulation/src/rm_nav_bringup/urdf/sentry_robot_cylinder.xacro`：赛方文件使用 CRLF，参考文件使用 LF，统一换行后内容完全一致。赛方原文件 SHA-256 为 `ba3fe8889a4108ee6e63f26a0301f9ad1d75d90f94bae74762eb712354de5dce`，原文件未改写。
 

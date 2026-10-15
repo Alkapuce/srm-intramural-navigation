@@ -34,7 +34,7 @@ sources += [
     Path("/work/scripts/run.sh"),
     Path("/work/config/stage2-nav.yaml"),
     Path('/work/config/arena-gui.config'),
-    Path('/work/算法组校内赛规则/sentry_robot_cylinder.xacro'),
+    Path('/work/simulation/models/sentry_robot_cylinder.xacro'),
     Path("/work/nav_ws/src/intramural_mission/package.xml"),
 ]
 (out / "implementation-sha256.json").write_text(
