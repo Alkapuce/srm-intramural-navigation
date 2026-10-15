@@ -36,6 +36,7 @@ docs/09_30real_debug/
 **/AGENTS.md
 /docs/development.md
 /docs/repository-scope.md
+/docs/internal/
 /docs/log/
 /docs/evidence/
 /.vscode/

@@ -1,10 +1,10 @@
 # SRM 实车参考参数与接车边界
 
-已只读核对相邻 `control-2026`（`3b889edcbf4676f236e6e2cd3030fde9853ed9be`）和 `srm_auto_sentry`（`fc5362f1ba476bdd464b3362f389127f34923f19`）。[参考参数](../config/vehicle-srm-reference.json)是独立编写的接口事实记录，保留具体来源文件；未复制队内实现、整份配置、地图或车体模型。仓库内容与当前车辆烧录固件可能不同，以下参数不构成实测标定。
+已只读核对相邻 `control-2026`（`3b889edcbf4676f236e6e2cd3030fde9853ed9be`）和 `srm_auto_sentry`（`fc5362f1ba476bdd464b3362f389127f34923f19`）。[参考参数](../../config/vehicle-srm-reference.json)是独立编写的接口事实记录，保留具体来源文件；未复制队内实现、整份配置、地图或车体模型。仓库内容与当前车辆烧录固件可能不同，以下参数不构成实测标定。
 
 2026-09-30 用户在实验室确认：拟使用的导航车是 SRM 上赛季哨兵，赛方还未配置完成并交付调试。因此以上两份参考提交的传感器、网络、安装参数继续作为接车初值；同一车辆的来源已由用户说明，配置完全一致仍是待接车核对的判断。比赛规则及导航协议优先，既有 20 字节发送帧或解析冲突不沿用。
 
-已查看本地照片 `docs/09_30real_debug/IMG_20260930_170648.jpg`：可见麦克纳姆轮底盘、上方云台和底盘边侧的圆顶雷达，雷达看起来安装在底盘而非上方云台。单张透视照片不能测出精确平移、旋转、整车 footprint 或固件行为；不能据此确认 `[0.15, -0.15, 0.22]` m、驱动 yaw −90° 已实测。车体轮廓还应包含雷达支架、防撞结构及实际突出的部件。现场照片与原始草稿保留本机，不随 GitHub clone 获取。
+车体轮廓需包含雷达支架、防撞结构及实际突出的部件；参考安装位置、驱动旋转和圆形近似都不是实测标定。接车后按真实安装重新核对外参及 footprint。
 
 | 参数 | 本项目采用或记录的值 | 核对位置与限制 |
 |---|---|---|
@@ -22,7 +22,7 @@
 
 ## 赛方提供的模型（2026-10-12）
 
-用户确认 [sentry_robot_cylinder.xacro](../算法组校内赛规则/sentry_robot_cylinder.xacro) 由赛方提供。这份文件单独记为赛方模型资料，可作为本赛建模依据；同名文件存在于队内参考仓库，不改变本次提供来源，也不意味着允许复制队内其他模型资源或实现。
+用户确认 [sentry_robot_cylinder.xacro](../../算法组校内赛规则/sentry_robot_cylinder.xacro) 由赛方提供。这份文件单独记为赛方模型资料，可作为本赛建模依据；同名文件存在于队内参考仓库，不改变本次提供来源，也不意味着允许复制队内其他模型资源或实现。
 
 只读比较参考提交 `fc5362f1ba476bdd464b3362f389127f34923f19` 的 `src/pb_rmsimulation/src/rm_nav_bringup/urdf/sentry_robot_cylinder.xacro`：赛方文件使用 CRLF，参考文件使用 LF，统一换行后内容完全一致。赛方原文件 SHA-256 为 `ba3fe8889a4108ee6e63f26a0301f9ad1d75d90f94bae74762eb712354de5dce`，原文件未改写。
 
@@ -36,7 +36,7 @@
 
 已用当前 Humble 环境实际展开默认参数和 `xyz:="0.15 -0.15 0.22" rpy:="0 0 0"` 两种 URDF，参数断言和 `check_urdf` 树解析通过。本地证据在 `artifacts/maintenance/2026-10-12/organizer-model/`。旧实车 launch 正是从 `measurement_params_real.yaml` 注入这组平移及零 RPY；MID-360 驱动内的 pitch 2°、yaw −90° 属于另一层坐标处理，不能再无依据叠加进该 joint。雷达 visual 的局部 origin 只对齐网格外观，也不是额外安装 TF。
 
-这说明赛方模型与上赛季参考模型一致，不能据此确认固件、网络、驱动配置或实车安装完全相同。文件没有 Gazebo 雷达传感器、驱动插件或麦轮动力学，四轮为固定关节。本轮已通过 `scripts/internal/organizer_model.py` 接入仿真：原生转换保留碰撞和惯性，补充公开 MID-360 传感器/外观、平面速度驱动及 `base_footprint` / `front_mid360` 别名。车轮与圆柱的联合包络半径 0.28462 m，导航保守圆 0.29 m；安装初值 XYZ=(0.15,−0.15,0.22) m、RPY=0。原始 Xacro 字节保持不变，缺失的队内 STL 没有复制，派生结果及来源写入 `simulation/generated/organizer-model.json`。模型接入不改变任何实车标定或停车验收开关。参考安装点位于粗略圆柱内，派生 SDF 的 GPU 雷达用可见性掩码排除本车粗略外观自遮挡，GUI 外观和全部碰撞保留；该光学假设及扫描对照见 [仿真说明](arena-mission.md)。
+这说明赛方模型与上赛季参考模型一致，不能据此确认固件、网络、驱动配置或实车安装完全相同。文件没有 Gazebo 雷达传感器、驱动插件或麦轮动力学，四轮为固定关节。本轮已通过 `scripts/internal/organizer_model.py` 接入仿真：原生转换保留碰撞和惯性，补充公开 MID-360 传感器/外观、平面速度驱动及 `base_footprint` / `front_mid360` 别名。车轮与圆柱的联合包络半径 0.28462 m，导航保守圆 0.29 m；安装初值 XYZ=(0.15,−0.15,0.22) m、RPY=0。原始 Xacro 字节保持不变，缺失的队内 STL 没有复制，派生结果及来源写入 `simulation/generated/organizer-model.json`。模型接入不改变任何实车标定或停车验收开关。参考安装点位于粗略圆柱内，派生 SDF 的 GPU 雷达用可见性掩码排除本车粗略外观自遮挡，GUI 外观和全部碰撞保留；该光学假设及扫描对照见 [仿真说明](../simulation/arena-mission.md)。
 
 ## 生成接车配置
 
@@ -48,7 +48,7 @@ scripts/run.sh python3 /work/scripts/prepare-vehicle.py \
 # 当前机器/雷达地址不同，可额外指定 --host-ip <IPv4> --lidar-ip <IPv4>
 ```
 
-工具生成 MID-360 网络 JSON、公开驱动参数、Point-LIO 参数、串口节点参数、车辆标定模板及 `handoff.json`。Point-LIO 完整配置以固定公开项目的默认文件为基础，只覆盖已核对的接口值；交接清单记录参考提交、配置哈希、选用 IP 和静态 TF 参数。工具不启动传感器、打开串口或改变网络。生成的绝对路径按本项目 `/work` 容器挂载使用；这些文件供接车核对，不自动接入仿真或构成完整实车 launch。
+工具生成 MID-360 网络 JSON、公开驱动参数、Point-LIO 参数、串口节点参数、车辆标定模板及 `handoff.json`。Point-LIO 完整配置以固定公开项目的默认文件为基础，只覆盖已核对的接口值；交接清单记录参考提交、配置哈希、选用 IP 和静态 TF 参数。工具不启动传感器、打开串口或改变网络。生成的绝对路径按当前运行根目录解析，容器为 `/work`，原生环境为实际项目路径；这些文件供接车核对，不自动接入仿真或构成完整实车 launch。
 
 实车串口节点在打开设备前分别要求 `firmware_protocol_verified`、`link_loss_stop_verified`、`calibrated_for_vehicle` 为 true，并检查有效的速度映射与限幅。模板全为 false，映射为空。只有取得对应的固件协议测试、断链停机测试和逐轴物理标定记录后才能填写；不能为绕过启动拒绝而只修改开关。仿真模式仍保留独立、无超时停车的模拟下位机。
 
@@ -68,4 +68,4 @@ scripts/run.sh python3 /work/scripts/prepare-vehicle.py \
 
 队内上位机 `standard_robot_pp_ros2.cpp:626` 直接把 ROS linear.x/y 写入协议 vx/vy。下位机哨兵 AUTO 路径 `robot.c:135` 再执行 `vx_initial=-vy*5000`、`vy_initial=vx*5000`、`wz=0`；随后麦轮底盘 `chassis.c:212` 依据云台偏角继续变换。因此不能在上位机再盲目交换轴，也不能把 5000 直接解释为实测 m/s 倍率。当前 `body_to_protocol` 继续留空。
 
-`chassis.c:199` 的 CHASSIS_FOLLOW 会增加云台跟随 PID 角速度，所以协议 wz=0 不能证明车体朝向固定。自主模式、云台参考系、底盘模式、物理速度增益、footprint、外参及断链停机仍按[接车顺序](prevehicle-candidate.md)验证。本机配置和仿真通过不替代这些证据。
+`chassis.c:199` 的 CHASSIS_FOLLOW 会增加云台跟随 PID 角速度，所以协议 wz=0 不能证明车体朝向固定。自主模式、云台参考系、底盘模式、物理速度增益、footprint、外参及断链停机仍按[接车顺序](commissioning.md)验证。本机配置和仿真通过不替代这些证据。

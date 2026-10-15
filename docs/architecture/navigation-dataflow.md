@@ -1,6 +1,6 @@
 # 上游单机器人导航的数据流
 
-本阶段运行公开 RMUC 2025 场地中的 `red_standard_robot1`。入口是 `scripts/navigation.sh`，内部复用固定版本 `pb2025_sentry_nav` 的传感器、定位、规划及控制节点。它是理解开源系统的基线；校内赛双桩场景和 8 字任务尚未实现。
+本文说明公开 RMUC 2025 场地中的对照机器人 `red_standard_robot1`。入口是 `scripts/navigation.sh`，内部复用固定版本 `pb2025_sentry_nav` 的传感器、定位、规划及控制节点。校内赛双桩场景和有序 8 字任务已实现，入口为 `scripts/arena.sh`，使用不同的任务及最终速度保护层，见[校内赛说明](../simulation/arena-mission.md)。下文的机器人名称、话题及参数均指上游对照场景。
 
 ## 机器人如何知道自己在哪里
 
@@ -85,10 +85,10 @@ Gazebo 初始底盘世界位置是 `(3.4, 9.5)`，导航 map 中的起点接近 
 
 ## 复核入口
 
-- [运行和验收](validation.md)
+- [运行和验收](../debug-log.md)
 - [上游导航启动文件](https://github.com/SMBU-PolarBear-Robotics-Team/pb2025_sentry_nav/blob/9c124ebb0c0b6b64714390ea3c92f27490f63f9d/pb2025_nav_bringup/launch/rm_navigation_simulation_launch.py)
 - [上游导航节点及速度 remap](https://github.com/SMBU-PolarBear-Robotics-Team/pb2025_sentry_nav/blob/9c124ebb0c0b6b64714390ea3c92f27490f63f9d/pb2025_nav_bringup/launch/navigation_launch.py)
-- [本阶段参数](../config/stage2-nav.yaml)
+- [本阶段参数](../../config/stage2-nav.yaml)
 - 实际图、TF 发布者、时钟参数和消息计数保存在每轮验收的 `graph.json` / `live-interfaces.json` / `tf-authorities.tsv` / `results.json`。
 
-2026-10-12 更新：`sensor_scan_generation` 的车体 TF 与里程计直接跟随传感器 `lidar_odometry`，保留输入时间戳，不再等待注册点云配对；同步回调只用于扫描坐标转换。缺少所需安装变换时不发布单位变换替代值，`loam_interface` 也在安装变换初始化前停止转发扫描。公开上游修复已纳入锁定补丁。另已通过 Gazebo/ROS 原生计数器确认大点云的 DDS 缓冲不足并修复，避免将传输丢帧误归为 GPU 渲染失败；见[本轮对照](validation.md)。
+2026-10-12 更新：`sensor_scan_generation` 的车体 TF 与里程计直接跟随传感器 `lidar_odometry`，保留输入时间戳，不再等待注册点云配对；同步回调只用于扫描坐标转换。缺少所需安装变换时不发布单位变换替代值，`loam_interface` 也在安装变换初始化前停止转发扫描。公开上游修复已纳入锁定补丁。另已通过 Gazebo/ROS 原生计数器确认大点云的 DDS 缓冲不足并修复，避免将传输丢帧误归为 GPU 渲染失败；见[本轮对照](../debug-log.md)。

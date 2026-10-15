@@ -5,7 +5,7 @@
 - `rmoss-gazebo-simulation-fixes.patch`：灯条原来连续两个物理步删除、重建同名 visual，异步 GUI / 传感器渲染可出现重复 visual 并崩溃。改为向原实体写入 `VisualCmd` 更新颜色，保留灯条功能。同时在底盘节点销毁控制器前停止传感器回调，通过共享互斥门闩等待正在执行的回调并拒绝排队回调，避免访问已销毁对象。依据 Gazebo 6 的 [UserCommands](https://github.com/gazebosim/gz-sim/blob/ign-gazebo6/src/systems/user_commands/UserCommands.cc) 与 [RenderUtil](https://github.com/gazebosim/gz-sim/blob/ign-gazebo6/src/rendering/RenderUtil.cc) 实现。
 - `rmu-simulator-python-entrypoint.patch`：裁判脚本添加 Python shebang，修复 `Exec format error`；捕获正常退出的 `KeyboardInterrupt` / `ExternalShutdownException`，释放 ROS 节点。
 
-- `pb2025-terrain-shutdown.patch`：两种地形分析节点复用一个 executor，并在循环入口检查 ROS context；避免中断后重新创建 executor 的 guard condition，引发退出异常。另使底盘里程计/TF 独立于点云同步发布并保留源时间戳；初始化 LOAM 安装变换，取得有效静态 TF 前不转换点云。真实 ROS 回归见 `test_sensor_scan_generation.py`、`test_loam_startup.py`，修复对照与边界见[模型验收](../docs/validation.md)。
+- `pb2025-terrain-shutdown.patch`：两种地形分析节点复用一个 executor，并在循环入口检查 ROS context；避免中断后重新创建 executor 的 guard condition，引发退出异常。另使底盘里程计/TF 独立于点云同步发布并保留源时间戳；初始化 LOAM 安装变换，取得有效静态 TF 前不转换点云。真实 ROS 回归见 `test_sensor_scan_generation.py`、`test_loam_startup.py`，修复对照与边界见[模型验收](../docs/debug-log.md)。
 
 这些是公开仿真依赖的修复，没有引入 SRM 队内代码。保留上游版权与许可证。
 

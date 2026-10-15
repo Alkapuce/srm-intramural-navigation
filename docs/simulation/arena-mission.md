@@ -4,7 +4,7 @@
 
 ## 启动与操作
 
-从 `intramural/` 执行。先完成 [环境部署](environment.md)，构建工作空间：
+从 `intramural/` 执行。先完成 [环境部署](../deployment/environment.md)，构建工作空间：
 
 ```bash
 scripts/build-workspace.sh
@@ -30,7 +30,7 @@ scripts/run.sh ros2 service call /intramural_robot/mission/reset std_srvs/srv/Tr
 
 本项目通过 `config/fastdds-services.xml` 将 Fast DDS 服务回包的 reader 发现等待设为 5 s（默认 100 ms），防止请求已发现、回包尚未匹配时丢失生命周期响应。仅覆盖服务 reply writer，普通点云、TF 和速度话题保持 ROS QoS。原生 API 复核命令为 `scripts/run.sh python3 /work/scripts/validation/verify-service-qos.py`；应输出 `response_max_blocking_time_ns: 5000000000`。这是对本项目已出现服务发现竞争的配置规避，不能断言消除了全部 DDS 故障。依据见 [Humble 回包实现](https://github.com/ros2/rmw_fastrtps/blob/humble/rmw_fastrtps_shared_cpp/src/rmw_response.cpp) 和 [官方问题 842](https://github.com/ros2/rmw_fastrtps/issues/842)。
 
-同一 XML 还配置 32 MiB SHM 段、2 MiB 最大消息及仅回环地址的自定义 UDP，承载约 1 MB 的单帧点云。相同 GUI 场景的实收频率从 2.92 Hz 恢复到 20 Hz；这是传输缓冲配置，普通话题 QoS 保持不变。仿真启动时先等 IMU 连续稳定 0.5 秒，再向 Point-LIO 送入扫描，防止落地前的失重数据触发错误重力初始化。对照证据见[本轮记录](validation.md)。
+同一 XML 还配置 32 MiB SHM 段、2 MiB 最大消息及仅回环地址的自定义 UDP，承载约 1 MB 的单帧点云。相同 GUI 场景的实收频率从 2.92 Hz 恢复到 20 Hz；这是传输缓冲配置，普通话题 QoS 保持不变。仿真启动时先等 IMU 连续稳定 0.5 秒，再向 Point-LIO 送入扫描，防止落地前的失重数据触发错误重力初始化。对照证据见[本轮记录](../debug-log.md)。
 
 主启动终端 Ctrl-C 会先关闭运动使能并请求取消，在仿真时钟仍运行时关闭 Nav2 生命周期节点，然后结束 Gazebo 和其余 ROS 进程。非零子进程退出、强制结束、崩溃均视为失败。
 
@@ -48,7 +48,7 @@ scripts/run.sh python3 -m unittest discover -s /work/tests -v
 
 ## 参数与地图
 
-统一参数入口是 [`config/arena.json`](../config/arena.json)。长度用米，速度用 m/s，加速度用 m/s²，外参角度用弧度。
+统一参数入口是 [`config/arena.json`](../../config/arena.json)。长度用米，速度用 m/s，加速度用 m/s²，外参角度用弧度。
 
 | 参数 | 当前仿真假设 |
 |---|---|
@@ -168,4 +168,4 @@ scripts/verify-stage6.sh --mode ideal --persistent --scenarios entry --expect-bl
 
 ## 公开来源
 
-自有 `intramural_mission` 为 Apache-2.0；任务代码、场景几何、入口及验收脚本独立实现。导航使用固定公开 `pb2025_sentry_nav`、Point-LIO、small_gicp、全向 PID 插件和地形处理。Mid360 定义引用公开 `pb2025_robot_description/resource/models/mid360/model.sdf.xmacro`（上游 package 声明 MIT），环境底座来自 `rmu_gazebo_simulator`（Apache-2.0）。提交及已有修复由 [`docker/sources.lock.json`](../docker/sources.lock.json) 固定。保留上游来源与许可证；未复制 SRM 队内代码、地图或配置。
+自有 `intramural_mission` 为 Apache-2.0；任务代码、场景几何、入口及验收脚本独立实现。导航使用固定公开 `pb2025_sentry_nav`、Point-LIO、small_gicp、全向 PID 插件和地形处理。Mid360 定义引用公开 `pb2025_robot_description/resource/models/mid360/model.sdf.xmacro`（上游 package 声明 MIT），环境底座来自 `rmu_gazebo_simulator`（Apache-2.0）。提交及已有修复由 [`docker/sources.lock.json`](../../docker/sources.lock.json) 固定。保留上游来源与许可证；未复制 SRM 队内代码、地图或配置。

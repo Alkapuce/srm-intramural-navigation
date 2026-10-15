@@ -45,7 +45,7 @@ scripts/simulator.sh
 
 `simulator.sh` 使用本地 `launch/simulator.launch.py`：分别由本地进程管理器启动 Gazebo 服务端 / GUI，以及复用上游的机器人生成 / 裁判入口。退出按服务端、GUI、ROS 节点的顺序执行，避免传感器和时钟回调与 ROS 发布者销毁竞争；子进程异常明确记录。公开上游的必要修复以独立补丁记录。
 
-完整导航使用 `scripts/navigation.sh`，自动获取并校验公开先验点云，启动传感器定位和 Nav2；验收入口为 `scripts/verify-stage2.sh`。详见 [第二阶段验收](validation.md)。完整导航退出时先退出 RViz，再在时钟仍运行时关闭 Nav2 生命周期节点，最后关闭仿真发布源和剩余导航节点；单独打开仿真器不能代替导航验收。
+完整导航使用 `scripts/navigation.sh`，自动获取并校验公开先验点云，启动传感器定位和 Nav2；验收入口为 `scripts/verify-stage2.sh`。详见 [第二阶段验收](../debug-log.md)。完整导航退出时先退出 RViz，再在时钟仍运行时关闭 Nav2 生命周期节点，最后关闭仿真发布源和剩余导航节点；单独打开仿真器不能代替导航验收。
 
 ## 图形与运行隔离
 
@@ -54,7 +54,7 @@ scripts/simulator.sh
 - 不使用全局 `xhost +`、特权容器或整目录 `/dev` 挂载。
 - 默认使用 ROS domain 71 和 `ROS_LOCALHOST_ONLY=1`，便于多个终端之间通信，并与默认 ROS domain 隔离。可用 `INTRAMURAL_ROS_DOMAIN_ID`（0..232）及 `INTRAMURAL_IGN_PARTITION` 设置现场分配值；所有本任务终端统一配置并用脚本进入。
 - 同时使用主机网络与主机 IPC，让 Fast DDS 在不同容器间共享实际通信内存；仅共享网络会造成 topic 可发现但消息无法到达。ROS domain 与 Ignition partition 用于通信隔离，主机 IPC 本身不构成安全隔离。
-- `config/fastdds-services.xml` 同时固定服务回包等待和点云传输缓冲：32 MiB SHM 段、2 MiB 最大消息，自定义 UDP 只使用回环地址；普通话题 QoS 不变。约 1 MB 点云在 GUI 场景实收 20 Hz，证据见[模型接入记录](validation.md)。
+- `config/fastdds-services.xml` 同时固定服务回包等待和点云传输缓冲：32 MiB SHM 段、2 MiB 最大消息，自定义 UDP 只使用回环地址；普通话题 QoS 不变。约 1 MB 点云在 GUI 场景实收 20 Hz，证据见[模型接入记录](../debug-log.md)。
 - Ignition 使用 `IGN_IP=127.0.0.1`、`IGN_PARTITION=srm_intramural`，让本机服务端、GUI 和命令行工具使用同一通信配置，避免默认接口选择导致 GUI 找不到服务端。
 - 当前用户拥有容器产生的文件。HOME 指向容器内 `/work/cache/home`，不会写入宿主用户的应用配置。
 - 实车串口只在显式设置 `INTRAMURAL_SERIAL_DEVICE` 后映射，宿主机路径须解析为 `/dev/` 下字符设备，容器内统一为 `/dev/intramural-base`。设备映射不替代协议、断链停车和物理标定三项验证。
@@ -65,7 +65,7 @@ scripts/simulator.sh
 ## 记录与缓存
 
 - `nav_ws/build/`、`install/`、`log/`：构建及 ROS 运行输出。
-- `cache/`：第三方非 ROS 源码、容器 HOME 和下载。
+- `cache/`：固定 small_gicp 子模块、容器 HOME 和下载。
 - `artifacts/stage1/`：镜像构建、工作空间构建、环境和图形验证记录。
 - `cache/maps/`：按 `config/maps.lock.json` 校验的公开点云图，不提交大型地图。
 - `artifacts/stage2/`：传感器导航到点、运动中取消、真实停车、TF/时钟、轨迹与完整退出的证据。

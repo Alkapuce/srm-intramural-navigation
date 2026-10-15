@@ -16,4 +16,4 @@
 | 实车雷达与 Point-LIO 调试，不启动底盘或任务 | `vehicle-sensors.sh`；配置目录由 `INTRAMURAL_VEHICLE_CONFIG` 指定 |
 | 冻结文件与证据哈希 | `run.sh python3 /work/scripts/freeze-candidate.py --output <新目录> --evidence <文件>` |
 
-日常使用以 [README](../README.md) 与 [候选说明](../docs/prevehicle-candidate.md) 为准，公开源码修复流程见 [补丁说明](../patches/README.md)。阶段 1—7 的验证工具是回归资源，已完成阶段不构成删除理由。
+日常使用以 [README](../README.md) 与 [候选说明](../docs/vehicle/commissioning.md) 为准，公开源码修复流程见 [补丁说明](../patches/README.md)。阶段 1—7 的验证工具是回归资源，已完成阶段不构成删除理由。
