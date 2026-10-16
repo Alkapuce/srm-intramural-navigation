@@ -63,9 +63,9 @@ try:
     if not args.no_gui:
         gui_env = os.environ.copy()
         if Path('/dev/dxg').exists() and gui_env.get('LIBGL_ALWAYS_SOFTWARE') != '1':
-            # Qt's disposable GLX threading probe crashes in WSL Mesa; choose basic explicitly.
+            # Skip Qt's disposable GLX threading probe on WSL Mesa.
             gui_env['QT_OPENGL_NO_SANITY_CHECK'] = '1'
-            gui_env['QSG_RENDER_LOOP'] = 'basic'
+            gui_env['QSG_RENDER_LOOP'] = 'threaded'
             gui_env['QSG_INFO'] = '1'
         viewer = subprocess.Popen(gui_command, start_new_session=True, env=gui_env)
     ros_nodes = subprocess.Popen(['ros2', 'launch',
