@@ -25,6 +25,8 @@ class Mission(Node):
         super().__init__("mission")
         self.declare_parameter("arena_config", "/work/config/arena.json")
         self.c = json.loads(Path(self.get_parameter("arena_config").value).read_text())
+        self.declare_parameter("start_permitted", True)
+        self.start_permitted = self.get_parameter("start_permitted").value
         self.declare_parameter("variant", "figure8")
         self.variant = self.get_parameter("variant").value
         if self.variant not in ("figure8", "primitives"):
@@ -159,6 +161,8 @@ class Mission(Node):
         self.client.send_goal_async(goal).add_done_callback(self.accepted)
 
     def try_bypass(self):
+        if not self.c.get("allow_bypass", True):
+            return
         now = time.monotonic()
         wait = .5 if self.bypassing else self.c['bypass_wait_seconds']
         if (now-self.blocked_at < wait or now-self.plan_at < 1.0
@@ -191,6 +195,9 @@ class Mission(Node):
         self.resume_segment()
 
     def start(self, request, response):
+        if not self.start_permitted:
+            response.message = "Vehicle standby: field geometry and physical safety not accepted"
+            return response
         if self.state != "IDLE":
             response.message = "Reset required or mission already running"
             return response
@@ -471,7 +478,8 @@ class Mission(Node):
             "pose": self.pose,
             "tf_age_sim_seconds": self.tf_age,
             "tf_problem": self.tf_problem,
-            "ready": self.ready_since is not None and now - self.ready_since >= 2.0
+            "start_permitted": self.start_permitted,
+            "ready": self.start_permitted and self.ready_since is not None and now - self.ready_since >= 2.0
             and now - self.last_pose < .25 and self.tf_age is not None
             and abs(self.tf_age) < .25,
             "reason": self.reason,

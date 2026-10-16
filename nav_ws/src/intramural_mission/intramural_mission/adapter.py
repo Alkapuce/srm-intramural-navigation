@@ -22,6 +22,8 @@ class Adapter(Node):
         super().__init__("motion_guard")
         self.declare_parameter("localization", "ideal")
         self.mode = self.get_parameter("localization").value
+        self.declare_parameter("motion_permitted", True)
+        self.motion_permitted = self.get_parameter("motion_permitted").value
         self.declare_parameter("arena_config", "/work/config/arena.json")
         self.c = json.loads(Path(self.get_parameter("arena_config").value).read_text())
         self.enabled = False
@@ -186,7 +188,7 @@ class Adapter(Node):
         )
         values = [self.cmd.linear.x, self.cmd.linear.y, self.cmd.angular.z]
         valid = all(math.isfinite(v) for v in values)
-        target = values[:2] if self.enabled and not stale and valid else [0.0, 0.0]
+        target = values[:2] if self.motion_permitted and self.enabled and not stale and valid else [0.0, 0.0]
         speed_limit = self.c['bypass_speed'] if self.bypassing else self.c['max_speed']
         length = math.hypot(*target)
         if length > speed_limit:
@@ -204,7 +206,7 @@ class Adapter(Node):
         length = math.hypot(*target)
         if length > self.c["max_speed"]:
             target = [v * self.c["max_speed"] / length for v in target]
-        if not self.enabled or stale or not valid or self.hazard:
+        if not self.motion_permitted or not self.enabled or stale or not valid or self.hazard:
             self.output = [0.0, 0.0]
         else:
             delta = [target[i] - self.output[i] for i in range(2)]
@@ -224,6 +226,7 @@ class Adapter(Node):
                 data=json.dumps(
                     {
                         "enabled": self.enabled,
+                        "motion_permitted": self.motion_permitted,
                         "stale": stale,
                         "finite": valid,
                         "mode": self.mode,

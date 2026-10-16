@@ -193,6 +193,7 @@ class MissionTests(unittest.TestCase):
 
     def test_start_away_from_parking_is_rejected(self):
         m = N(
+            start_permitted=True,
             state="IDLE",
             navigator_active=True,
             pose=[3.5, 2.5],
@@ -204,6 +205,13 @@ class MissionTests(unittest.TestCase):
         )
         r = Mission.start(m, Trigger.Request(), Trigger.Response())
         self.assertFalse(r.success)
+
+    def test_vehicle_standby_rejects_start_before_accessing_navigation(self):
+        result = Mission.start(N(start_permitted=False), Trigger.Request(), Trigger.Response())
+        self.assertFalse(result.success)
+
+    def test_stop_and_wait_policy_never_enters_bypass_planner(self):
+        Mission.try_bypass(N(c={"allow_bypass":False}))
 
     def test_cancel_closes_gate_before_action_request(self):
         events = []

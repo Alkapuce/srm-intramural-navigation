@@ -30,7 +30,7 @@ class MotionGuardTests(unittest.TestCase):
         cmd.linear.y = 1.0
         cmd.angular.z = 1.0
         m = N(
-            enabled=True, bypassing=False,
+            enabled=True, bypassing=False, motion_permitted=True,
             cmd=cmd,
             last={k: 10.0 for k in ["command", "odom", "lidar", "imu"]},
             output=[0.0, 0.0],
@@ -57,6 +57,13 @@ class MotionGuardTests(unittest.TestCase):
             self.tick(m)
             self.assertEqual(m.output, [0.0, 0.0], k)
             self.assertEqual(output[-1], Twist())
+
+    def test_vehicle_standby_interlock_rejects_fresh_enabled_nonzero_command(self):
+        m, output = self.guard()
+        m.motion_permitted = False
+        m.output = [.2, .1]
+        self.tick(m)
+        self.assertEqual(output[-1], Twist())
 
     def test_disabled_and_nonfinite_stop_immediately(self):
         for value in [float("nan"), float("inf"), -float("inf")]:

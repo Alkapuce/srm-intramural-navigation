@@ -19,6 +19,7 @@ setup(
             "mission = intramural_mission.mission:main",
             "adapter = intramural_mission.adapter:main",
             "lidar_adapter = intramural_mission.lidar_adapter:main",
+            "livox_adapter = intramural_mission.livox_adapter:main",
         ]
     },
 )
