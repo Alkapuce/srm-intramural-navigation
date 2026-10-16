@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+entry="$(readlink -f -- "${BASH_SOURCE[0]}")"
+root="$(dirname -- "$(dirname -- "$entry")")"
+command="${1:-help}"
+[[ $# == 0 ]] || shift
+usage() {
+  cat <<'HELP'
+SRM 导航调试（在执行本命令的机器上运行，不自动 SSH）
+  srm-nav status                     主机、设备和相关进程，只读
+  srm-nav topics                     本项目 ROS 话题列表，只读
+  srm-nav hz TOPIC                    话题频率，Ctrl-C 结束
+  srm-nav tf [PARENT CHILD]           默认 map → base_footprint，Ctrl-C 结束
+  srm-nav sensors [CONFIG_DIR]        启动雷达/Point-LIO，不打开底盘串口
+  srm-nav standby MAP_DIR             启动导航待机，运动和任务启动锁定
+  srm-nav check-standby MAP_DIR       激活待机生命周期并验收，不打开串口
+  srm-nav standby-down               正常关闭待机生命周期，然后在启动终端 Ctrl-C
+  srm-nav bag-info BAG_DIR            查看已结束录制的 bag
+  srm-nav bag-check BAG_DIR           校验已结束录制的 bag，保存新报告
+  srm-nav map-check MAP_DIR           检查栅格通行空间，保存新报告
+  srm-nav zero DEVICE                 打开指定串口，只发零速 8 秒
+  srm-nav map [ARGS...]               转到 srm-map
+  srm-nav pulse [ARGS...]             转到 srm-pulse
+  srm-nav ros ROS2_ARGS...            在项目环境执行原生 ros2 命令
+  srm-nav help                       显示本帮助
+地图目录指包含 manifest.json/map.yaml/arena.json 的生成目录。
+校验报告位于项目 artifacts/diagnostics/。没有全局 kill/自动重启命令。
+HELP
+}
+one_arg() { [[ $# == 1 ]] || { usage >&2; exit 2; }; }
+runtime_path() {
+  local absolute
+  absolute="$(realpath -e -- "$1")" || return 1
+  case "$absolute" in
+    "$root"/*) echo "/work/${absolute#"$root"/}" ;;
+    *) echo "$absolute" ;;
+  esac
+}
+report_dir() {
+  report="$root/artifacts/diagnostics/$command-$(date +%Y%m%d-%H%M%S-%N)"
+  mkdir -p "$report"
+  echo "报告目录: $report"
+}
+case "$command" in
+  help|-h|--help) usage ;;
+  status)
+    hostname
+    printf 'boot_id: '; cat /proc/sys/kernel/random/boot_id
+    ip -br -4 address
+    ls -l /dev/serial/by-id/ 2>/dev/null || true
+    ps -eo user,pid,comm,args | awk 'NR == 1 || /[l]ivox|[p]ointlio|[s]erial_bridge|[v]ehicle-pulse|[r]m_behavior_tree|[s]tandard_robot_pp|[r]m_nav_bringup|[r]os2 bag|[s]ite-mapping.py/'
+    ss -lun | awk 'NR == 1 || /:56[0-4]0[01][[:space:]]/'
+    echo '进程/端口列表不能证明串口全机独占；普通用户无法检查其他用户的全部文件描述符。'
+    ;;
+  topics) exec "$root/scripts/run.sh" ros2 topic list --no-daemon ;;
+  hz) one_arg "$@"; exec "$root/scripts/run.sh" ros2 topic hz "$1" ;;
+  tf)
+    [[ $# == 0 || $# == 2 ]] || { usage >&2; exit 2; }
+    exec "$root/scripts/run.sh" ros2 run tf2_ros tf2_echo "${1:-map}" "${2:-base_footprint}" ;;
+  sensors)
+    [[ $# -le 1 ]] || { usage >&2; exit 2; }
+    config="$(runtime_path "${1:-${INTRAMURAL_VEHICLE_CONFIG:-$root/cache/vehicle-current}}")"
+    export INTRAMURAL_VEHICLE_CONFIG="$config"
+    exec "$root/scripts/vehicle-sensors.sh" ;;
+  standby)
+    one_arg "$@"
+    config="$(runtime_path "$1")"
+    export INTRAMURAL_NAVIGATION_CONFIG="$config"
+    exec "$root/scripts/vehicle-navigation.sh" ;;
+  check-standby)
+    one_arg "$@"; input="$(runtime_path "$1")"; report_dir
+    exec "$root/scripts/run.sh" python3 /work/scripts/validation/verify-vehicle-standby.py --map-config "$input" --output "$(runtime_path "$report")" ;;
+  standby-down)
+    exec "$root/scripts/run.sh" ros2 service call /intramural_robot/lifecycle_manager_vehicle/manage_nodes nav2_msgs/srv/ManageLifecycleNodes '{command: 4}' ;;
+  bag-info)
+    one_arg "$@"; input="$(runtime_path "$1")"
+    exec "$root/scripts/run.sh" ros2 bag info "$input" ;;
+  bag-check|map-check)
+    one_arg "$@"; input="$(runtime_path "$1")"; report_dir
+    if [[ "$command" == bag-check ]]; then
+      exec "$root/scripts/run.sh" python3 /work/scripts/validation/verify-mapping-bag.py --bag "$input" --output "$(runtime_path "$report")/result.json"
+    fi
+    exec "$root/scripts/run.sh" python3 /work/scripts/validation/verify-map-quality.py --map-config "$input" --output "$(runtime_path "$report")/result.json" ;;
+  zero)
+    one_arg "$@"; input="$(realpath -e -- "$1")"; report_dir
+    exec "$root/scripts/run.sh" python3 /work/scripts/validation/verify-serial-zero.py --device "$input" --output "$(runtime_path "$report")/result" ;;
+  map) exec "$root/scripts/srm-map" "$@" ;;
+  pulse) exec "$root/scripts/srm-pulse" "$@" ;;
+  ros) [[ $# -gt 0 ]] || { usage >&2; exit 2; }; exec "$root/scripts/run.sh" ros2 "$@" ;;
+  *) usage >&2; exit 2 ;;
+esac

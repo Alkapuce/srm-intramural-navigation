@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+entry="$(readlink -f -- "${BASH_SOURCE[0]}")"
+root="$(dirname -- "$(dirname -- "$entry")")"
+export INTRAMURAL_MAP_CALLER="$PWD"
+export INTRAMURAL_NATIVE=1
+exec "$root/scripts/run.sh" python3 /work/scripts/internal/site-mapping.py "$@"

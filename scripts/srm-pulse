@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+entry="$(readlink -f -- "${BASH_SOURCE[0]}")"
+root="$(dirname -- "$(dirname -- "$entry")")"
+exec "$root/scripts/run.sh" python3 /work/scripts/validation/vehicle-pulse.py "$@"
