@@ -25,8 +25,13 @@ def interrupt(signum, frame):
 signal.signal(signal.SIGINT, interrupt)
 signal.signal(signal.SIGTERM, interrupt)
 common = ['ruby', '/usr/bin/ign', 'gazebo']
-server = subprocess.Popen(common + ['-s', args.world, '--render-engine', args.engine,
-                                  '--force-version', '6'], start_new_session=True)
+server_command = common + ['-s', args.world, '--render-engine', args.engine, '--force-version', '6']
+server_env = os.environ.copy()
+if args.no_gui and args.engine == 'ogre2':
+    # EGL avoids OGRE's empty XRandR mode list when the monitor is disconnected.
+    server_command.append('--headless-rendering')
+    server_env.pop('DISPLAY', None)
+server = subprocess.Popen(server_command, start_new_session=True, env=server_env)
 viewer = None
 ros_nodes = None
 failure = False

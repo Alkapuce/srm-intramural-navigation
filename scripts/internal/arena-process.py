@@ -56,7 +56,7 @@ command = [
     "--gui-config",
     str(root / "config/arena-gui.config"),
     "--engine",
-    "ogre" if os.environ.get("LIBGL_ALWAYS_SOFTWARE") != "1" else "ogre2",
+    "ogre" if Path("/dev/dxg").exists() and os.environ.get("LIBGL_ALWAYS_SOFTWARE", "0") != "1" else "ogre2",
     "--nodes-launch",
     str(root / "launch/arena-nodes.launch.py"),
 ]

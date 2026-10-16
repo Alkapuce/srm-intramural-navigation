@@ -28,7 +28,9 @@ if transport not in ("direct", "serial-sim"):
 resources = Path(get_package_share_directory("rmu_gazebo_simulator"))
 world = ET.parse(resources / "resource/worlds/empty_world.sdf").getroot()
 w = world.find("world")
-w.find("plugin[@name='ignition::gazebo::systems::Sensors']/render_engine").text = "ogre"
+w.find("plugin[@name='ignition::gazebo::systems::Sensors']/render_engine").text = (
+    "ogre" if Path("/dev/dxg").exists() and os.environ.get("LIBGL_ALWAYS_SOFTWARE", "0") != "1" else "ogre2"
+)
 ET.SubElement(w, "physics", {"name": "physics", "type": "ignored"}).append(
     ET.fromstring("<max_step_size>0.005</max_step_size>")
 )

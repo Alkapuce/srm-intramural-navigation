@@ -15,14 +15,14 @@ def generate_launch_description():
     # Mesa D3D12 exposes OpenGL 3.3 here. OGRE 1 supports this backend;
     # Fortress OGRE 2's texture-copy path requires unavailable GL features.
     engine_argument = DeclareLaunchArgument('render_engine', default_value=
-        'ogre' if os.environ.get('LIBGL_ALWAYS_SOFTWARE', '0') == '0' else 'ogre2')
+        'ogre' if Path('/dev/dxg').exists() and os.environ.get('LIBGL_ALWAYS_SOFTWARE', '0') != '1' else 'ogre2')
     render_engine = LaunchConfiguration('render_engine')
     share = Path(get_package_share_directory('rmu_gazebo_simulator'))
     config = yaml.safe_load((share / 'config/gz_world.yaml').read_text())
     world = share / 'resource/worlds' / f"{config['world']}_world.sdf"
     gui = Path(__file__).resolve().parents[1] / 'config/navigation-gui.config'
     gazebo = ExecuteProcess(
-        cmd=['python3', '/work/scripts/internal/gazebo-process.py', '--world', str(world),
+        cmd=['python3', str(Path(__file__).resolve().parents[1] / 'scripts/internal/gazebo-process.py'), '--world', str(world),
              '--gui-config', str(gui), '--engine', render_engine],
         name='gazebo', shell=False, output='screen', sigterm_timeout='50',
         sigkill_timeout='5')
