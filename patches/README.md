@@ -4,6 +4,8 @@
 
 - `rmoss-gazebo-simulation-fixes.patch`：灯条原来连续两个物理步删除、重建同名 visual，异步 GUI / 传感器渲染可出现重复 visual 并崩溃。改为向原实体写入 `VisualCmd` 更新颜色，保留灯条功能。同时在底盘节点销毁控制器前停止传感器回调，通过共享互斥门闩等待正在执行的回调并拒绝排队回调，避免访问已销毁对象。依据 Gazebo 6 的 [UserCommands](https://github.com/gazebosim/gz-sim/blob/ign-gazebo6/src/systems/user_commands/UserCommands.cc) 与 [RenderUtil](https://github.com/gazebosim/gz-sim/blob/ign-gazebo6/src/rendering/RenderUtil.cc) 实现。
 - `rmu-simulator-python-entrypoint.patch`：裁判脚本添加 Python shebang，修复 `Exec format error`；捕获正常退出的 `KeyboardInterrupt` / `ExternalShutdownException`，释放 ROS 节点。
+- `pb_nav2_plugins-local.patch`：后退避障插件显式获取生命周期节点的 ROS 时钟，兼容尚未提供基类 `clock_` 成员的 Humble Nav2。该嵌套仓库单独登记补丁与校验值；父仓库仅忽略其工作树脏状态，固定提交仍须一致。
+- `livox_ros_driver2-local.patch`：退出时唤醒等待点云和 IMU 的线程后再 join，退出标志使用原子变量，修复无数据时正常中断仍卡住的问题。固定 Livox SDK v1.2.5 源码编译为内部静态库，隐藏其符号，消除预编译 SDK 与 ROS 系统 spdlog 的 ABI 冲突；现场 GDB 已复现旧路径在退出时调用错误析构器，修复后真实雷达 SIGINT/SIGTERM 均返回 0。相关上游记录：[Livox-SDK2 #44](https://github.com/Livox-SDK/Livox-SDK2/issues/44)。`test_livox_shutdown.py` 检查无设备退出，真实链验收使用 `verify-vehicle-standby.py`。
 
 - `pb2025-terrain-shutdown.patch`：两种地形分析节点复用一个 executor，并在循环入口检查 ROS context；避免中断后重新创建 executor 的 guard condition，引发退出异常。另使底盘里程计/TF 独立于点云同步发布并保留源时间戳；初始化 LOAM 安装变换，取得有效静态 TF 前不转换点云。真实 ROS 回归见 `test_sensor_scan_generation.py`、`test_loam_startup.py`，修复对照与边界见[模型验收](../docs/debug-log.md)。
 

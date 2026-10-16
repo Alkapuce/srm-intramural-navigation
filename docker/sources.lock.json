@@ -13,7 +13,27 @@
       "recursive": true,
       "patch": {
         "path": "patches/pb2025-terrain-shutdown.patch",
-        "sha256": "b2a04a6665d8f9e4c4bbef66d5a8e7bbc7304bc1297a7de2739dbb137cf205c0"
+        "sha256": "cd8f23e7881521bb4a21805b217ac3f90304d26a570adaa1e049e451fcc36d2e"
+      }
+    },
+    {
+      "path": "nav_ws/src/pb2025_sentry_nav/livox_ros_driver2",
+      "url": "https://github.com/SMBU-PolarBear-Robotics-Team/livox_ros_driver2.git",
+      "commit": "524e14a1ec714e427bde729a8f869bb7acd8507d",
+      "recursive": false,
+      "patch": {
+        "path": "patches/livox_ros_driver2-local.patch",
+        "sha256": "7bbdeeb4e87d2b1ab92a013084d66604541484ea96757aff555e2b16f43b03fb"
+      }
+    },
+    {
+      "path": "nav_ws/src/pb2025_sentry_nav/pb_nav2_plugins",
+      "url": "https://github.com/SMBU-PolarBear-Robotics-Team/pb_nav2_plugins.git",
+      "commit": "e6778ca44d9e88aa612a3c6c87d536a8cfa21705",
+      "recursive": false,
+      "patch": {
+        "path": "patches/pb_nav2_plugins-local.patch",
+        "sha256": "867d8718cfab29e63ab84937475f9dbccd1956df0dd941c978a02e538ef3aed8"
       }
     },
     {
@@ -64,6 +84,12 @@
       "path": "cache/small_gicp",
       "url": "https://github.com/koide3/small_gicp.git",
       "commit": "2c6c7831bc1f5ada2ee5300027fe7d7aee66827d",
+      "recursive": false
+    },
+    {
+      "path": "cache/livox-sdk2",
+      "url": "https://github.com/Livox-SDK/Livox-SDK2.git",
+      "commit": "6a940156dd7151c3ab6a52442d86bc83613bd11b",
       "recursive": false
     }
   ]

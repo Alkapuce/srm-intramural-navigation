@@ -20,6 +20,7 @@ class ContainerEntryTest(unittest.TestCase):
         docker.chmod(0o755)
         self.env = os.environ.copy()
         self.env.update(PATH=str(self.folder) + os.pathsep + self.env["PATH"],
+                        INTRAMURAL_NATIVE="0",
                         INTRAMURAL_ROS_DOMAIN_ID="091", INTRAMURAL_IGN_PARTITION="personal_nuc")
         self.env.pop("INTRAMURAL_SERIAL_DEVICE", None)
 

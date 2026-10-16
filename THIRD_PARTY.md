@@ -11,9 +11,11 @@
 | rmoss_core、rmoss_interfaces | 公共 ROS 工具和接口 | 各自仓库许可证 |
 | rmoss_gazebo、rmoss_gz_resources、rmu_gazebo_simulator | Gazebo 插件与公开场景 | 各自许可证；Gazebo/模拟器修复目标仓库为 Apache-2.0 |
 | sdformat_tools、xmacro | 公开模型生成工具 | 各自许可证，sdformat_tools 包声明 Apache License 2.0；xmacro 版本在 Dockerfile 固定 |
+| [OctoMap](https://github.com/OctoMap/octomap) | 系统 `liboctomap-dev` 提供三维射线与概率占据更新，供二维导图使用 | 核心库 BSD-3-Clause；不使用 Octovis |
 | small_gicp | 公共点云配准库 | 锁定源码仓库中的许可证 |
+| Livox-SDK2 v1.2.5 | 从源码编译 MID-360 SDK，隔离其内部日志符号 | 锁定源码仓库 LICENSE.txt，MIT；保留 3rdparty 许可证 |
 
-上述项目以 Git 子模块登记在本仓库 [.gitmodules](.gitmodules)，根 gitlink 指向公开基线；递归克隆包含完整上游源码、许可证及 pb2025 的 7 个子模块。自有对公开项目的修改在 `patches/`，恢复时应用并核对；其内容与适用的原项目许可证一起核查，不把所有依赖统一标成 Apache-2.0。地图来源与哈希由 `config/maps.lock.json` 标注，原始地图不上传。
+ROS 依赖以 Git 子模块登记在本仓库 [.gitmodules](.gitmodules)，根 gitlink 指向公开基线；递归克隆包含完整上游源码、许可证及 pb2025 的 7 个子模块。small_gicp 和 Livox-SDK2 由 `prepare-sources.py` 按固定提交恢复到 `cache/`。自有对公开项目的修改在 `patches/`，恢复时应用并核对；其内容与适用的原项目许可证一起核查，不把所有依赖统一标成 Apache-2.0。地图来源与哈希由 `config/maps.lock.json` 标注，原始地图不上传。
 
 相邻 SRM 上下位机仓库仅用于经用户允许的只读接口核对，具体事实来源记录在 `config/vehicle-srm-reference.json`；它们不属于开源依赖，也不参与本项目构建或运行。
 

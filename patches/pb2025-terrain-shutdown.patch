@@ -1,3 +1,23 @@
+diff --git a/.gitmodules b/.gitmodules
+index eed3161..a19f48a 100644
+--- a/.gitmodules
++++ b/.gitmodules
+@@ -1,6 +1,7 @@
+ [submodule "livox_ros_driver2"]
+ 	path = livox_ros_driver2
+ 	url = https://github.com/SMBU-PolarBear-Robotics-Team/livox_ros_driver2.git
++	ignore = dirty
+ [submodule "point_lio"]
+ 	path = point_lio
+ 	url = https://github.com/SMBU-PolarBear-Robotics-Team/point_lio.git
+@@ -16,6 +17,7 @@
+ [submodule "pb_nav2_plugins"]
+ 	path = pb_nav2_plugins
+ 	url = https://github.com/SMBU-PolarBear-Robotics-Team/pb_nav2_plugins.git
++	ignore = dirty
+ [submodule "pointcloud_to_laserscan"]
+ 	path = pointcloud_to_laserscan
+ 	url = https://github.com/SMBU-PolarBear-Robotics-Team/pointcloud_to_laserscan.git
 diff --git a/loam_interface/src/loam_interface.cpp b/loam_interface/src/loam_interface.cpp
 index 9fca1b7..3848089 100644
 --- a/loam_interface/src/loam_interface.cpp

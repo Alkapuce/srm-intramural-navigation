@@ -1,5 +1,7 @@
 """Real Livox and Point-LIO input diagnostics; no base or motion nodes."""
 
+import json
+import socket
 from pathlib import Path
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler
@@ -17,9 +19,22 @@ def start(context):
         valid = True
     if not valid:
         raise ValueError("Vehicle runtime parameters must be under cache or artifacts directory")
-    for name in ("livox-driver.yaml", "point-lio.yaml", "handoff.json"):
+    for name in ("MID360_config.json", "livox-driver.yaml", "point-lio.yaml", "handoff.json"):
         if not (folder / name).is_file():
             raise ValueError("Missing generated vehicle configuration: " + name)
+    network = json.loads((folder / "MID360_config.json").read_text())["MID360"]["host_net_info"]
+    endpoints = [("0.0.0.0", 56000)] + [
+        (network[name + "_ip"], network[name + "_port"])
+        for name in ("cmd_data", "push_msg", "point_data", "imu_data")
+    ]
+    for host, port in endpoints:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+                probe.bind((host, port))
+        except OSError as error:
+            raise RuntimeError(
+                f"MID-360 endpoint {host}:{port} unavailable: {error}; check local IP and coordinate other drivers"
+            ) from error
     return [
         Node(package="livox_ros_driver2", executable="livox_ros_driver2_node",
              name="livox_lidar_publisher", parameters=[str(folder / "livox-driver.yaml")], output="screen"),

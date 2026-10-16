@@ -7,6 +7,7 @@ export INTRAMURAL_SOURCE_OVERLAY=0
 exec "$INTRAMURAL_ROOT/scripts/run.sh" colcon --log-base "$prefix-log" build \
   --build-base "$prefix-build" \
   --install-base "$prefix-install" \
-  --symlink-install --parallel-workers 2 \
+  --symlink-install --parallel-workers 2 --event-handlers desktop_notification- \
   --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
-  -DFETCHCONTENT_SOURCE_DIR_SMALL_GICP=/work/cache/small_gicp
+  -DFETCHCONTENT_SOURCE_DIR_SMALL_GICP=/work/cache/small_gicp \
+  -DFETCHCONTENT_SOURCE_DIR_LIVOX_SDK=/work/cache/livox-sdk2

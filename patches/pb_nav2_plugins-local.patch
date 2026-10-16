@@ -1,0 +1,24 @@
+diff --git a/include/pb_nav2_plugins/behaviors/back_up_free_space.hpp b/include/pb_nav2_plugins/behaviors/back_up_free_space.hpp
+index acfa6df..4d13c9f 100644
+--- a/include/pb_nav2_plugins/behaviors/back_up_free_space.hpp
++++ b/include/pb_nav2_plugins/behaviors/back_up_free_space.hpp
+@@ -87,6 +87,7 @@ protected:
+     geometry_msgs::msg::Pose2D pose, float radius, float first_safe_angle, float last_unsafe_angle);
+ 
+   rclcpp::Client<nav2_msgs::srv::GetCostmap>::SharedPtr costmap_client_;
++  rclcpp::Clock::SharedPtr clock_;
+   std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<visualization_msgs::msg::MarkerArray>>
+     marker_pub_;
+   double twist_x_, twist_y_;
+diff --git a/src/behaviors/back_up_free_space.cpp b/src/behaviors/back_up_free_space.cpp
+index 200b46e..2803468 100644
+--- a/src/behaviors/back_up_free_space.cpp
++++ b/src/behaviors/back_up_free_space.cpp
+@@ -24,6 +24,7 @@ void BackUpFreeSpace::onConfigure()
+   if (!node) {
+     throw std::runtime_error{"Failed to lock node"};
+   }
++  clock_ = node->get_clock();
+ 
+   nav2_util::declare_parameter_if_not_declared(node, "global_frame", rclcpp::ParameterValue("map"));
+   nav2_util::declare_parameter_if_not_declared(node, "max_radius", rclcpp::ParameterValue(1.0));
