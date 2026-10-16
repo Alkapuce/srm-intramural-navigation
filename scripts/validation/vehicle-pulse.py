@@ -34,8 +34,8 @@ def main():
         p.print_help();return
     if not args.wheels_lifted or not args.stop_available:
         p.error("Both --wheels-lifted and --stop-available are required for a pulse")
-    if not math.isfinite(args.value) or not 0<abs(args.value)<=.05:
-        p.error("Protocol magnitude must be in (0, 0.05]; it is not metres/second")
+    if not math.isfinite(args.value) or not 0<abs(args.value)<=.1:
+        p.error("Protocol magnitude must be in (0, 0.10]; it is not metres/second")
     if not math.isfinite(args.seconds) or not 0<args.seconds<=.5:
         p.error("Pulse duration must be in (0, 0.5] seconds")
     if not args.device:

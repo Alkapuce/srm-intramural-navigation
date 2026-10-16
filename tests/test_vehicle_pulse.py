@@ -16,7 +16,7 @@ from intramural_base.protocol import crc8, crc16, feedback_frame
 
 
 class VehiclePulseTests(unittest.TestCase):
-    def exercise(self, legacy=False, interrupt=False, feedback=True, cli=False):
+    def exercise(self, legacy=False, interrupt=False, feedback=True, cli=False, value=-.02):
         root = Path(__file__).resolve().parents[1]
         evidence = root / "artifacts" / "tests" / "vehicle-pulse"
         evidence.mkdir(parents=True, exist_ok=True)
@@ -24,7 +24,7 @@ class VehiclePulseTests(unittest.TestCase):
         master, slave = pty.openpty()
         command = [sys.executable, str(root / "scripts/validation/vehicle-pulse.py"),
                    "--device", os.ttyname(slave), "--output", str(output),
-                   "--axis", "y", "--value", "-0.02", "--seconds", "0.3",
+                   "--axis", "y", "--value", str(value), "--seconds", "0.3",
                    "--wheels-lifted", "--stop-available"]
         if legacy:
             command.append("--legacy20")
@@ -90,7 +90,7 @@ class VehiclePulseTests(unittest.TestCase):
                     self.assertTrue(all(b-a >= .0049 for a,b in zip(times,times[1:])))
                 for vx, vy, wz in nonzero:
                     self.assertEqual((vx, wz), (0, 0))
-                    self.assertAlmostEqual(vy, -.02, places=6)
+                    self.assertAlmostEqual(vy, value, places=6)
             else:
                 self.assertFalse(nonzero)
             self.assertTrue(all(not any(v) for v in values[:100]))
@@ -104,7 +104,7 @@ class VehiclePulseTests(unittest.TestCase):
             os.close(slave)
 
     def test_competition_default(self):
-        self.exercise()
+        self.exercise(value=.1)
 
     def test_legacy20_pulse_and_zero_cleanup(self):
         self.exercise(legacy=True, cli=True)
