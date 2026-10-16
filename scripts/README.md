@@ -15,7 +15,8 @@
 | 固定公开源码恢复、检查与补丁导出 | `python3 prepare-sources.py`、`python3 sources.py status`、`python3 sources.py export <仓库>` |
 | 按参考接口生成独立实车配置，不连接设备 | `run.sh python3 /work/scripts/prepare-vehicle.py --output /work/cache/<新目录>` |
 | 实车雷达与 Point-LIO 调试，不启动底盘或任务 | `vehicle-sensors.sh`；配置目录由 `INTRAMURAL_VEHICLE_CONFIG` 指定 |
-| 单命令现场采集、校验、导图与重启定位验证 | `srm-map`；NUC 可安装到个人 `~/.local/bin` |
+| 单命令现场采集、校验、导图、识桩与重启定位验证 | `srm-map`；NUC 可安装到个人 `~/.local/bin` |
+| 已有地图识桩、显式实车导航、任务控制与当前点接入 | `srm-nav field/drive/start/start-here/cancel/reset`；见[现场手册](../docs/field-cli.md) |
 | 手动分步采集、真实 bag 局部地图和导航待机，任务及运动固定锁定 | `site-mapping.sh`、`prepare-vehicle-navigation.py`、`vehicle-navigation.sh`；流程见[实车待机](../docs/vehicle/navigation-standby.md) |
 | 冻结文件与证据哈希 | `run.sh python3 /work/scripts/freeze-candidate.py --output <新目录> --evidence <文件>` |
 

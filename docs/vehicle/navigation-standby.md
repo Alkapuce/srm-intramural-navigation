@@ -1,6 +1,6 @@
 # 真实传感器建图与导航待机
 
-`vehicle-navigation.sh` 接收真实传感器定位数据，运行地图配准、地形分析、Nav2 控制器、任务节点与速度保护。它不启动串口桥；`mission/start` 固定拒绝，`motion_guard` 固定输出零速，适合在车辆静止时检查导航接线。
+`vehicle-navigation.sh` 默认以锁定待机方式接收真实传感器定位数据，运行地图配准、地形分析、Nav2 控制器、任务节点与速度保护。默认不启动串口桥，拒绝 `mission/start`，最终输出零速，适合静止检查导航接线。本文说明分步建图与待机数据流；显式 `srm-nav drive`、识桩和实车发车使用[现场命令手册](../field-cli.md)中的流程。
 
 ```mermaid
 flowchart TD
@@ -24,7 +24,7 @@ flowchart TD
 
 ## 单命令现场流程
 
-NUC 的 qpj 用户可在任意目录执行：
+安装个人命令后，可在 NUC 任意目录执行：
 
 ```bash
 srm-map
@@ -38,14 +38,14 @@ srm-map
 # 定时录制；计时从传感器就绪后开始
 srm-map --duration 120
 
-# 复用正常保存的 bag，重新导图并进行真实定位重载验证
-srm-map --bag /绝对路径/bag
+# 复用最新已收尾的 bag；也可在 --bag 后指定旧录制目录
+srm-map --bag
 
 # 指定实车配置和测量过的场地几何
-srm-map --vehicle-config /绝对路径/实车配置 --arena-config /绝对路径/场地.json
+srm-map --vehicle-config cache/vehicle-01 --arena-config config/local/field.json
 ```
 
-默认输出到项目 `artifacts/mapping/<时间>/`，每次新建目录，不覆盖旧数据。`--output` 可指定项目 `cache/` 或 `artifacts/` 下的新目录；相对路径按执行命令时所在目录解析。主要产物为 `bag/`、`bag-quality.json`、`map/`、`map-quality.json`、`reload-check/` 和 `result.json`。复用 bag 时原始数据保持原位置。
+默认输出到项目 `artifacts/mapping/<时间>/`，每次新建目录，不覆盖旧数据。`--output` 可指定项目 `cache/` 或 `artifacts/` 下的新目录；相对路径按执行命令时所在目录解析。主要产物为 `bag/`、`bag-quality.json`、`map/`、`map-quality.json`、`navigation/field-detection.json`、`reload-check/` 和 `result.json`。两桩无歧义且完整路线通行时，`navigation/` 还会生成独立导航配置；识别失败仍保留地图与报告。复用 bag 时原始数据保持原位置。
 
 `result.json` 的 `status=complete` 表示采集/处理与定位重载流程完成，**不表示已具备自主行驶条件**。栅格通行性见 `map_quality.navigation_grid_has_clearance`；它将未知区域视为不可通行，并检查车体半径净空。即使有空闲区域，也仍须核对实际比赛路线、控制标定与停机行为。
 
@@ -54,8 +54,7 @@ srm-map --vehicle-config /绝对路径/实车配置 --arena-config /绝对路径
 新 NUC 一次性安装入口（在项目根目录执行；已有不同目标的链接先检查，不覆盖）：
 
 ```bash
-mkdir -p "$HOME/.local/bin"
-ln -sT "$PWD/scripts/srm-map" "$HOME/.local/bin/srm-map"
+scripts/install-cli.sh
 ln -sT "$PWD/cache/vehicle-01" "$PWD/cache/vehicle-current"
 ```
 

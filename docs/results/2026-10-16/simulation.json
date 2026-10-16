@@ -1,0 +1,310 @@
+{
+  "date": "2026-10-16T19:13:38.718406+08:00",
+  "environment": "WSL Docker / Gazebo Fortress / simulated sensors and serial transport",
+  "stable_default_entrypoint": {
+    "mode": "sensors",
+    "variant": "figure8",
+    "source_configuration_unchanged_during_run": true,
+    "rounds": [
+      {
+        "run": 1,
+        "duration_sim_seconds": 76.07,
+        "parking_error_m": 0.027793050412071103,
+        "min_pole_clearance_m": 1.0458420278581309,
+        "min_boundary_clearance_m": 0.7075461776502889,
+        "maximum_absolute_yaw_rad": 4.965010193622443e-18,
+        "phases": [
+          "ENTER",
+          "LOWER",
+          "LOWER",
+          "LOWER",
+          "UPPER",
+          "UPPER",
+          "UPPER",
+          "UPPER",
+          "LOWER_EXIT",
+          "RETURN"
+        ],
+        "samples": 3907,
+        "lower_winding_rad": 6.282216876239836,
+        "upper_winding_rad": -6.280912096215056,
+        "max_reference_deviation_m": 0.02771394160145696
+      }
+    ],
+    "cancel": {
+      "state": "CANCELLED",
+      "actual_motion_before_cancel": true,
+      "zero_command_and_stationary": true,
+      "reset": "IDLE"
+    },
+    "command_stats": {
+      "maximum_speed_mps": 0.35,
+      "maximum_absolute_wz": 0.0,
+      "nonfinite": 0
+    },
+    "observed_lidar_hz": 20.00117584808043,
+    "transport": {
+      "bridge": {
+        "sent": 8700,
+        "zero": 1020,
+        "seq_next": 252,
+        "max_interval_wall_seconds": 0.01882816199940862,
+        "min_interval_wall_seconds": 0.0011636030003501219,
+        "late_intervals_over_20ms": 0,
+        "reason": "disabled_or_invalid",
+        "bad_feedback_bytes": 0,
+        "simulation": true
+      },
+      "sim_mcu": {
+        "frames": 8726,
+        "last_seq": 21,
+        "seq_gaps": 0,
+        "bad_bytes": 0,
+        "command": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "link_enabled": true,
+        "min_interval_wall_seconds": 0.0015548170003967243,
+        "max_interval_wall_seconds": 0.017428702000870544,
+        "seconds_since_last_frame": 0.008782719999544497,
+        "no_mcu_watchdog": true
+      },
+      "feedback": {
+        "seq": 63,
+        "cmd_id": 1,
+        "values": {
+          "game_type": 10,
+          "game_progress": 10,
+          "stage_remain_time": 300,
+          "sync_time_stamp": 1234605616436508552
+        }
+      },
+      "maximum_observed_speed_mps": 0.35000001593093183,
+      "maximum_observed_wz": 0.0
+    },
+    "shutdown": {
+      "exit_code": 0,
+      "child_failures": false,
+      "forced_termination": false,
+      "gui": true,
+      "transport": "serial-sim"
+    }
+  },
+  "earlier_snapshot_regressions": [
+    {
+      "name": "sensors-five-gui",
+      "exit_code": 0,
+      "source_matches_stable_default_run": false
+    },
+    {
+      "name": "ideal-gui",
+      "exit_code": 0,
+      "source_matches_stable_default_run": false
+    },
+    {
+      "name": "removal",
+      "exit_code": 0,
+      "source_matches_stable_default_run": false
+    },
+    {
+      "name": "persistent",
+      "exit_code": 0,
+      "source_matches_stable_default_run": false
+    },
+    {
+      "name": "cancel-bypass",
+      "exit_code": 0,
+      "source_matches_stable_default_run": false
+    },
+    {
+      "name": "no-route",
+      "exit_code": 0,
+      "source_matches_stable_default_run": false
+    },
+    {
+      "name": "fault-pointcloud",
+      "exit_code": 0,
+      "source_matches_stable_default_run": false
+    },
+    {
+      "name": "fault-localization",
+      "exit_code": 0,
+      "source_matches_stable_default_run": false
+    },
+    {
+      "name": "fault-tf",
+      "exit_code": 0,
+      "source_matches_stable_default_run": false
+    },
+    {
+      "name": "fault-control",
+      "exit_code": 0,
+      "source_matches_stable_default_run": false
+    },
+    {
+      "name": "fault-transport_link",
+      "exit_code": 0,
+      "source_matches_stable_default_run": false
+    }
+  ],
+  "earlier_obstacle_removal_runs": [
+    {
+      "scenario": "entry",
+      "parking_error_m": 0.030035828432679063,
+      "history": [
+        "ENTER",
+        "LOWER",
+        "LOWER",
+        "LOWER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "LOWER_EXIT",
+        "RETURN"
+      ],
+      "bypass_count": 0
+    },
+    {
+      "scenario": "lower",
+      "parking_error_m": 0.028012399615838974,
+      "history": [
+        "ENTER",
+        "LOWER",
+        "LOWER",
+        "LOWER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "LOWER_EXIT",
+        "RETURN"
+      ],
+      "bypass_count": 0
+    },
+    {
+      "scenario": "upper",
+      "parking_error_m": 0.02079601163206366,
+      "history": [
+        "ENTER",
+        "LOWER",
+        "LOWER",
+        "LOWER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "LOWER_EXIT",
+        "RETURN"
+      ],
+      "bypass_count": 0
+    },
+    {
+      "scenario": "cross",
+      "parking_error_m": 0.024905133773397915,
+      "history": [
+        "ENTER",
+        "LOWER",
+        "LOWER",
+        "LOWER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "LOWER_EXIT",
+        "RETURN"
+      ],
+      "bypass_count": 0
+    }
+  ],
+  "earlier_persistent_obstacle_geometry": [
+    {
+      "scenario": "entry",
+      "run": 1,
+      "true_winding_rad": {
+        "lower_pole": 6.281561654720248,
+        "upper_pole": -6.280032212369445
+      },
+      "max_reference_deviation_m": 0.8601502585289601,
+      "minimum_box_center_distance_while_blocked_m": 0.8114946863739585,
+      "minimum_dynamic_clearance_m": 0.1989474525312343,
+      "max_return_to_entry_deviation_m": 0.04010781505769947,
+      "blocked_samples": 365
+    },
+    {
+      "scenario": "lower",
+      "run": 2,
+      "true_winding_rad": {
+        "lower_pole": 6.283465307788026,
+        "upper_pole": -6.282902282914659
+      },
+      "max_reference_deviation_m": 0.8713036297083496,
+      "minimum_box_center_distance_while_blocked_m": 0.8430640535506284,
+      "minimum_dynamic_clearance_m": 0.20674553912363253,
+      "max_return_to_entry_deviation_m": 0.08235202079536981,
+      "blocked_samples": 310
+    },
+    {
+      "scenario": "upper",
+      "run": 3,
+      "true_winding_rad": {
+        "lower_pole": 6.283487535644271,
+        "upper_pole": -6.282859230329626
+      },
+      "max_reference_deviation_m": 0.8232857530279861,
+      "minimum_box_center_distance_while_blocked_m": 0.8559594353536146,
+      "minimum_dynamic_clearance_m": 0.21185605898571142,
+      "max_return_to_entry_deviation_m": 0.08473634146583792,
+      "blocked_samples": 337
+    },
+    {
+      "scenario": "cross",
+      "run": 4,
+      "true_winding_rad": {
+        "lower_pole": 6.283449888980886,
+        "upper_pole": -6.28334242056361
+      },
+      "max_reference_deviation_m": 0.8338468862030558,
+      "minimum_box_center_distance_while_blocked_m": 0.8585870864428865,
+      "minimum_dynamic_clearance_m": 0.15229276641457357,
+      "max_return_to_entry_deviation_m": 0.07210594677995683,
+      "blocked_samples": 365
+    }
+  ],
+  "version_scope": "Each earlier regression used its own recorded source snapshot. Passing an earlier batch is not evidence that every batch ran against the final worktree.",
+  "gui_workaround": {
+    "WSL_GUI_only": true,
+    "QT_OPENGL_NO_SANITY_CHECK": "1",
+    "QSG_RENDER_LOOP": "threaded",
+    "driver_internals_fixed": false
+  },
+  "link_loss_simulation": {
+    "model_has_mcu_watchdog": false,
+    "result": {
+      "fault": "transport_link",
+      "position_before": [
+        0.024107733256056807,
+        -0.002979877918366234
+      ],
+      "speed_before_mps": 0.15281065602949684,
+      "unsafe_hold_after_cancel_m": 0.060038600907462054,
+      "mcu_speed_after_cancel_mps": 0.17658412031606582,
+      "physical_speed_after_cancel_mps": 0.17658412031606532,
+      "upstream_zero_after_cancel": true,
+      "stopped_after_link_restored": true,
+      "position_after": [
+        0.09910186443372021,
+        -0.005829489686399095
+      ],
+      "mission_state_after": "CANCELLED"
+    },
+    "scope": "Reproduces unsafe hold-last-command behavior, not physical link-loss safety acceptance"
+  },
+  "scope_excludes": [
+    "New start_here full simulation mission",
+    "NUC hardware or physical vehicle behavior",
+    "New clean build or container image rebuild"
+  ]
+}

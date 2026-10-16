@@ -1,6 +1,6 @@
 # NUC 离线部署
 
-流程是开发机准备完整源码，通过局域网同步到 NUC，再在 NUC 的原生 ROS 2 Humble 环境编译和桌面调试。NUC 当前没有外网，不在 NUC 上直接从 GitHub 下载。
+流程是开发机准备完整源码，通过局域网同步到 NUC，再在 NUC 的原生 ROS 2 Humble 环境编译和桌面调试。该流程不要求 NUC 直接访问 GitHub。
 
 ## 开发机准备交付目录
 
@@ -71,6 +71,16 @@ scripts/run.sh python3 -m unittest discover -s /work/tests -v
 ```
 
 统一入口指定本地 small_gicp、Livox SDK 源码并关闭桌面通知，避免离线下载和 SSH 下的通知阻塞。只编译任务包和雷达驱动不足以运行完整仿真或当前全部测试，因此这里使用完整工作空间构建。
+
+注册个人全局命令后，建图、传感器、导航和点动均可从任意目录调用：
+
+```bash
+scripts/install-cli.sh
+export PATH="$HOME/.local/bin:$PATH"
+srm-nav help
+```
+
+真实车辆的配置、现场建图与三终端导航流程见[现场命令手册](../field-cli.md)。命令不自动 SSH；在开发机执行不会转到 NUC。
 
 ## 桌面仿真
 

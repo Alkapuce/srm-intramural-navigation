@@ -2,13 +2,15 @@
 
 基于公开项目 [pb2025_sentry_nav](https://github.com/SMBU-PolarBear-Robotics-Team/pb2025_sentry_nav)，实现从停车位出发、逆时针绕下桩、顺时针绕上桩、沿原路回位的自主导航。支持障碍停车、移除恢复、持续障碍绕行、输入失效保护和比赛串口协议。
 
-本机已完成仿真闭环及 31 包构建、77 项测试；NUC 已接通真实 MID-360、Point-LIO、地图配准和 Nav2 待机链。实车入口锁定任务启动与最终零速输出，比赛场地测绘、精度标定、固件协议和断链停机仍需现场验收。
+本机已完成仿真闭环与 31 包构建；NUC 已接通真实 MID-360、Point-LIO、地图配准和 19 字节底盘接口，并记录一轮完整实车任务：10 个有序分段、约 44.31 秒，完成后最终速度为零。约 6.25 cm 的回位偏差来自定位估计，未作独立量测；真人挡停专项试验另行区分。现场复现从[命令手册](docs/field-cli.md)开始，实验过程见[调试日志](docs/debug-log.md)。
 
 ## 项目架构
 
 ```mermaid
 flowchart TB
     Sim["Gazebo：赛方车体 / 雷达 / IMU"] --> LIO["Point-LIO：连续里程计"]
+    Real["实车：MID-360 / IMU"] --> LIO
+    Real --> Raw["原始雷达近距输入"]
     LIO --> Loc["small_gicp：先验地图对齐 / TF"]
     LIO --> Map["地形处理 / Nav2 代价地图"]
     Loc --> Mission["有序任务 / 受约束 A* 绕行"]
@@ -16,15 +18,19 @@ flowchart TB
     Mission --> Control["Nav2 全向 PID / 速度平滑"]
     Loc --> Control
     Control --> Guard["motion_guard：最终速度保护"]
+    Mission --> Future["当前有序进度后的近期路径"]
+    Future --> Guard
+    Raw --> Guard
     Guard --> Serial["19 字节串口 / 100 Hz"]
     Serial --> MCU["伪终端 / 模拟下位机"]
+    Serial --> Chassis["实车底盘：显式 drive 启用"]
     MCU --> Sim
     Sim -. "真值仅用于独立验收" .-> Check["轨迹 / 顺序 / 绕数 / 实际停车"]
 ```
 
 - **定位**：Point-LIO 接收点云和 IMU；small_gicp 将当前点云与先验对齐，组成 `map → odom → base_footprint`。传感器模式不使用 Gazebo 真值定位。
-- **任务与避障**：自有任务层保存下瓣、上瓣、交叉点和返回段进度，通过 `FollowPath` 执行分段路径。持续阻挡 5 秒后尝试绕行，保持路线走廊、绕桩顺序和绕数；无路可走保持停车。
-- **控制与通信**：`motion_guard` 是最终 `cmd_vel` 的唯一发布者，负责时效、限幅和危险区检查。串口模拟中，底盘只能通过 `serial_bridge → 伪终端 → sim_mcu` 接收速度。
+- **任务与避障**：自有任务层保存下瓣、上瓣、交叉点和返回段进度，通过 `FollowPath` 执行分段路径。障碍移除后恢复当前阶段；启用绕行时，持续阻挡 5 秒后尝试受路线走廊、绕桩顺序和绕数约束的绕行，无路可走保持停车。当前实车配置采用停车等待策略。
+- **控制与通信**：`motion_guard` 是最终 `cmd_vel` 的唯一发布者，负责时效、限幅和危险区检查；实车沿近期有序路线检查原始点云中的车体扫掠。串口模拟中，底盘只能通过 `serial_bridge → 伪终端 → sim_mcu` 接收速度。
 - **场景**：使用 [赛方圆柱哨兵模型](simulation/models/sentry_robot_cylinder.xacro)和公开 MID-360 资源，导航包络半径 0.29 m。场地、平面动力学和解析先验仍是仿真假设。
 
 | 目录 | 作用 |
@@ -76,7 +82,7 @@ scripts/run.sh ros2 service call /intramural_robot/mission/cancel std_srvs/srv/T
 scripts/run.sh ros2 service call /intramural_robot/mission/reset std_srvs/srv/Trigger '{}'
 ```
 
-复位不传送机器人，运行中拒绝复位，再次启动要求位于停车位。在主启动终端按 `Ctrl-C`，等待所有子进程正常退出。
+复位不传送机器人，运行中拒绝复位。普通 `start` 要求位于停车位；调试命令 `srm-nav start-here` 可从地图中已正确定位的当前位置接入完整八字，最终回原停车位，不继承上轮进度。在主启动终端按 `Ctrl-C`，等待所有子进程正常退出。
 
 | 入口 | 用途 |
 |---|---|
@@ -116,7 +122,7 @@ scripts/reproduce-candidate.sh --output /work/artifacts/reproduce-01
 | 取消、输入停更、无路可走 | 停机及状态转换通过；物理断链仍暴露停机缺口 |
 | 干净克隆独立复现 | 31 包、60 项测试、完整串口模拟路线通过；回位误差 3.51 cm |
 
-[调试日志](docs/debug-log.md)记录问题、排查、修复及系统理解；机器可读结果保留在 [2026-10-13](docs/results/2026-10-13/validation-summary.json) 和 [2026-10-14](docs/results/2026-10-14/reproduction.json)。
+[调试日志](docs/debug-log.md)记录问题、排查、修复及系统理解；机器可读结果包括 [10-13 仿真](docs/results/2026-10-13/validation-summary.json)、[10-14 独立复现](docs/results/2026-10-14/reproduction.json)、[10-16 仿真复验](docs/results/2026-10-16/simulation.json)和 [10-16 实车任务](docs/results/2026-10-16/field-navigation.json)。不同日期与源码快照的结论分别保留。
 
 ## NUC 离线部署与调试
 
@@ -132,6 +138,6 @@ scripts/candidate.sh serial-sim
 
 另一个终端使用相同变量，按前述 `start/cancel/reset` 操作。实车 MID-360 和 Point-LIO 的调试入口是 `scripts/vehicle-sensors.sh`；它只启动传感器，不启动底盘或任务。参考参数、配置生成和真实串口接入见[实车接口](docs/vehicle/reference.md)与[接车调试](docs/vehicle/commissioning.md)。
 
-NUC 现场采集可用全局命令 `srm-map`，按 Enter 结束采集后自动校验、导图并重启验证定位；支持 `--duration` 定时和 `--bag` 复用。分步建图与导航待机使用 `scripts/prepare-vehicle-navigation.py`、`scripts/vehicle-navigation.sh`，复用仿真的任务、控制器和速度保护。操作与 TF 接线见[实车导航待机](docs/vehicle/navigation-standby.md)。该入口不启动串口桥，拒绝任务启动并持续输出零速。
+在 NUC 仓库根目录执行 `scripts/install-cli.sh` 注册个人全局命令。`srm-map` 按 Enter 结束采集后自动校验、导图、尝试识别两桩并重启验证定位；支持 `--duration` 定时和 `--bag` 复用。成功生成两桩配置后，分别运行 `srm-nav sensors` 与 `srm-nav drive`，再用第三终端 `start` 或 `start-here` 发车，默认选择最新有效图，也可传入路径固定版本，完整命令见[现场手册](docs/field-cli.md)。
 
-完整实车自主导航链仍需现场地图、安装与速度标定、固件协议及物理停机验收。模拟下位机没有超时停车，物理断链后可能继续执行末帧；上位机看门狗不能替代下位机或硬件停机机制。
+分步建图与锁定待机的 TF 接线见[实车导航待机](docs/vehicle/navigation-standby.md)；默认待机不打开串口，显式 `drive` 才启用已确认配置的底盘通信。正式场地需现场重新建图、确认桩位和配准；本次 1:1 速度初值尚未做定量测速。模拟下位机刻意没有超时停车，断链后可能继续执行末帧；上位机看门狗不能替代下位机或硬件停机机制。

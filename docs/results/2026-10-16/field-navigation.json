@@ -1,0 +1,125 @@
+{
+  "date": "2026-10-16",
+  "environment": "NUC native ROS 2 Humble; real MID-360, Point-LIO, map alignment and physical serial bridge",
+  "mapping": {
+    "quality_passed": true,
+    "streams": {
+      "/livox/imu": {
+        "count": 13765,
+        "duration_s": 68.82083630561829,
+        "hz": 199.99756961506665,
+        "backwards": 0,
+        "invalid": 0
+      },
+      "/intramural_robot/aft_mapped_to_init": {
+        "count": 689,
+        "duration_s": 68.80024909973145,
+        "hz": 9.999963793774775,
+        "backwards": 0,
+        "invalid": 0
+      },
+      "/intramural_robot/cloud_registered": {
+        "count": 689,
+        "duration_s": 68.80024909973145,
+        "hz": 9.999963793774775,
+        "backwards": 0,
+        "invalid": 0
+      },
+      "/livox/lidar": {
+        "count": 688,
+        "duration_s": 68.70024490356445,
+        "hz": 9.999964351864422,
+        "backwards": 0,
+        "invalid": 0
+      }
+    },
+    "map_points": 165777,
+    "resolution_m": 0.05,
+    "known_free_area_m2": 67.475,
+    "largest_robot_clear_component_m2": 12.8
+  },
+  "field_geometry": {
+    "candidates": 2,
+    "operator_confirmed_pole_identity": true,
+    "full_route_grid_check": {
+      "entry_angle": 0.0,
+      "passed": true,
+      "minimum_obstacle_distance_m": 0.3905124837953327,
+      "required_obstacle_distance_m": 0.35035533905932736,
+      "blocked_samples": 0,
+      "examples": []
+    },
+    "original_map_unchanged": true,
+    "scope": "Two isolated vertical objects in this observed scene; not a general semantic detector"
+  },
+  "vehicle_interface": {
+    "protocol": "competition19",
+    "positive_x": "forward",
+    "positive_y": "left",
+    "direction_and_zero_stop_evidence": "operator observation",
+    "link_loss_stop_evidence": "operator reports field confirmation",
+    "body_to_protocol_initial_estimate": [
+      [
+        1,
+        0
+      ],
+      [
+        0,
+        1
+      ]
+    ],
+    "quantitative_speed_scale_measured": false,
+    "command_limit": 0.4,
+    "physical_speed_limit_independently_verified": false
+  },
+  "completed_mission": {
+    "evidence": "Recorded real mission/status, motion_guard/status and final cmd_vel samples",
+    "state": "DONE",
+    "segments": 10,
+    "phase_history": [
+      "ENTER",
+      "LOWER",
+      "LOWER",
+      "LOWER",
+      "UPPER",
+      "UPPER",
+      "UPPER",
+      "UPPER",
+      "LOWER_EXIT",
+      "RETURN"
+    ],
+    "duration_seconds": 44.31398677825928,
+    "blocked_count": 6,
+    "bypass_count": 0,
+    "final_estimated_xy_m": [
+      -0.05321674067679938,
+      -0.03277110639188108
+    ],
+    "estimated_parking_offset_m": 0.06249773517824228,
+    "final_command_samples": 99,
+    "final_nonzero_commands": 0,
+    "collision_check": "ordered_path",
+    "independent_ground_truth_used": false,
+    "physical_distance_measured": false,
+    "controlled_human_obstacle_test_recorded": false,
+    "recorded_before_final_explicit_zero_and_minimum_hit_changes": true
+  },
+  "reboot_alignment": {
+    "scans": 4,
+    "non_ground_nearest_neighbor_median_range_m": [
+      0.022677997772756888,
+      0.026781828038743252
+    ],
+    "within_10cm_fraction_range": [
+      0.9563492063492064,
+      0.9774774774774775
+    ],
+    "scope": "Local scan-map consistency after a supplied initial pose; not an independent global localization accuracy test"
+  },
+  "software_regression": {
+    "tests_passed": 102,
+    "hardware_opened_by_tests": false,
+    "default_cli_tests_on_nuc": 6,
+    "final_guard_change_vehicle_retest_recorded": false
+  }
+}
