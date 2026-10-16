@@ -48,6 +48,17 @@ class ContainerEntryTest(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(result.stdout, "")
 
+    def test_navigation_entry_forwards_personal_vehicle_configuration(self):
+        env = {**self.env, "INTRAMURAL_NAVIGATION_CONFIG": "/work/cache/field-map",
+               "INTRAMURAL_VEHICLE_CONFIG": "/work/cache/personal-vehicle"}
+        result = subprocess.run(["bash", str(self.root / "scripts/vehicle-navigation.sh"),
+                                 "enable_motion:=true", "serial_device:=/dev/null"],
+                                env=env, text=True, capture_output=True, check=True)
+        args = json.loads(result.stdout)
+        self.assertIn("navigation_config:=/work/cache/field-map", args)
+        self.assertIn("vehicle_config:=/work/cache/personal-vehicle", args)
+        self.assertIn("enable_motion:=true", args)
+
 
 if __name__ == "__main__":
     unittest.main()

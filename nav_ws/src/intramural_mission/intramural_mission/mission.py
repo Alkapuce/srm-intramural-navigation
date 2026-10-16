@@ -17,7 +17,7 @@ from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformListener
 from intramural_mission.route import segments, clearance, primitives, projected_progress, line
 from intramural_mission.hazards import first_blocked
-from intramural_mission.bypass import plan
+from intramural_mission.bypass import plan, entry_path
 
 
 class Mission(Node):
@@ -69,11 +69,15 @@ class Mission(Node):
         self.raw_hazard = False
         self.raw_hazard_at = 0.0
         self.ready_since = None
+        self.static_map = None
+        self.start_from_here = False
         self.tf = Buffer(node=self)
         self.listener = TransformListener(self.tf, self)
         self.client = ActionClient(self, FollowPath, "follow_path")
         self.lifecycle = self.create_client(GetState, "controller_server/get_state")
         self.create_subscription(OccupancyGrid, "local_costmap/costmap", self.receive_costmap,
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.create_subscription(OccupancyGrid, "map", self.receive_map,
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.create_subscription(Bool, "motion_guard/hazard", self.receive_raw_hazard, 10)
         q = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -81,8 +85,10 @@ class Mission(Node):
         self.enable_pub = self.create_publisher(Bool, "mission/enabled", q)
         self.bypass_pub = self.create_publisher(Bool, "mission/bypass", q)
         self.path_pub = self.create_publisher(RosPath, "mission/path", q)
+        self.collision_path_pub = self.create_publisher(RosPath, "mission/collision_path", q)
         for name, callback in [
             ("start", self.start),
+            ("start_here", self.start_here),
             ("cancel", self.cancel),
             ("reset", self.reset),
         ]:
@@ -98,6 +104,9 @@ class Mission(Node):
     def receive_costmap(self, msg):
         self.costmap = msg
         self.costmap_at = time.monotonic()
+
+    def receive_map(self, msg):
+        self.static_map = msg
 
     def receive_raw_hazard(self, msg):
         self.raw_hazard = msg.data
@@ -123,11 +132,11 @@ class Mission(Node):
             (grid.info.origin.position.x, grid.info.origin.position.y, origin_yaw),
             self.grid_transform)
         stopped = self.state == 'BLOCKED' or self.abort_at is not None
-        blocked = first_blocked(*arguments, radius=self.c['robot_radius']+.12,
+        blocked = first_blocked(*arguments, radius=self.c['robot_radius']+self.c.get('minimum_clearance', .12),
             threshold=100, lookahead=5.0 if stopped else 1.2)
         if blocked is None and stopped:
             # The controller also rejects inscribed cells while a removed object's inflation clears.
-            blocked = first_blocked(*arguments, radius=.05, threshold=99, lookahead=5.0)
+            blocked = first_blocked(*arguments, radius=self.c.get('minimum_clearance', .05), threshold=99, lookahead=5.0)
         return blocked
 
     def raw_obstacle(self):
@@ -194,7 +203,10 @@ class Mission(Node):
         self.bypass_pub.publish(Bool(data=True))
         self.resume_segment()
 
-    def start(self, request, response):
+    def start_here(self, request, response):
+        return self.start(request, response, from_here=True)
+
+    def start(self, request, response, from_here=False):
         if not self.start_permitted:
             response.message = "Vehicle standby: field geometry and physical safety not accepted"
             return response
@@ -213,9 +225,19 @@ class Mission(Node):
         ):
             response.message = "Localization or controller not ready"
             return response
-        if math.dist(self.pose, self.c["parking"]) > self.c["parking_tolerance"]:
+        if not from_here and math.dist(self.pose, self.c["parking"]) > self.c["parking_tolerance"]:
             response.message = "Robot is outside parking tolerance"
             return response
+        route = primitives(self.c) if self.variant == 'primitives' else segments(self.c)
+        if from_here:
+            if self.variant != 'figure8':
+                response.message = "Start here requires the figure8 mission"
+                return response
+            path = entry_path(self.c, self.pose, route[0][1][-1], self.static_map)
+            if path is None:
+                response.message = "No known free path from current pose to entry; check map and localization"
+                return response
+            route[0] = ('ENTER', path)
         self.run += 1
         self.history = []
         self.reason = ""
@@ -225,7 +247,8 @@ class Mission(Node):
         self.bypass_count = 0
         self.bypassing = False
         self.bypass_pub.publish(Bool(data=False))
-        self.route = primitives(self.c) if self.variant == 'primitives' else segments(self.c)
+        self.route = route
+        self.start_from_here = from_here
         self.clear_since = None
         self.abort_at = None
         self.start_time = self.get_clock().now().nanoseconds / 1e9
@@ -234,7 +257,7 @@ class Mission(Node):
         self.index = -1
         self.next_segment()
         response.success = True
-        response.message = "Mission started"
+        response.message = "Mission started from current pose; returning to configured parking" if from_here else "Mission started"
         return response
 
     def reset(self, request, response):
@@ -255,7 +278,7 @@ class Mission(Node):
         self.history = []
         self.enabled(False)
         response.success = True
-        response.message = "Reset; next start requires robot in parking"
+        response.message = "Reset; use start from parking or start_here from current localized pose"
         return response
 
     def cancel(self, request, response):
@@ -300,7 +323,12 @@ class Mission(Node):
             entered = self.route[0][1]
             phase, exiting = self.route[-2]
             self.route[-2] = (phase, exiting[:-1] + line(exiting[-1], entered[-1], self.c['path_spacing']))
-            self.route[-1] = ('RETURN', list(reversed(entered)))
+            returning = (entry_path(self.c, entered[-1], self.c['parking'], self.static_map)
+                         if self.start_from_here else list(reversed(entered)))
+            if returning is None:
+                self.fault("No known free return path to parking")
+                return
+            self.route[-1] = ('RETURN', returning)
         self.index += 1
         self.progress = 0
         self.progress_fraction = 0.0
@@ -374,16 +402,20 @@ class Mission(Node):
         if self.segment_result is None:
             return
         points = self.route[self.index][1]
+        tolerance = self.c["parking_tolerance"] if self.route[self.index][0] == "RETURN" else self.c["checkpoint_tolerance"]
+        # Metric path remainder preserves ordered progress without a conflicting percentage gate on short segments.
+        remaining = sum(math.dist(a, b) * min(1.0, max(0.0, i + 1 - self.progress_fraction))
+                        for i, (a, b) in enumerate(zip(points, points[1:])))
         if (
             self.pose is not None
-            and math.dist(self.pose, points[-1]) <= self.c["checkpoint_tolerance"]
-            and self.progress_fraction >= 0.90 * (len(points) - 1)
+            and math.dist(self.pose, points[-1]) <= tolerance
+            and remaining <= tolerance
         ):
             self.segment_result = None
             self.next_segment()
         elif time.monotonic() - self.result_at > 0.5:
             self.fault(
-                f"Segment {self.index}: completed action but progress={self.progress_fraction}/{len(points) - 1}, pose={self.pose}"
+                f"Segment {self.index}: completed action but remaining={remaining:.3f}m, tolerance={tolerance:.3f}m, pose={self.pose}"
             )
 
     def tick(self):
@@ -450,7 +482,7 @@ class Mission(Node):
                 error = math.dist(points[candidate], self.pose)
                 if error > self.c["max_tracking_error"]:
                     self.fault(f"Path tracking error {error:.3f}")
-                elif min(clearance(self.c, self.pose)) < 0.05:
+                elif min(clearance(self.c, self.pose)) < self.c.get("minimum_clearance", 0.05):
                     self.fault("Pole or boundary clearance insufficient")
                 else:
                     self.progress = max(self.progress, candidate)
@@ -463,6 +495,19 @@ class Mission(Node):
 
     def publish_status(self):
         now = time.monotonic()
+        if self.state in ('RUNNING', 'BLOCKED') and 0 <= self.index < len(self.route):
+            future, travelled = [], 0.
+            horizon = max(1.2, .2*self.c['max_speed']+self.c['max_speed']**2/(2*self.c['max_acceleration'])+.02)
+            for index in range(self.index, len(self.route)):
+                for p in self.route[index][1][self.progress if index == self.index else 0:]:
+                    if future:
+                        travelled += math.dist(future[-1], p)
+                    future.append(p)
+                    if travelled >= horizon:
+                        break
+                if travelled >= horizon:
+                    break
+            self.collision_path_pub.publish(self.make_path(future))
         clock_time = (
             self.get_clock().now().nanoseconds / 1e9
             if self.finished is None

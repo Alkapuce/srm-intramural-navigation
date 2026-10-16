@@ -123,11 +123,15 @@ params["small_gicp_relocalization"]["ros__parameters"]["prior_pcd_file"]=str(out
 params["map_server"]["ros__parameters"]["yaml_filename"]=str(out/"map.yaml")
 controller=params["controller_server"]["ros__parameters"]
 controller["min_y_velocity_threshold"]=.001
-controller["FollowPath"].update(enable_rotation=False,v_angular_min=0.0,v_angular_max=0.0,v_linear_min=-.2,v_linear_max=.2,translation_ki=0.0)
+controller["general_goal_checker"]["xy_goal_tolerance"]=min(arena["checkpoint_tolerance"],arena["parking_tolerance"])
+speed=min(arena['max_speed'],.5)
+controller["FollowPath"].update(enable_rotation=False,v_angular_min=0.0,v_angular_max=0.0,v_linear_min=-speed,v_linear_max=speed,translation_ki=0.0,
+    lookahead_dist=.18,use_velocity_scaled_lookahead_dist=False,min_lookahead_dist=.18,max_lookahead_dist=.18,
+    use_interpolation=True,min_approach_linear_velocity=.05,approach_velocity_scaling_dist=.2,reduction_ratio_at_high_curvature=.9)
 cost=params["local_costmap"]["local_costmap"]["ros__parameters"]
 cost.update(robot_radius=arena["robot_radius"],always_send_full_costmap=True)
 smooth=params["velocity_smoother"]["ros__parameters"]
-smooth.update(max_velocity=[.2,.2,0.0],min_velocity=[-.2,-.2,0.0])
+smooth.update(max_velocity=[speed,speed,0.0],min_velocity=[-speed,-speed,0.0])
 (out/"nav.yaml").write_text(yaml.safe_dump(params,sort_keys=False))
 manifest={"purpose":"Real recorded map; motion remains locked pending field and vehicle acceptance","source_bag":str(bag),"registered_scans":len(clouds),"map_points":len(xyz),"vehicle_config":str(vehicle),"field_geometry_source":str(Path(args.arena_config).resolve()) if args.arena_config else None,"field_geometry_verified":False,"obstacle_policy":"stop_and_wait","motion_permitted":False,"start_permitted":False,"unknown_space_preserved":True,"files_sha256":{f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in out.iterdir()}}
 (out/"manifest.json").write_text(json.dumps(manifest,indent=2)+"\n")

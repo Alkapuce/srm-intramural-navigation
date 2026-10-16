@@ -14,6 +14,7 @@ import socket
 import subprocess
 import sys
 import time
+from field_paths import latest
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "cache/runtime"
@@ -22,7 +23,10 @@ CALLER = Path(os.environ.get("INTRAMURAL_MAP_CALLER", os.getcwd()))
 
 def path(value):
     p = Path(value).expanduser()
-    return (p if p.is_absolute() else CALLER / p).resolve()
+    candidate = p if p.is_absolute() else CALLER / p
+    if not candidate.exists() and not p.is_absolute() and (ROOT / p).exists():
+        candidate = ROOT / p
+    return candidate.resolve()
 
 
 def processes(group):
@@ -155,11 +159,17 @@ class Streams:
 def main():
     p = argparse.ArgumentParser(description="采集 → 校验 → 导图 → 地图质量检查 → 重启传感器 → 定位验证；不控制电机")
     p.add_argument("--duration", type=float, default=0, help="录制秒数；默认按 Enter 结束，Ctrl-C 取消整个流程")
-    p.add_argument("--bag", type=path, help="复用已正常结束的 bag，跳过新采集")
+    p.add_argument("--bag", nargs="?", const="latest", help="复用已收尾的 bag；不填目录时选最新录制，跳过新采集")
     p.add_argument("--vehicle-config", type=path, default=path(os.environ.get("INTRAMURAL_VEHICLE_CONFIG", str(ROOT / "cache/vehicle-current"))))
     p.add_argument("--output", type=path, help="新的 artifacts/ 或 cache/ 子目录；默认自动按时间命名")
     p.add_argument("--arena-config", type=path, help="已测量的比赛场地几何；不提供时保持实验几何")
     args = p.parse_args()
+    if args.bag:
+        try:
+            args.bag = latest('bag') if args.bag == 'latest' else path(args.bag)
+        except ValueError as error:
+            p.error(str(error))
+        print("复用 bag:", args.bag, flush=True)
     if not math.isfinite(args.duration) or args.duration < 0 or 0 < args.duration < 5:
         p.error("--duration 须为 0 或至少 5 秒")
     if not args.bag and args.duration == 0 and not sys.stdin.isatty():
@@ -220,7 +230,7 @@ def main():
         if code != 0 and not (cancelling and code in (-signal.SIGINT, 130)):
             raise RuntimeError(f"{name} 异常退出 ({code})，见对应日志")
 
-    def run(name, command, timeout=300):
+    def run(name, command, timeout=300, allow_failure=False):
         print(name, flush=True)
         process = start(name, command)
         try:
@@ -228,10 +238,12 @@ def main():
         except subprocess.TimeoutExpired:
             raise RuntimeError(f"{name} 超时，见 {out / (name + '.log')}")
         children.pop(name)
-        if code != 0:
+        if code != 0 and not allow_failure:
             raise RuntimeError(f"{name} 未通过 ({code})，见 {out / (name + '.log')}")
-        result["stages"].append(name)
+        if code == 0:
+            result["stages"].append(name)
         save()
+        return code
 
     def sensors(name):
         nonlocal monitor
@@ -290,6 +302,11 @@ def main():
             command += ["--arena-config", str(args.arena_config)]
         run("export-map", command)
         run("map-quality", [sys.executable, str(ROOT / "scripts/validation/verify-map-quality.py"), "--map-config", str(out / "map"), "--output", str(out / "map-quality.json")])
+        detection_code = run("field-detection", [sys.executable, str(ROOT / "scripts/internal/field_geometry.py"),
+            "--map-config", str(out / "map"), "--output", str(out / "navigation")], allow_failure=True)
+        result["field_geometry_detected"] = detection_code == 0
+        if detection_code == 0:
+            result["navigation_config"] = str(out / "navigation")
         sensors("sensors-reload")
         monitor.close(); monitor = None
         os.environ["INTRAMURAL_NAVIGATION_CONFIG"] = str(out / "map")
@@ -330,6 +347,10 @@ def main():
     print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
     if result["status"] == "complete":
         print("流程完成，重启定位检查通过；地图目录:", out / "map", flush=True)
+        if result.get("field_geometry_detected"):
+            print("已自动识别两桩并检查完整八字，导航配置:", result["navigation_config"], flush=True)
+        else:
+            print("未得到无歧义且整圈可通行的两桩配置，检查 field-detection.log；不会自动发车。", flush=True)
         if not result["map_quality"]["navigation_grid_has_clearance"]:
             print("注意：二维栅格没有满足车体半径的空闲区域，不能据此开放自主导航。", flush=True)
     return exit_code

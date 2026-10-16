@@ -10,11 +10,11 @@ from rclpy.node import Node
 from rclpy.clock import Clock, ClockType
 from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
 from geometry_msgs.msg import Twist, TransformStamped
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, Path as RosPath
 from sensor_msgs.msg import PointCloud2, Imu
 from std_msgs.msg import Bool, String
-from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
-from intramural_mission.proximity import obstacle_near, lidar_to_body
+from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster, Buffer, TransformListener, TransformException
+from intramural_mission.proximity import obstacle_near, obstacle_on_path, lidar_to_body
 
 
 class Adapter(Node):
@@ -35,6 +35,12 @@ class Adapter(Node):
         self.raw_near_points = np.empty((0, 2), dtype=np.float32)
         self.last_motion_direction = (0.0, 0.0)
         self.hazard = False
+        self.collision_path = None
+        if self.c.get('raw_collision_follow_path', False):
+            self.path_tf = Buffer(node=self)
+            self.path_listener = TransformListener(self.path_tf, self)
+            self.create_subscription(RosPath, 'mission/collision_path', self.receive_path,
+                QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.pub = self.create_publisher(Twist, "cmd_vel", 10)
         self.hazard_pub = self.create_publisher(Bool, "motion_guard/hazard", 10)
         self.diagnostic = self.create_publisher(String, "motion_guard/status", 10)
@@ -82,6 +88,26 @@ class Adapter(Node):
     def touch(self, key):
         self.last[key] = time.monotonic()
 
+    def receive_path(self, msg):
+        self.collision_path = msg
+
+    def body_path(self):
+        if self.collision_path is None or len(self.collision_path.poses) < 2:
+            return None
+        try:
+            t = self.path_tf.lookup_transform('base_footprint', self.collision_path.header.frame_id, rclpy.time.Time())
+        except TransformException:
+            return None
+        stamp = t.header.stamp.sec + t.header.stamp.nanosec/1e9
+        if abs(self.get_clock().now().nanoseconds/1e9-stamp) > .25:
+            return None
+        q = t.transform.rotation
+        yaw = math.atan2(2*(q.w*q.z+q.x*q.y), 1-2*(q.y*q.y+q.z*q.z))
+        co, si = math.cos(yaw), math.sin(yaw)
+        return [[co*p.pose.position.x-si*p.pose.position.y+t.transform.translation.x,
+                 si*p.pose.position.x+co*p.pose.position.y+t.transform.translation.y]
+                for p in self.collision_path.poses]
+
     def enable(self, msg):
         self.enabled = msg.data
 
@@ -118,7 +144,16 @@ class Adapter(Node):
             raw = np.ndarray((msg.height, msg.width), dtype=raw_dtype, buffer=msg.data,
                 strides=(msg.row_step, msg.point_step))
             xyz = np.column_stack([raw[k].reshape(-1) for k in ("x", "y", "z")])
-            xyz = xyz[np.isfinite(xyz).all(axis=1) & (np.sum(xyz * xyz, axis=1) > 1e-12)]
+            ranges2 = np.sum(xyz * xyz, axis=1)
+            valid = np.isfinite(xyz).all(axis=1) & (ranges2 > 1e-12)
+            minimum = self.c.get("raw_zero_intensity_min_range_m", 0.)
+            intensity = raw_fields.get("intensity")
+            if minimum > 0 and intensity is not None and intensity.datatype == 7:
+                strength = np.ndarray((msg.height,msg.width),dtype="<f4",buffer=msg.data,
+                    offset=intensity.offset,strides=(msg.row_step,msg.point_step)).reshape(-1)
+                # Observed 10–12 cm zero-strength near returns; retain all stronger or farther returns.
+                valid &= (strength != 0) | (ranges2 >= minimum * minimum)
+            xyz = xyz[valid]
             body = lidar_to_body(xyz, self.c["lidar_pose"])
             mask = ((body[:, 2] > .15) & (body[:, 2] < 1.4)
                     & (np.sum(body[:, :2] ** 2, axis=1) > self.c["robot_radius"] ** 2))
@@ -197,16 +232,26 @@ class Adapter(Node):
             self.last_motion_direction = tuple(target)
         speed = max(math.hypot(*target), math.hypot(*self.output))
         # shortcut: 0.2 s latency + configured braking, replace after vehicle stop-distance measurements.
-        stop_radius = self.c['robot_radius']+.1+.2*speed+speed*speed/(2*self.c['max_acceleration'])
+        radial = self.c['robot_radius'] + self.c.get('minimum_clearance', .1)
+        stop_radius = radial+.2*speed+speed*speed/(2*self.c['max_acceleration'])
+        lateral = self.c['robot_radius'] if 'minimum_clearance' in self.c else radial
+        min_points = self.c.get('raw_collision_min_points', 1)
         self.hazard = obstacle_near(self.raw_near_points, self.last_motion_direction,
-            radial=self.c['robot_radius']+.1, forward=stop_radius, lateral=self.c['robot_radius']+.1)
+            radial=radial, forward=stop_radius, lateral=lateral, immediate=lateral, min_points=min_points)
+        self.guard_mode = 'velocity'
+        if self.c.get('raw_collision_follow_path', False):
+            path = self.body_path()
+            if path is not None:
+                self.hazard = obstacle_on_path(self.raw_near_points, path,
+                    reach=stop_radius-radial+self.c.get('minimum_clearance', 0.), radius=self.c['robot_radius'], min_points=min_points)
+                self.guard_mode = 'ordered_path'
         if self.hazard:
             target = [0.0, 0.0]
         self.hazard_pub.publish(Bool(data=self.hazard))
         length = math.hypot(*target)
         if length > self.c["max_speed"]:
             target = [v * self.c["max_speed"] / length for v in target]
-        if not self.motion_permitted or not self.enabled or stale or not valid or self.hazard:
+        if not self.motion_permitted or not self.enabled or stale or not valid or self.hazard or not any(target):
             self.output = [0.0, 0.0]
         else:
             delta = [target[i] - self.output[i] for i in range(2)]
@@ -232,6 +277,7 @@ class Adapter(Node):
                         "mode": self.mode,
                         "wz_disabled": True,
                         "raw_lidar_hazard": self.hazard,
+                        "collision_check": self.guard_mode,
                     }
                 )
             )

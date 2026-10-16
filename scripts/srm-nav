@@ -12,29 +12,53 @@ SRM 导航调试（在执行本命令的机器上运行，不自动 SSH）
   srm-nav hz TOPIC                    话题频率，Ctrl-C 结束
   srm-nav tf [PARENT CHILD]           默认 map → base_footprint，Ctrl-C 结束
   srm-nav sensors [CONFIG_DIR]        启动雷达/Point-LIO，不打开底盘串口
-  srm-nav standby MAP_DIR             启动导航待机，运动和任务启动锁定
-  srm-nav check-standby MAP_DIR       激活待机生命周期并验收，不打开串口
+  srm-nav standby [MAP_DIR]           启动最新地图的导航待机，运动和任务启动锁定
+  srm-nav field [MAP_DIR]             从最新原图提取两桩、检查八字并生成新导航配置
+  srm-nav drive [MAP_DIR] [DEVICE]    启用最新已确认场地的导航与串口，任务仍需手动 start
+  srm-nav check-standby [MAP_DIR]     检查已启动的地图待机，不打开串口
+  srm-nav start|cancel|reset          显式开始、取消或复位任务
+  srm-nav start-here                 从当前位置规划接入完整八字，最终回原停车位
+  srm-nav mission-status              查看一次任务就绪状态
   srm-nav standby-down               正常关闭待机生命周期，然后在启动终端 Ctrl-C
-  srm-nav bag-info BAG_DIR            查看已结束录制的 bag
-  srm-nav bag-check BAG_DIR           校验已结束录制的 bag，保存新报告
-  srm-nav map-check MAP_DIR           检查栅格通行空间，保存新报告
-  srm-nav zero DEVICE                 打开指定串口，只发零速 8 秒
+  srm-nav bag-info [BAG_DIR]          查看最新已收尾的 bag
+  srm-nav bag-check [BAG_DIR]         校验最新已收尾的 bag，保存新报告
+  srm-nav map-check [MAP_DIR]         检查最新地图的栅格通行空间，保存新报告
+  srm-nav zero [DEVICE]              打开指定或唯一匹配串口，只发零速 8 秒
   srm-nav map [ARGS...]               转到 srm-map
   srm-nav pulse [ARGS...]             转到 srm-pulse
   srm-nav ros ROS2_ARGS...            在项目环境执行原生 ros2 命令
   srm-nav help                       显示本帮助
-地图目录指包含 manifest.json/map.yaml/arena.json 的生成目录。
+省略路径会选择最新有效产物并打印目录；显式路径支持当前目录或项目内的相对路径。
+drive 仅自动选择有 field_geometry_verified 的导航配置，不从归档/测试目录选择。
 校验报告位于项目 artifacts/diagnostics/。没有全局 kill/自动重启命令。
 HELP
 }
 one_arg() { [[ $# == 1 ]] || { usage >&2; exit 2; }; }
+optional_arg() { [[ $# -le 1 ]] || { usage >&2; exit 2; }; }
 runtime_path() {
-  local absolute
-  absolute="$(realpath -e -- "$1")" || return 1
+  local absolute input="$1"
+  if [[ "$input" != /* && ! -e "$input" && -e "$root/$input" ]]; then input="$root/$input"; fi
+  absolute="$(realpath -e -- "$input")" || return 1
   case "$absolute" in
     "$root"/*) echo "/work/${absolute#"$root"/}" ;;
     *) echo "$absolute" ;;
   esac
+}
+select_path() {
+  local kind="$1" input="${2:-}"
+  if [[ -z "$input" ]]; then input="$(python3 "$root/scripts/internal/field_paths.py" "$kind")" || return; fi
+  echo "使用 $kind: $input" >&2
+  runtime_path "$input"
+}
+serial_device() {
+  local input="${1:-${INTRAMURAL_SERIAL_DEVICE:-}}"
+  if [[ -z "$input" ]]; then
+    shopt -s nullglob
+    local candidates=(/dev/serial/by-id/usb-1a86_USB_Single_Serial_*-if00)
+    [[ ${#candidates[@]} == 1 ]] || { echo '串口不唯一或不存在，请指定 DEVICE' >&2; return 2; }
+    input="${candidates[0]}"
+  fi
+  realpath -e -- "$input"
 }
 report_dir() {
   report="$root/artifacts/diagnostics/$command-$(date +%Y%m%d-%H%M%S-%N)"
@@ -63,26 +87,40 @@ case "$command" in
     export INTRAMURAL_VEHICLE_CONFIG="$config"
     exec "$root/scripts/vehicle-sensors.sh" ;;
   standby)
-    one_arg "$@"
-    config="$(runtime_path "$1")"
+    optional_arg "$@"
+    config="$(select_path map "${1:-${INTRAMURAL_NAVIGATION_CONFIG:-}}")"
     export INTRAMURAL_NAVIGATION_CONFIG="$config"
     exec "$root/scripts/vehicle-navigation.sh" ;;
+  field)
+    optional_arg "$@"; input="$(select_path map "${1:-}")"
+    exec "$root/scripts/run.sh" python3 /work/scripts/internal/field_geometry.py --map-config "$input" ;;
+  drive)
+    [[ $# -le 2 ]] || { usage >&2; exit 2; }
+    config="$(select_path navigation "${1:-${INTRAMURAL_NAVIGATION_CONFIG:-}}")"
+    device="$(serial_device "${2:-}")"
+    export INTRAMURAL_NAVIGATION_CONFIG="$config"
+    exec "$root/scripts/vehicle-navigation.sh" "enable_motion:=true" "serial_device:=$device" ;;
   check-standby)
-    one_arg "$@"; input="$(runtime_path "$1")"; report_dir
+    optional_arg "$@"; input="$(select_path map "${1:-${INTRAMURAL_NAVIGATION_CONFIG:-}}")"; report_dir
     exec "$root/scripts/run.sh" python3 /work/scripts/validation/verify-vehicle-standby.py --map-config "$input" --output "$(runtime_path "$report")" ;;
+  start|start-here|cancel|reset)
+    [[ $# == 0 ]] || { usage >&2; exit 2; }
+    exec "$root/scripts/run.sh" ros2 service call "/intramural_robot/mission/${command//-/_}" std_srvs/srv/Trigger '{}' ;;
+  mission-status)
+    exec "$root/scripts/run.sh" ros2 topic echo --once --full-length /intramural_robot/mission/status ;;
   standby-down)
     exec "$root/scripts/run.sh" ros2 service call /intramural_robot/lifecycle_manager_vehicle/manage_nodes nav2_msgs/srv/ManageLifecycleNodes '{command: 4}' ;;
   bag-info)
-    one_arg "$@"; input="$(runtime_path "$1")"
+    optional_arg "$@"; input="$(select_path bag "${1:-}")"
     exec "$root/scripts/run.sh" ros2 bag info "$input" ;;
   bag-check|map-check)
-    one_arg "$@"; input="$(runtime_path "$1")"; report_dir
+    optional_arg "$@"; kind="${command%-check}"; input="$(select_path "$kind" "${1:-}")"; report_dir
     if [[ "$command" == bag-check ]]; then
       exec "$root/scripts/run.sh" python3 /work/scripts/validation/verify-mapping-bag.py --bag "$input" --output "$(runtime_path "$report")/result.json"
     fi
     exec "$root/scripts/run.sh" python3 /work/scripts/validation/verify-map-quality.py --map-config "$input" --output "$(runtime_path "$report")/result.json" ;;
   zero)
-    one_arg "$@"; input="$(realpath -e -- "$1")"; report_dir
+    optional_arg "$@"; input="$(serial_device "${1:-}")"; report_dir
     exec "$root/scripts/run.sh" python3 /work/scripts/validation/verify-serial-zero.py --device "$input" --output "$(runtime_path "$report")/result" ;;
   map) exec "$root/scripts/srm-map" "$@" ;;
   pulse) exec "$root/scripts/srm-pulse" "$@" ;;

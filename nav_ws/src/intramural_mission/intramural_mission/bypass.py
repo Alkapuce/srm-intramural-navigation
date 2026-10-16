@@ -12,6 +12,67 @@ def winding(points, pole):
     return round(sum(math.remainder(b-a, 2*math.pi) for a, b in zip(angles, angles[1:])) / (2*math.pi))
 
 
+def entry_path(c, start, goal, grid):
+    """Connect a localized start to the first gate on the known static map."""
+    if grid is None or grid.header.frame_id != "map":
+        return None
+    res, width, height = grid.info.resolution, grid.info.width, grid.info.height
+    if res <= 0 or width * height != len(grid.data):
+        raise ValueError("Invalid occupancy grid")
+    free = np.asarray(grid.data).reshape(height, width) == 0
+    distance = distance_transform_edt(np.pad(free, 1))[1:-1, 1:-1] * res
+    # Same footprint and cell/sampling uncertainty as field route verification.
+    free &= distance > c['robot_radius'] + res / math.sqrt(2) + c['path_spacing'] / 2
+    origin = grid.info.origin
+    q = origin.orientation
+    yaw = math.atan2(2*(q.w*q.z+q.x*q.y), 1-2*(q.y*q.y+q.z*q.z))
+    co, so = math.cos(yaw), math.sin(yaw)
+
+    def cell(p):
+        x, y = p[0]-origin.position.x, p[1]-origin.position.y
+        return math.floor((-so*x+co*y)/res), math.floor((co*x+so*y)/res)
+
+    def point(v):
+        x, y = (v[1]+.5)*res, (v[0]+.5)*res
+        return [origin.position.x+co*x-so*y, origin.position.y+so*x+co*y]
+
+    def valid(v):
+        return 0 <= v[0] < height and 0 <= v[1] < width and free[v]
+
+    # Keep the connector consistent with the mission's analytic clearance check.
+    yy, xx = np.mgrid[:height, :width]
+    x, y = (xx+.5)*res, (yy+.5)*res
+    wx, wy = origin.position.x+co*x-so*y, origin.position.y+so*x+co*y
+    xmin, xmax, ymin, ymax = c['bounds']
+    margin = c['robot_radius'] + c.get('minimum_clearance', .05)
+    free &= np.minimum.reduce((wx-xmin, xmax-wx, wy-ymin, ymax-wy)) >= margin
+    for pole in ('lower_pole', 'upper_pole'):
+        free &= np.hypot(wx-c[pole][0], wy-c[pole][1]) >= c['pole_radius']+margin
+    source, target = cell(start), cell(goal)
+    if not valid(source) or not valid(target):
+        return None
+    queue, costs, previous = [(math.dist(source, target), 0., source)], {source: 0.}, {}
+    while queue:
+        _, cost, v = heapq.heappop(queue)
+        if cost != costs[v]:
+            continue
+        if v == target:
+            cells = [v]
+            while cells[-1] != source:
+                cells.append(previous[cells[-1]])
+            path = [list(start)] + [point(p) for p in reversed(cells)] + [list(goal)]
+            return [p for a, b in zip(path, path[1:]) for p in line(a, b, c['path_spacing'])[:-1]] + [list(goal)]
+        for dy, dx in ((-1,0),(1,0),(0,-1),(0,1),(-1,-1),(-1,1),(1,-1),(1,1)):
+            nxt = v[0]+dy, v[1]+dx
+            if not valid(nxt) or (dx and dy and (not valid((v[0]+dy,v[1])) or not valid((v[0],v[1]+dx)))):
+                continue
+            new = cost + math.hypot(dx, dy)
+            if new < costs.get(nxt, math.inf):
+                costs[nxt], previous[nxt] = new, v
+                heapq.heappush(queue, (new+math.dist(nxt,target), new, nxt))
+    return None
+
+
 def plan(c, route, index, progress, pose, obstacles):
     """Return replacement current/next paths, or None when no bounded route exists.
 

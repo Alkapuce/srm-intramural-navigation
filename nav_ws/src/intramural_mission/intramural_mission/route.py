@@ -27,35 +27,38 @@ def segments(c):
     lo = c["lower_pole"]
     hi = c["upper_pole"]
     s = c["path_spacing"]
-    if abs(hi[0] - lo[0]) > 1e-9 or abs(hi[1] - lo[1] - 2 * r) > 1e-9:
+    if r <= 0 or abs(math.dist(hi, lo) - 2 * r) > 1e-9:
         raise ValueError(
-            "Tangent-circle route requires aligned poles separated by 2*loop_radius"
+            "Tangent-circle route requires poles separated by 2*loop_radius"
         )
-    entry = [lo[0] - r, lo[1]]
+    rotation = math.atan2(hi[1] - lo[1], hi[0] - lo[0]) - math.pi / 2
+    start = c.get("entry_angle", math.pi)
+    if start not in (0.0, math.pi):
+        raise ValueError("Entry angle must be 0 or pi")
+    def circle(center, a, b):
+        return arc(center, r, a + rotation, b + rotation, s)
+    entry = circle(lo, start, start)[0]
+    crossing = math.pi / 2 + (2 * math.pi if start > math.pi / 2 else 0)
     result = [("ENTER", line(c["parking"], entry, s))]
     for i in range(3):
         result.append(
             (
                 "LOWER",
-                arc(
-                    lo, r, math.pi + i * math.pi / 2, math.pi + (i + 1) * math.pi / 2, s
-                ),
+                circle(lo, start + i * (crossing-start)/3, start + (i+1) * (crossing-start)/3),
             )
         )
     for i in range(4):
         result.append(
             (
                 "UPPER",
-                arc(
+                circle(
                     hi,
-                    r,
                     -math.pi / 2 - i * math.pi / 2,
                     -math.pi / 2 - (i + 1) * math.pi / 2,
-                    s,
                 ),
             )
         )
-    result.append(("LOWER_EXIT", arc(lo, r, math.pi / 2, math.pi, s)))
+    result.append(("LOWER_EXIT", circle(lo, math.pi / 2, start + (2 * math.pi if start < math.pi / 2 else 0))))
     result.append(("RETURN", line(entry, c["parking"], s)))
     return result
 

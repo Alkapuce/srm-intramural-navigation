@@ -48,6 +48,11 @@ class CommandPolicy:
             self.last_tick = now
             return (0.0, 0.0, 0.0), "stale" if stale else "disabled_or_invalid"
         x, y = self.command
+        # An explicit stop must clear momentum before the next ordered segment.
+        if x == 0.0 and y == 0.0:
+            self.previous = (0.0, 0.0)
+            self.last_tick = now
+            return (0.0, 0.0, 0.0), "active"
         norm = math.hypot(x, y)
         if norm > self.speed_limit:
             x, y = x * self.speed_limit / norm, y * self.speed_limit / norm

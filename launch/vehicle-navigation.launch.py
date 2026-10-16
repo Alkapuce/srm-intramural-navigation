@@ -1,4 +1,4 @@
-"""Real sensor navigation standby. No serial process and no permitted motion."""
+"""Real navigation; standby by default, explicit accepted map/vehicle required for motion."""
 import json
 from pathlib import Path
 
@@ -18,6 +18,20 @@ def start(context):
     if manifest["motion_permitted"] or manifest["start_permitted"]:
         raise ValueError("This entry is restricted to vehicle standby")
     c = json.loads((folder/"arena.json").read_text())
+    motion = LaunchConfiguration("enable_motion").perform(context).lower()=="true"
+    vehicle = Path(LaunchConfiguration("vehicle_config").perform(context)).resolve()
+    device = LaunchConfiguration("serial_device").perform(context)
+    if motion:
+        from intramural_base.transport import validate_vehicle_config, CommandPolicy
+        base = json.loads((vehicle/"base-vehicle.json").read_text())
+        validate_vehicle_config(base)
+        CommandPolicy(base["body_to_protocol"], base["max_body_speed_mps"], base["max_body_acceleration_mps2"], base["max_protocol_axis"], base["input_timeout_seconds"])
+        if not manifest.get("field_geometry_verified"):
+            raise ValueError("Confirm actual parking/pole geometry in this map before enabling motion")
+        if not 0 < c["max_speed"] <= min(.5, base["max_body_speed_mps"]):
+            raise ValueError("Real mission speed must be positive and no greater than 0.5 and vehicle limit")
+        if not device.startswith("/dev/"):
+            raise ValueError("Explicit serial device under /dev required for motion")
     sim = LaunchConfiguration("use_sim_time").perform(context).lower()=="true"
     params = ParameterFile(RewrittenYaml(source_file=str(folder/"nav.yaml"), root_key=c["namespace"],
         param_rewrites={"use_sim_time":str(sim).lower()}, convert_types=True))
@@ -39,11 +53,14 @@ def start(context):
         nodes.append(Node(package=package,executable=exe,name=name,parameters=[params,{"use_sim_time":sim}],remappings=remaps,output="screen"))
     nodes += [
         Node(package="intramural_mission",executable="livox_adapter",parameters=[{"use_sim_time":sim}],output="screen"),
-        Node(package="intramural_mission",executable="adapter",parameters=[{"use_sim_time":sim,"localization":"sensors","motion_permitted":False,"arena_config":str(folder/"arena.json")}],remappings=[("livox/imu","/livox/imu")],output="screen"),
-        Node(package="intramural_mission",executable="mission",parameters=[{"use_sim_time":sim,"start_permitted":False,"arena_config":str(folder/"arena.json")}],output="screen"),
+        Node(package="intramural_mission",executable="adapter",parameters=[{"use_sim_time":sim,"localization":"sensors","motion_permitted":motion,"arena_config":str(folder/"arena.json")}],remappings=[("livox/imu","/livox/imu")],output="screen"),
+        Node(package="intramural_mission",executable="mission",parameters=[{"use_sim_time":sim,"start_permitted":motion,"arena_config":str(folder/"arena.json")}],output="screen"),
         Node(package="nav2_lifecycle_manager",executable="lifecycle_manager",name="lifecycle_manager_vehicle",
-             parameters=[{"use_sim_time":sim,"autostart":False,"node_names":["map_server","controller_server","velocity_smoother"]}],output="screen"),
+             parameters=[{"use_sim_time":sim,"autostart":motion,"node_names":["map_server","controller_server","velocity_smoother"]}],output="screen"),
     ]
+    if motion:
+        nodes.append(Node(package="intramural_base", executable="serial_bridge", name="serial_bridge",
+            parameters=[{"use_sim_time":False,"simulation":False,"device":device,"calibration":str(vehicle/"base-vehicle.json")}], output="screen"))
     pose=c["lidar_pose"]
     static=Node(package="tf2_ros",executable="static_transform_publisher",name="vehicle_lidar_mount",
         arguments=["--x",str(pose[0]),"--y",str(pose[1]),"--z",str(pose[2]),"--roll",str(pose[3]),"--pitch",str(pose[4]),"--yaw",str(pose[5]),"--frame-id","base_footprint","--child-frame-id","livox_frame"],
@@ -56,4 +73,7 @@ def generate_launch_description():
         if event.returncode:raise RuntimeError(f"Vehicle navigation child failed: {event.returncode}")
         return []
     return LaunchDescription([DeclareLaunchArgument("navigation_config"),DeclareLaunchArgument("use_sim_time",default_value="false"),
+        DeclareLaunchArgument("enable_motion",default_value="false"),
+        DeclareLaunchArgument("vehicle_config",default_value=str(Path(__file__).resolve().parents[1]/"cache/vehicle-current")),
+        DeclareLaunchArgument("serial_device",default_value=""),
         RegisterEventHandler(OnProcessExit(on_exit=failed)),OpaqueFunction(function=start)])
