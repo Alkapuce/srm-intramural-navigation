@@ -26,6 +26,7 @@ ssh "$nuc_target" 'mkdir -p ~/workspaces/srm/intramural'
 rsync -avz --progress \
   --include='/cache/' \
   --include='/cache/small_gicp/***' \
+  --include='/cache/livox-sdk2/***' \
   --exclude='/cache/***' \
   --exclude='artifacts' \
   --exclude='nav_ws/build' \
@@ -56,7 +57,7 @@ ros2 pkg prefix ros_gz_sim
 ros2 pkg prefix nav2_controller
 ```
 
-完整构建还需要 PCL、Eigen、glog 和 Livox SDK2，依赖依据见 [Dockerfile](../../docker/Dockerfile)。宿主依赖缺项由赛务补齐或在个人前缀准备，不修改共用系统配置。NUC 当前的图形和设备需要现场核查，不能沿用开发机 GPU 验证结论。
+完整构建还需要 PCL、Eigen、glog；Livox SDK2 使用交付目录中固定版本的 `cache/livox-sdk2` 源码，构建为驱动私有静态库。现场二维导图还需要 `c++` 与 `liboctomap-dev`（头文件和 OctoMap 库），依赖依据见 [Dockerfile](../../docker/Dockerfile)。宿主依赖缺项由赛务补齐或在个人前缀准备，不修改共用系统配置。NUC 当前的图形和设备需要现场核查，不能沿用开发机 GPU 验证结论。
 
 ## 全量构建
 
@@ -64,16 +65,12 @@ ros2 pkg prefix nav2_controller
 cd ~/workspaces/srm/intramural
 python3 scripts/prepare-sources.py
 python3 scripts/sources.py status
-source /opt/ros/humble/setup.bash
-cd nav_ws
-colcon build --symlink-install --parallel-workers 2 \
-  --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
-  -DFETCHCONTENT_SOURCE_DIR_SMALL_GICP="$PWD/../cache/small_gicp"
-source install/setup.bash
-python3 -m unittest discover -s ../tests -v
+export INTRAMURAL_NATIVE=1
+scripts/build-workspace.sh
+scripts/run.sh python3 -m unittest discover -s /work/tests -v
 ```
 
-只编译任务包和雷达驱动不足以运行完整仿真或当前全部测试，因此这里使用完整工作空间构建。
+统一入口指定本地 small_gicp、Livox SDK 源码并关闭桌面通知，避免离线下载和 SSH 下的通知阻塞。只编译任务包和雷达驱动不足以运行完整仿真或当前全部测试，因此这里使用完整工作空间构建。
 
 ## 桌面仿真
 

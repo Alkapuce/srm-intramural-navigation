@@ -2,7 +2,7 @@
 
 基于公开项目 [pb2025_sentry_nav](https://github.com/SMBU-PolarBear-Robotics-Team/pb2025_sentry_nav)，实现从停车位出发、逆时针绕下桩、顺时针绕上桩、沿原路回位的自主导航。支持障碍停车、移除恢复、持续障碍绕行、输入失效保护和比赛串口协议。
 
-当前已完成本机仿真闭环：31 包独立构建、60 项测试，传感器/理想定位各五圈，持续障碍、取消与故障注入均有验证记录。实车定位、外参、底盘标定和断链停机仍待接车确认。
+本机已完成仿真闭环及 31 包构建、77 项测试；NUC 已接通真实 MID-360、Point-LIO、地图配准和 Nav2 待机链。实车入口锁定任务启动与最终零速输出，比赛场地测绘、精度标定、固件协议和断链停机仍需现场验收。
 
 ## 项目架构
 
@@ -36,7 +36,7 @@ flowchart TB
 | [docker](docker/)、[patches](patches/README.md) | Humble 环境、固定源码及公开修复 |
 | [docs](docs/) | 技术细节、调试日志与精选结果 |
 
-9 个顶层公开依赖以 Git 子模块登记，递归包含 pb2025 的 7 个子模块；3 个修复补丁由 [sources.lock.json](docker/sources.lock.json) 固定。克隆后必须执行源码准备，GitHub 源码 ZIP 不含子模块内容。许可证与来源见 [THIRD_PARTY](THIRD_PARTY.md)。
+9 个顶层公开依赖以 Git 子模块登记，递归包含 pb2025 的 7 个子模块；small_gicp 和 Livox SDK 源码由准备脚本下载到 `cache/`。版本和 5 个修复补丁由 [sources.lock.json](docker/sources.lock.json) 固定。克隆后必须执行源码准备，GitHub 源码 ZIP 不含子模块内容。许可证与来源见 [THIRD_PARTY](THIRD_PARTY.md)。
 
 ## 开发机准备
 
@@ -131,5 +131,7 @@ scripts/candidate.sh serial-sim
 ```
 
 另一个终端使用相同变量，按前述 `start/cancel/reset` 操作。实车 MID-360 和 Point-LIO 的调试入口是 `scripts/vehicle-sensors.sh`；它只启动传感器，不启动底盘或任务。参考参数、配置生成和真实串口接入见[实车接口](docs/vehicle/reference.md)与[接车调试](docs/vehicle/commissioning.md)。
+
+NUC 现场采集可用全局命令 `srm-map`，按 Enter 结束采集后自动校验、导图并重启验证定位；支持 `--duration` 定时和 `--bag` 复用。分步建图与导航待机使用 `scripts/prepare-vehicle-navigation.py`、`scripts/vehicle-navigation.sh`，复用仿真的任务、控制器和速度保护。操作与 TF 接线见[实车导航待机](docs/vehicle/navigation-standby.md)。该入口不启动串口桥，拒绝任务启动并持续输出零速。
 
 完整实车自主导航链仍需现场地图、安装与速度标定、固件协议及物理停机验收。模拟下位机没有超时停车，物理断链后可能继续执行末帧；上位机看门狗不能替代下位机或硬件停机机制。

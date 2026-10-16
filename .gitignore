@@ -29,6 +29,7 @@ config/local/
 # Local field draft contains credentials/unverified procedures; keep off GitHub.
 docs/real_debug/
 docs/09_30real_debug/
+/docs/10.15实车调试.md
 
 # Local planning, agent instructions and maintenance records.
 /AGENTS.md
