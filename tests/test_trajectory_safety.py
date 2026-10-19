@@ -4,6 +4,7 @@ from array import array
 import json
 from pathlib import Path
 import tempfile
+import shutil
 import time
 from types import SimpleNamespace as N
 import unittest
@@ -23,6 +24,42 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TrajectorySafetyTests(unittest.TestCase):
+    def test_planning_waits_for_new_localization_before_enabling_motion(self):
+        c=json.loads((ROOT/'config/arena.json').read_text())
+        c.update(optimize_route=False)
+        with tempfile.TemporaryDirectory(dir=ROOT/'cache') as folder:
+            config=Path(folder)/'arena.json';config.write_text(json.dumps(c))
+            rclpy.init(domain_id=79,args=['--ros-args','-p',f'arena_config:={config}'])
+            node=TrajectoryMission();age=[0.]
+            try:
+                def transform(*args):
+                    t=TransformStamped();stamp=node.get_clock().now().nanoseconds/1e9-age[0]
+                    t.header.stamp.sec=int(stamp);t.header.stamp.nanosec=int((stamp-int(stamp))*1e9)
+                    t.transform.rotation.w=1.;return t
+                node.tf=N(lookup_transform=transform)
+                grid=OccupancyGrid();grid.header.frame_id='map';grid.info.resolution=.05
+                grid.info.width=grid.info.height=200;grid.info.origin.position.x=grid.info.origin.position.y=-2.
+                grid.info.origin.orientation.w=1.;grid.data=[0]*40000
+                node.receive_map(grid);node.receive_costmap(grid)
+                node.receive_guard(String(data='{"sensors_fresh":true}'));node.tick()
+                response=node.start(Trigger.Request(),Trigger.Response())
+                self.assertTrue(response.success,response.message)
+                age[0]=.261;node.tick()
+                self.assertEqual(node.state,'STARTING')
+                self.assertEqual(node.tracker.command.tolist(),[0.,0.])
+                self.assertFalse(node.reset(Trigger.Request(),Trigger.Response()).success)
+                age[0]=0.;node.receive_costmap(grid)
+                node.receive_guard(String(data='{"sensors_fresh":true}'));node.tick()
+                self.assertEqual(node.state,'RUNNING')
+                # Once moving, the original 0.25 s localization limit still stops the run.
+                age[0]=.261;node.tick()
+                self.assertEqual(node.state,'FAULT')
+                self.assertEqual(node.reason,'LOCALIZATION_OR_SENSOR_STALE')
+            finally:
+                if hasattr(node,'log'):node.log.close()
+                if node.run_id:shutil.rmtree(ROOT/'artifacts/navigation-runs'/node.run_id)
+                node.destroy_node();rclpy.shutdown()
+
     def test_locked_standby_never_reports_ready_with_healthy_inputs(self):
         with tempfile.TemporaryDirectory(dir=ROOT / "cache") as folder:
             config = Path(folder) / "arena.json"

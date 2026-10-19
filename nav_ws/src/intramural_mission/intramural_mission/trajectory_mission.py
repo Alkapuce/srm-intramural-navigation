@@ -103,7 +103,7 @@ class TrajectoryMission(Node):
         self.costmap_at = time.monotonic()
 
     def receive_map(self, msg):
-        if self.static_map is not None and self.state in ("RUNNING", "BLOCKED"):
+        if self.static_map is not None and self.state in ("STARTING", "RUNNING", "BLOCKED"):
             old = self.static_map
             if old.info != msg.info or old.data != msg.data:
                 self.stop("FAULT", "STATIC_MAP_CHANGED")
@@ -152,8 +152,8 @@ class TrajectoryMission(Node):
         self.tracker = OmniTracker(self.plan, self.c)
         self.run += 1
         self.run_id = uuid.uuid4().hex
-        self.state = "RUNNING"
-        self.reason = ""
+        self.state = "STARTING"
+        self.reason = "WAITING_FRESH_LOCALIZATION"
         self.history = []
         self.index = -1
         self.blocked_count = 0
@@ -172,7 +172,9 @@ class TrajectoryMission(Node):
         self.update_phase()
         self.publish_collision()
         self.last_tick = time.monotonic()
-        self.enable_pub.publish(Bool(data=True))
+        self.starting_at = self.last_tick
+        self.prepared_stamp = self.get_clock().now().nanoseconds / 1e9
+        self.enable_pub.publish(Bool(data=False))
         response.success = True
         response.message = (
             "Whole ordered route started from current pose"
@@ -223,7 +225,7 @@ class TrajectoryMission(Node):
         return response
 
     def reset(self, request, response):
-        if self.state in ("RUNNING", "BLOCKED", "CANCELLING"):
+        if self.state in ("STARTING", "RUNNING", "BLOCKED", "CANCELLING"):
             response.message = "Cancel before reset"
             return response
         self.stop("IDLE")
@@ -342,6 +344,15 @@ class TrajectoryMission(Node):
             self.pose = None
         if self.tracker and abs(self.pose_age) < 0.25:
             self.tracker.observe(self.pose, dt, self.pose_stamp)
+        if self.state == "STARTING":
+            # Planning blocks this executor; consume a post-planning TF before motion.
+            if self.ready() and self.pose_stamp > self.prepared_stamp:
+                self.state, self.reason = "RUNNING", ""
+                self.enable_pub.publish(Bool(data=True))
+            elif now-self.starting_at > 1.0:
+                self.input_failure=dict(tf_age=self.pose_age,costmap_age=now-self.costmap_at,
+                    guard_age=now-self.guard_at,guard=self.guard)
+                self.stop("FAULT", "LOCALIZATION_OR_SENSOR_STALE")
         if self.state == "CANCELLING":
             if (
                 abs(self.pose_age) < 0.25
