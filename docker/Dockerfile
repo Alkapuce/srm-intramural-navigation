@@ -2,7 +2,7 @@ FROM osrf/ros@sha256:b0302b39a2321079950b6a91a13eafe62e60bd42ffe61c3cea3d5e96886
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3-pip libomp-dev libeigen3-dev libapr1-dev liboctomap-dev mesa-utils x11-utils x11-apps \
+    python3-pip libomp-dev libeigen3-dev libapr1-dev liboctomap-dev nlohmann-json3-dev mesa-utils x11-utils x11-apps \
     imagemagick ros-humble-navigation2 ros-humble-nav2-bringup ros-humble-slam-toolbox \
     ros-humble-ros-gz ros-humble-rclcpp ros-humble-rclcpp-action \
     ros-humble-rclcpp-components ros-humble-rclcpp-lifecycle \
