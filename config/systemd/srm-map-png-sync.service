@@ -1,0 +1,7 @@
+[Unit]
+Description=Receive SRM map PNGs from NUC
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/rsync -a --include=*.png --exclude=* -e "/usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=5" nuc:workspaces/srm/intramural/artifacts/.png/ %h/workspaces/srm/intramural/artifacts/.png/
+TimeoutStartSec=30

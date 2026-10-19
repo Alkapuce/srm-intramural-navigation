@@ -166,7 +166,6 @@ def main():
     p.add_argument("--arena-config", type=path, help="已测量的比赛场地几何；不提供时保持实验几何")
     p.add_argument("--profile",choices=["safe","candidate"],default="safe")
     p.add_argument("--response-model",type=path,help="合格的源时间响应模型；不修改原车辆配置")
-    p.add_argument("--no-preview",action="store_true",help="完成后只显示文件位置，不绘制终端缩略图")
     args = p.parse_args()
     if args.bag:
         try:
@@ -354,8 +353,9 @@ def main():
         result["remaining_pids"] = [pid for group in groups for pid in processes(group)]
         result["processes_released"] = not result["remaining_pids"]
         save()
-        lock.close()
-    mapping_result(out,result,render=not args.no_preview)
+    result["png_files"] = mapping_result(out,result)
+    save()
+    lock.close()
     return exit_code
 
 

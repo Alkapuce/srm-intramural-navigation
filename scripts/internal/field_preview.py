@@ -1,15 +1,12 @@
-"""Read-only terminal map/route preview; no ROS, device access or new dependencies."""
+"""Export saved field maps and routes as PNG; no ROS or device access."""
 import argparse
-from bisect import bisect_right
+import colorsys
 import json
 import math
-import os
 from pathlib import Path
 import shlex
-import shutil
-import sys
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import yaml
 from field_paths import latest
 
@@ -22,8 +19,8 @@ def directory(value=None):
         if not p.is_absolute() and not p.exists():
             p = ROOT / p
         p = p.resolve()
-        if not (p/'map.yaml').is_file():
-            p = p/('navigation' if (p/'navigation/route-plan.json').is_file() else 'map')
+        if not (p / 'map.yaml').is_file():
+            p = p / ('navigation' if (p / 'navigation/route-plan.json').is_file() else 'map')
         return p
     choices = []
     for kind in ('navigation', 'map'):
@@ -32,160 +29,139 @@ def directory(value=None):
         except ValueError:
             pass
     if not choices:
-        raise ValueError('没有可预览地图，请先建图或指定地图目录')
-    return max(choices, key=lambda p: (p/'manifest.json').stat().st_mtime_ns)
+        raise ValueError('没有可导出的地图，请先建图或指定地图目录')
+    return max(choices, key=lambda p: (p / 'manifest.json').stat().st_mtime_ns)
 
 
-def preview(folder, width=None, color=False):
-    width = width or min(100, shutil.get_terminal_size((80, 40)).columns-2)
-    if not 30 <= width <= 160:
-        raise ValueError('预览宽度须为 30–160 列；可用 --width 指定')
-    metadata = yaml.safe_load((folder/'map.yaml').read_text())
-    with Image.open(folder/metadata['image']) as image:
-        image = image.convert('L')
-    config = json.loads((folder/'arena.json').read_text())
-    plan = json.loads((folder/'route-plan.json').read_text()) if (folder/'route-plan.json').is_file() else None
-    origin = metadata['origin'];resolution = metadata['resolution']
-    if resolution <= 0 or not all(math.isfinite(v) for v in [resolution,*origin]):
+def render_png(folder, output=None):
+    folder = Path(folder).resolve()
+    metadata = yaml.safe_load((folder / 'map.yaml').read_text())
+    source = (folder / metadata['image']).resolve()
+    with Image.open(source) as image:
+        image = image.convert('RGB')
+    config = json.loads((folder / 'arena.json').read_text())
+    plan = json.loads((folder / 'route-plan.json').read_text()) if (folder / 'route-plan.json').is_file() else None
+    origin = metadata['origin']; resolution = float(metadata['resolution'])
+    if resolution <= 0 or not all(math.isfinite(v) for v in [resolution, *origin]):
         raise ValueError('地图分辨率或原点无效')
-    cosine,sine = math.cos(origin[2]),math.sin(origin[2])
-
-    def pixel(point):
-        x,y = point[0]-origin[0],point[1]-origin[1]
-        return ((cosine*x+sine*y)/resolution, image.height-(-sine*x+cosine*y)/resolution)
-
-    points = plan['points'] if plan else []
-    speeds = plan['speed'] if plan else []
-    if plan and (len(points)<2 or len(points)!=len(speeds) or len(points)!=len(plan['s'])
-                 or not all(math.isfinite(v) for p in points for v in p)
-                 or not all(math.isfinite(v) and v>=0 for v in [*speeds,*plan['s']])
-                 or any(b<=a for a,b in zip(plan['s'],plan['s'][1:]))):
+    if plan and (len(plan['points']) < 2 or len(plan['points']) != len(plan['speed'])
+                 or len(plan['points']) != len(plan['s'])
+                 or any(len(p) != 2 for p in plan['points'])
+                 or not all(math.isfinite(v) for p in plan['points'] for v in p)
+                 or not all(math.isfinite(v) and v >= 0 for v in [*plan['speed'], *plan['s']])
+                 or any(b <= a for a, b in zip(plan['s'], plan['s'][1:]))):
         raise ValueError('路线点、弧长或速度数据无效')
-    bounds = (0,0,image.width,image.height)
-    if points:
-        pixels = [pixel(p) for p in points]
-        margin = (config.get('robot_radius',.29)+.5)/resolution
-        bounds = (max(0,math.floor(min(p[0] for p in pixels)-margin)),
-                  max(0,math.floor(min(p[1] for p in pixels)-margin)),
-                  min(image.width,math.ceil(max(p[0] for p in pixels)+margin)),
-                  min(image.height,math.ceil(max(p[1] for p in pixels)+margin)))
-    left,top,right,bottom = bounds
-    if right<=left or bottom<=top:
-        raise ValueError('路线不在所选地图范围内')
-    cropped = image.crop(bounds)
-    rows = min(22,max(6,round(cropped.height/cropped.width*width/2)))
-    cols = min(width,max(12,round(rows*2*cropped.width/cropped.height)))
-    grid = []
-    for row in range(rows):
-        line = []
-        for col in range(cols):
-            tile = cropped.crop((col*cropped.width//cols,row*cropped.height//rows,
-                                 max(col*cropped.width//cols+1,(col+1)*cropped.width//cols),
-                                 max(row*cropped.height//rows+1,(row+1)*cropped.height//rows)))
-            low,high = tile.getextrema()
-            probability = high/255 if metadata.get('negate',0) else 1-low/255
-            # Exported project maps reserve 205 for unknown, including mixed thumbnail cells.
-            line.append(('#' if probability>metadata.get('occupied_thresh',.65) else
-                         '?' if low<=205<=high else
-                         ' ' if probability<metadata.get('free_thresh',.2) else '?',None))
-        grid.append(line)
-
-    def cell(point):
-        x,y = pixel(point)
-        return ((x-left)/(right-left)*cols,(y-top)/(bottom-top)*rows)
-
-    def put(x,y,char,value=None):
-        if 0<=int(y)<rows and 0<=int(x)<cols and x>=0 and y>=0:
-            grid[int(y)][int(x)] = (char,value)
-
-    maximum = max(speeds,default=0.)
-    for i,(a,b) in enumerate(zip(points,points[1:])):
-        x,y = cell(a);u,v = cell(b)
-        steps = max(1,math.ceil(max(abs(u-x),abs(v-y))*2))
-        for step in range(steps+1):
-            fraction = step/steps
-            put(x+(u-x)*fraction,y+(v-y)*fraction,'*',speeds[i]/maximum if maximum else 0.)
-    if points:
-        for key,char in (('lower_pole','L'),('upper_pole','U'),('parking','S')):
-            put(*cell(config[key]),char)
-    palette = (34,36,32,33,31)
-    def paint(char,value):
-        if not color:return char
-        code = palette[min(4,int(value*4))] if value is not None else (35 if char in 'LUS' else 90)
-        return f'\033[{code}m{char}\033[0m' if char!=' ' else char
-    print('\n地图 / 路线预览'+('（路线附近截取）' if points else '（尚无规划路线）'))
-    print('+'+'-'*cols+'+')
-    for row in grid:print('|'+''.join(paint(*p) for p in row)+'|')
-    print('+'+'-'*cols+'+')
-    print('# 障碍  ? 未知  * 路线  S 起点/返回  L 下桩  U 上桩')
-    print(f'地图原点 ({origin[0]:.2f}, {origin[1]:.2f})，图像上方朝向 map +y 旋转 {math.degrees(origin[2]):.1f}°')
-    if not points:return
-    columns = min(width-8,90);height = 5;chart = [[' ']*columns for _ in range(height)]
-    for column in range(columns):
-        distance = plan['s'][0]+(plan['s'][-1]-plan['s'][0])*column/(columns-1)
-        j = min(len(points)-2,max(0,bisect_right(plan['s'],distance)-1))
-        fraction = (distance-plan['s'][j])/(plan['s'][j+1]-plan['s'][j])
-        speed = speeds[j]+fraction*(speeds[j+1]-speeds[j])
-        chart[height-1-round(speed/maximum*(height-1)) if maximum else height-1][column] = '*'
-    print(f'\n参考速度：峰值 {maximum:.2f}，全程 {plan["s"][-1]:.2f} m（1:1 指令尺度）')
-    for i,row in enumerate(chart):print(f'{maximum*(height-1-i)/(height-1):4.2f} |'+''.join(row))
-    print('     +'+'-'*columns+'→ 路程')
-    print('缩略预览仅供核对；净空检查与运行保护不使用此图。')
-
-
-def show(folder, width=None, color=False):
-    print('\n文件保存位置：')
-    for filename,label in (('map.yaml','地图元数据'),('map.pgm','二维地图'),('prior.pcd','定位点云'),
-                           ('route-plan.png','路线/速度高清图'),('route-plan.json','完整路线'),
-                           ('route-analysis.json','规划分析')):
-        if (folder/filename).is_file():print(f'  {label}: {folder/filename}')
-    preview(folder,width,color)
-
-
-def mapping_result(out, result, render=True):
-    print(f'\n建图结果: {result["status"]}  |  完整记录: {out/"result.json"}',flush=True)
-    if result['status']!='complete':
-        print('原因:',result.get('error') or result.get('cleanup_errors') or '见完整记录',flush=True)
-        print('已保留采集与阶段日志:',out,flush=True)
-        return
-    print('定位重载检查通过；地图目录:',out/'map',flush=True)
-    ready = result.get('field_geometry_detected',False)
-    folder = Path(result['navigation_config']) if ready else out/'map'
-    if ready:
-        print('两桩与整圈路线检查通过；导航配置:',folder,flush=True)
-    else:
-        print('未生成可用两桩路线，见 field-detection.log 与 navigation/field-detection.json。',flush=True)
     try:
-        if render:
-            show(folder,color=color_enabled())
+        name = '--'.join(folder.relative_to(ROOT).parts)
+    except ValueError:
+        name = folder.parent.name + '--' + folder.name
+    output = Path(output).expanduser().resolve() if output else ROOT / 'artifacts/.png' / (name + '.png')
+    if output.suffix.lower() != '.png' or output == source:
+        raise ValueError('输出须为 PNG，且不能覆盖原地图')
+    output.parent.mkdir(parents=True, exist_ok=True)
+    saved_route = folder / 'route-plan.png'
+    if plan and saved_route.is_file():
+        with Image.open(saved_route) as saved:
+            canvas = saved.convert('RGB')
+    else:
+        scale = min(1200 / image.width, 1000 / image.height)
+        size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+        image = image.resize(size, Image.NEAREST)
+        canvas = Image.new('RGB', (size[0] + 120, size[1] + (250 if plan else 110)), 'white')
+        canvas.paste(image, (60, 50))
+        draw = ImageDraw.Draw(canvas)
+        font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+        font = ImageFont.truetype(font_path, 16) if Path(font_path).exists() else ImageFont.load_default()
+        draw.text((60, 12), 'Map and ordered route' if plan else 'Occupancy map (no planned route)', fill='black', font=font)
+        cosine, sine = math.cos(origin[2]), math.sin(origin[2])
+
+        def pixel(point):
+            x, y = point[0] - origin[0], point[1] - origin[1]
+            return (60 + (cosine*x + sine*y) / resolution * scale,
+                    50 + size[1] - (-sine*x + cosine*y) / resolution * scale)
+
+        if abs(origin[2]) < 1e-9:
+            for x in range(math.ceil(origin[0]), math.floor(origin[0] + size[0]/scale*resolution) + 1):
+                px = pixel((x, origin[1]))[0]
+                draw.text((px-8, size[1]+55), str(x), fill='black', font=font)
+            for y in range(math.ceil(origin[1]), math.floor(origin[1] + size[1]/scale*resolution) + 1):
+                py = pixel((origin[0], y))[1]
+                draw.text((10, py-8), str(y), fill='black', font=font)
+        draw.text((60, size[1]+82), f'map meters; origin=({origin[0]:.2f}, {origin[1]:.2f}), yaw={math.degrees(origin[2]):.1f} deg', fill='black', font=font)
+        if plan:
+            peak = max(plan['speed'])
+            for i, (a, b) in enumerate(zip(plan['points'], plan['points'][1:])):
+                color = tuple(round(v*255) for v in colorsys.hsv_to_rgb(.66*(1-plan['speed'][i]/peak) if peak else .66, 1, .9))
+                draw.line((pixel(a), pixel(b)), fill=color, width=4)
+            for key, label in (('lower_pole', 'L'), ('upper_pole', 'U'), ('parking', 'S')):
+                x, y = pixel(config[key]); draw.ellipse((x-5,y-5,x+5,y+5),fill='red')
+                draw.text((x+7,y-10),label,fill='red',font=font)
+            left, top, width, height = 60, size[1]+140, size[0], 75
+            draw.text((left, top-25), f'Reference speed: peak {peak:.2f}; distance {plan["s"][-1]:.2f} m', fill='black', font=font)
+            draw.rectangle((left,top,left+width,top+height),outline='gray')
+            chart = [(left+(s-plan['s'][0])/(plan['s'][-1]-plan['s'][0])*width,
+                      top+height-(v/peak if peak else 0)*height) for s,v in zip(plan['s'],plan['speed'])]
+            draw.line(chart,fill='blue',width=2)
+    temporary = output.with_suffix('.png.tmp')
+    try:
+        canvas.save(temporary, format='PNG')
+        temporary.replace(output)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return output
+
+
+def mapping_result(out, result):
+    print(f'\n建图结果: {result["status"]}  |  完整记录: {out/"result.json"}', flush=True)
+    if result['status'] != 'complete':
+        print('原因:', result.get('error') or result.get('cleanup_errors') or '见完整记录', flush=True)
+    else:
+        print('地图目录:', out/'map', flush=True)
+        if result.get('field_geometry_detected'):
+            print('两桩与整圈路线检查通过；导航配置:', result['navigation_config'], flush=True)
+            print('下一步（不会自动启动）：\n  终端1: srm-nav sensors\n  终端2: srm-nav drive '
+                  + shlex.quote(result['navigation_config']) + '\n  终端3: srm-nav mission-status，然后 srm-nav start', flush=True)
         else:
-            print('地图文件:',folder/'map.pgm',flush=True)
-            if ready:print('路线/速度高清图:',folder/'route-plan.png',flush=True)
-    except (OSError,ValueError,KeyError,yaml.YAMLError) as error:
-        print(f'终端预览不可用: {error}；建图产物仍保留在 {folder}',flush=True)
-    print('稍后重看: srm-nav preview '+shlex.quote(str(folder)),flush=True)
-    if ready:
-        print('下一步（不会自动启动）：\n  终端1: srm-nav sensors\n  终端2: srm-nav drive '
-              +shlex.quote(str(folder))+'\n  终端3: srm-nav mission-status，然后 srm-nav start',flush=True)
-    if not result['map_quality']['navigation_grid_has_clearance']:
-        print('注意：二维地图没有满足车体半径的空闲区域。',flush=True)
+            print('尚无可用两桩路线，见 navigation/field-detection.json。', flush=True)
+    images = []
+    for folder in (out/'map', out/'navigation'):
+        if not (folder/'map.yaml').is_file():
+            continue
+        try:
+            image = render_png(folder)
+            images.append(str(image))
+            print('PNG:', image, flush=True)
+        except (OSError, ValueError, KeyError, yaml.YAMLError) as error:
+            print(f'PNG 导出失败: {error}；原地图保留在 {folder}', flush=True)
+    return images
 
 
 def main():
-    parser = argparse.ArgumentParser(description='只读预览地图、两桩、起点、整圈路线和速度；无需启动 ROS')
-    parser.add_argument('directory',nargs='?',help='地图/导航/建图会话目录，默认最新产物')
-    parser.add_argument('--width',type=int,help='预览宽度 30–160，默认适应终端')
-    parser.add_argument('--no-color',action='store_true')
+    parser = argparse.ArgumentParser(description='将已保存地图/路线导出 PNG，不启动 ROS 或设备')
+    parser.add_argument('directory', nargs='?', help='地图/导航/建图会话目录，默认最新产物')
+    parser.add_argument('--output', type=Path, help='PNG 文件，默认 artifacts/.png/')
+    parser.add_argument('--all', action='store_true', help='导出正常产物目录下的全部已建地图')
     args = parser.parse_args()
+    if args.all and (args.directory or args.output):
+        parser.error('--all 不与目录或 --output 同用')
     try:
-        show(directory(args.directory),args.width,color_enabled() and not args.no_color)
-    except (OSError,ValueError,KeyError,yaml.YAMLError) as error:
-        parser.exit(2,f'无法预览: {error}\n')
+        folders = sorted({p.parent.resolve() for pattern in ('artifacts/mapping/*/*/map.yaml',
+                          'artifacts/navigation/*/map.yaml', 'cache/*/map.yaml') for p in ROOT.glob(pattern)}) if args.all else [directory(args.directory)]
+        if not folders:
+            raise ValueError('没有找到已建地图')
+    except (OSError, ValueError, KeyError) as error:
+        parser.exit(2, f'无法导出: {error}\n')
+    failed = 0
+    for folder in folders:
+        try:
+            print(render_png(folder, args.output), flush=True)
+        except (OSError, ValueError, KeyError, yaml.YAMLError) as error:
+            print(f'无法导出 {folder}: {error}', flush=True)
+            failed += 1
+    if args.all:
+        print(f'PNG 导出: {len(folders)-failed} 成功，{failed} 失败', flush=True)
+    return 2 if failed else 0
 
 
-def color_enabled():
-    return sys.stdout.isatty() and os.environ.get('TERM','dumb')!='dumb' and 'NO_COLOR' not in os.environ
-
-
-if __name__=='__main__':
-    main()
+if __name__ == '__main__':
+    raise SystemExit(main())

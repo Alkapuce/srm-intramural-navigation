@@ -1,4 +1,4 @@
-"""Exercise the real read-only CLI with saved map/route artifacts; never start ROS."""
+"""Exercise PNG export through the saved-map CLI and mapping completion hook."""
 import hashlib
 import json
 import math
@@ -39,56 +39,82 @@ class FieldPreviewTests(unittest.TestCase):
         return subprocess.run([str(ROOT/'scripts/srm-nav'),'preview',*map(str,args)],
                               cwd=ROOT.parent,text=True,capture_output=True,timeout=5)
 
-    def test_saved_route_speed_and_markers_are_read_only_including_rotated_maps(self):
+    def staged_cli(self, root):
+        for relative in ('scripts/srm-nav','scripts/internal/field_preview.py','scripts/internal/field_paths.py'):
+            target=root/relative;target.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copy2(ROOT/relative,target)
+        (root/'cache').mkdir()
+        return root/'scripts/srm-nav'
+
+    def test_route_png_is_read_only_and_rotated_map_markers_align(self):
         for yaw in (0.,.7):
             with self.subTest(yaw=yaw),tempfile.TemporaryDirectory(dir=ROOT/'cache') as temp:
-                folder=self.fixture(Path(temp),yaw=yaw)
+                root=Path(temp);folder=self.fixture(root,yaw=yaw);output=root/'export.png'
                 before={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in folder.iterdir()}
-                result=self.cli(folder,'--width',60)
-                self.assertEqual(result.returncode,0,result.stderr)
-                rows=[line for line in result.stdout.splitlines() if line.startswith('|')]
-                self.assertLessEqual(max(map(len,rows)),62)
-                grid=''.join(rows)
-                for marker in ('S','L','U','*'):self.assertIn(marker,grid)
-                self.assertIn('1.20',result.stdout)
-                self.assertIn(str(folder/'route-plan.json'),result.stdout)
-                self.assertNotIn('\x1b',result.stdout)
+                result=self.cli(folder,'--output',output)
+                self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+                with Image.open(output) as image:
+                    self.assertEqual(image.format,'PNG')
+                    self.assertEqual(image.getpixel((660,770)),(255,0,0))
+                self.assertEqual(result.stdout.strip(),str(output))
                 self.assertEqual(before,{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in folder.iterdir()})
 
-    def test_session_without_route_shows_map_unknown_and_obstacles(self):
+    def test_raw_map_png_preserves_unknown_and_obstacles(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'cache') as temp:
-            self.fixture(Path(temp),route=False)
-            result=self.cli(temp,'--width',36,'--no-color')
+            root=Path(temp);self.fixture(root,route=False);output=root/'export.png'
+            result=self.cli(temp,'--output',output)
             self.assertEqual(result.returncode,0,result.stderr)
-            grid=''.join(line for line in result.stdout.splitlines() if line.startswith('|'))
-            self.assertIn('?',grid);self.assertIn('#',grid)
-            self.assertNotIn('S',grid)
+            with Image.open(output) as image:
+                self.assertEqual(image.getpixel((90,200)),(205,205,205))
+                self.assertEqual(image.getpixel((300,60)),(0,0,0))
 
-    def test_invalid_width_and_invalid_plan_fail_without_touching_files(self):
+    def test_invalid_plan_and_source_overwrite_are_rejected(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'cache') as temp:
-            folder=self.fixture(Path(temp))
-            self.assertEqual(self.cli(folder,'--width',4).returncode,2)
-            p=folder/'route-plan.json';p.write_text('{broken')
-            self.assertEqual(self.cli(folder).returncode,2)
-            self.assertEqual(p.read_text(),'{broken')
+            root=Path(temp);folder=self.fixture(root);output=root/'export.png'
+            plan=folder/'route-plan.json';plan.write_text('{broken')
+            self.assertEqual(self.cli(folder,'--output',output).returncode,2)
+            self.assertFalse(output.exists())
+            self.assertEqual(plan.read_text(),'{broken')
+            plan.unlink();source=folder/'map.pgm'
+            self.assertEqual(self.cli(folder,'--output',source).returncode,2)
+            with Image.open(source) as image:
+                self.assertEqual(image.format,'PPM')
 
-    def test_default_preview_uses_new_map_instead_of_an_older_route(self):
+    def test_existing_route_png_is_reused(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'cache') as temp:
-            root=Path(temp)
-            for relative in ('scripts/srm-nav','scripts/internal/field_preview.py','scripts/internal/field_paths.py'):
-                target=root/relative;target.parent.mkdir(parents=True,exist_ok=True)
-                shutil.copy2(ROOT/relative,target)
-            (root/'cache').mkdir()
+            root=Path(temp);folder=self.fixture(root);output=root/'export.png'
+            Image.new('RGB',(320,240),'purple').save(folder/'route-plan.png')
+            self.assertEqual(self.cli(folder,'--output',output).returncode,0)
+            with Image.open(output) as image:
+                self.assertEqual(image.size,(320,240))
+                self.assertEqual(image.getpixel((100,100)),(128,0,128))
+
+    def test_latest_map_avoids_old_route_and_all_exports_every_map(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'cache') as temp:
+            root=Path(temp);cli=self.staged_cli(root)
             old=self.fixture(root/'cache');old=old.rename(old.with_name('navigation-old'))
             parent=root/'artifacts/mapping/20261019';parent.mkdir(parents=True)
             new=self.fixture(parent,route=False)
             os.utime(old/'manifest.json',(100,100));os.utime(new/'manifest.json',(200,200))
-            result=subprocess.run([str(root/'scripts/srm-nav'),'preview'],cwd=ROOT.parent,
-                                  text=True,capture_output=True,timeout=5)
+            result=subprocess.run([str(cli),'preview'],cwd=ROOT.parent,text=True,capture_output=True,timeout=5)
             self.assertEqual(result.returncode,0,result.stderr)
-            self.assertIn(str(new/'map.pgm'),result.stdout)
-            self.assertNotIn(str(old),result.stdout)
-            self.assertNotIn('参考速度',result.stdout)
+            self.assertIn('mapping--20261019--map.png',result.stdout)
+            result=subprocess.run([str(cli),'preview','--all'],text=True,capture_output=True,timeout=5)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertIn('2 成功，0 失败',result.stdout)
+            self.assertEqual(len(list((root/'artifacts/.png').glob('*.png'))),2)
+
+    def test_mapping_completion_exports_png_without_terminal_drawing(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'cache') as temp:
+            root=Path(temp);self.staged_cli(root)
+            self.fixture(root,route=False)
+            env=os.environ.copy();env['PYTHONPATH']=str(root/'scripts/internal')
+            code='from pathlib import Path; from field_preview import mapping_result; mapping_result(Path('+repr(str(root))+'), {"status":"complete", "field_geometry_detected":False})'
+            result=subprocess.run(['python3','-c',code],env=env,text=True,capture_output=True,timeout=5)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertIn('PNG:',result.stdout)
+            self.assertNotIn('地图 / 路线预览',result.stdout)
+            self.assertEqual(len(list((root/'artifacts/.png').glob('*.png'))),1)
 
 
 if __name__=='__main__':

@@ -1,0 +1,10 @@
+[Unit]
+Description=Check NUC for new map PNGs
+
+[Timer]
+OnActiveSec=1s
+OnUnitInactiveSec=5s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

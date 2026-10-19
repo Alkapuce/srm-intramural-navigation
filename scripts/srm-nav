@@ -26,8 +26,8 @@ SRM 导航调试（在执行本命令的机器上运行，不自动 SSH）
   srm-nav bag-info [BAG_DIR]          查看最新已收尾的 bag
   srm-nav bag-check [BAG_DIR]         校验最新已收尾的 bag，保存新报告
   srm-nav map-check [MAP_DIR]         检查最新地图的栅格通行空间，保存新报告
-  srm-nav preview [DIR] [--width N] [--no-color]
-                    只读重看最新地图/路线/速度缩略图，也可指定地图、导航或建图会话目录
+  srm-nav preview [DIR] [--output PNG] [--all]
+                    导出地图/路线 PNG 到 artifacts/.png/；--all 导出全部已建地图
   srm-nav zero [DEVICE]              打开指定或唯一匹配串口，只发零速 8 秒
   srm-nav map [ARGS...]               转到 srm-map
   srm-nav pulse [ARGS...]             转到 srm-pulse
