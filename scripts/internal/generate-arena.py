@@ -16,7 +16,7 @@ c = json.loads((root / "config/arena.json").read_text())
 out = root / "simulation/generated"
 out.mkdir(parents=True, exist_ok=True)
 for name, val in c.items():
-    if isinstance(val, (int, float)) and (not math.isfinite(val) or val <= 0):
+    if type(val) in (int, float) and (not math.isfinite(val) or (val <= 0 and name != 'entry_angle')):
         raise ValueError(name)
 for phase, path in segments(c):
     if any(min(clearance(c, p)) < 0.1 for p in path):
@@ -305,6 +305,11 @@ active_parameters = [
     yaml.safe_dump({k: p[k] for k in active_parameters}, sort_keys=False)
 )
 (out / "route.json").write_text(json.dumps(segments(c), indent=2) + "\n")
+# Match the simulated transport envelope to the selected profile, without altering real calibration.
+base=json.loads((root/'config/base-sim.json').read_text())
+base.update(max_body_speed_mps=c['max_speed'],max_protocol_axis=c['max_speed'],max_body_acceleration_mps2=c['max_acceleration'])
+(out/'base-sim.json').write_text(json.dumps(base,indent=2)+'\n')
+
 (out / "manifest.json").write_text(
     json.dumps(
         {

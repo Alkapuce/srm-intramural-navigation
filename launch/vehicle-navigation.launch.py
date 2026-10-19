@@ -18,6 +18,7 @@ def start(context):
     if manifest["motion_permitted"] or manifest["start_permitted"]:
         raise ValueError("This entry is restricted to vehicle standby")
     c = json.loads((folder/"arena.json").read_text())
+    trajectory = c.get("navigation_engine")=="trajectory"
     motion = LaunchConfiguration("enable_motion").perform(context).lower()=="true"
     vehicle = Path(LaunchConfiguration("vehicle_config").perform(context)).resolve()
     device = LaunchConfiguration("serial_device").perform(context)
@@ -35,6 +36,8 @@ def start(context):
             and 0 < c.get('braking_acceleration',0) <= c['max_acceleration']
         ):
             raise ValueError("Continuous corners require ordered path and positive lateral/braking acceleration bounds")
+        if trajectory and c['max_acceleration']>base['max_body_acceleration_mps2']:
+            raise ValueError('Profile acceleration exceeds the configured vehicle interface limit')
         if not device.startswith("/dev/"):
             raise ValueError("Explicit serial device under /dev required for motion")
     sim = LaunchConfiguration("use_sim_time").perform(context).lower()=="true"
@@ -53,13 +56,13 @@ def start(context):
     nodes=[]
     for package,exe,name in specs:
         remaps=[]
-        if name=="controller_server":remaps=[("cmd_vel","cmd_vel_controller")]
-        elif name=="velocity_smoother":remaps=[("cmd_vel","cmd_vel_controller"),("cmd_vel_smoothed","cmd_vel_nav2_result")]
+        if name=="controller_server":remaps=[("cmd_vel","legacy_cmd_vel" if trajectory else "cmd_vel_controller")]
+        elif name=="velocity_smoother":remaps=[("cmd_vel","legacy_cmd_vel" if trajectory else "cmd_vel_controller"),("cmd_vel_smoothed","cmd_vel_nav2_result")]
         nodes.append(Node(package=package,executable=exe,name=name,parameters=[params,{"use_sim_time":sim}],remappings=remaps,output="screen"))
     nodes += [
         Node(package="intramural_mission",executable="livox_adapter",parameters=[{"use_sim_time":sim}],output="screen"),
-        Node(package="intramural_mission",executable="adapter",parameters=[{"use_sim_time":sim,"localization":"sensors","motion_permitted":motion,"arena_config":str(folder/"arena.json")}],remappings=[("livox/imu","/livox/imu")],output="screen"),
-        Node(package="intramural_mission",executable="mission",parameters=[{"use_sim_time":sim,"start_permitted":motion,"arena_config":str(folder/"arena.json"),"variant":c.get("mission_variant","figure8")}],output="screen"),
+        Node(package="intramural_mission",executable="adapter",parameters=[{"use_sim_time":sim,"localization":"sensors","motion_permitted":motion,"arena_config":str(folder/"arena.json")}],remappings=[("livox/imu","/livox/imu")]+([("cmd_vel_nav2_result","cmd_vel_controller")]if trajectory else []),output="screen"),
+        Node(package="intramural_mission",executable="trajectory_mission" if trajectory else "mission",parameters=[{"use_sim_time":sim,"start_permitted":motion,"arena_config":str(folder/"arena.json"),"variant":c.get("mission_variant","figure8")}],output="screen"),
         Node(package="nav2_lifecycle_manager",executable="lifecycle_manager",name="lifecycle_manager_vehicle",
              parameters=[{"use_sim_time":sim,"autostart":motion,"node_names":["map_server","controller_server","velocity_smoother"]}],output="screen"),
     ]

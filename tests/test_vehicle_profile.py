@@ -58,6 +58,7 @@ class VehicleProfileTest(unittest.TestCase):
         folder.mkdir()
         arena = json.loads((self.root / "config/arena.json").read_text())
         arena["max_speed"] = .4
+        arena["navigation_engine"] = "trajectory"
         (folder / "arena.json").write_text(json.dumps(arena))
         (folder / "nav.yaml").write_text("{}\n")
         manifest = {"motion_permitted": False, "start_permitted": False}
@@ -80,6 +81,10 @@ class VehicleProfileTest(unittest.TestCase):
             module.start(context)
         manifest["field_geometry_verified"] = True
         (folder / "manifest.json").write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError,'acceleration'):
+            module.start(context)
+        base['max_body_acceleration_mps2']=arena['max_acceleration']
+        (self.output/'base-vehicle.json').write_text(json.dumps(base))
         drive = module.start(context)
         self.assertEqual(len(drive[-1].get_sub_entities()), len(standby[-1].get_sub_entities()) + 1)
         arena["max_speed"] = .41

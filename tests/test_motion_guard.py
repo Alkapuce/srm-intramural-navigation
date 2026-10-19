@@ -19,7 +19,7 @@ class MotionGuardTests(unittest.TestCase):
         cloud.data = array("B", np.array([[0, 0, 0], [.03, 0, 0], [.95, .3, .1],
                                          [float("nan"), 0, 0]], dtype="<f4").tobytes())
         guard = N(c={"lidar_pose": [.15, -.15, .22, 0, 0, 0], "robot_radius": .29},
-                  mode="sensors", touch=lambda key: None)
+                  mode="sensors", touch=lambda key: None,get_clock=lambda:N(now=lambda:N(nanoseconds=0)))
         Adapter.lidar(guard, cloud)
         np.testing.assert_allclose(guard.raw_near_points, [[1.1, .15]], atol=1e-6)
 

@@ -219,7 +219,7 @@ class ProximityTests(unittest.TestCase):
         msg.fields=[PointField(name=k,offset=i*4,datatype=7,count=1) for i,k in enumerate(('x','y','z','intensity'))]
         msg.data=array('B',np.array([[-.004,-.1144,.039,0.],[-.004,-.1144,.039,1.],[.5,0.,.3,0.]],dtype='<f4').tobytes())
         c=dict(lidar_pose=[.15,-.15,.22,0.,0.,0.],robot_radius=.29,raw_zero_intensity_min_range_m=.15)
-        m=N(c=c,mode='sensors',touch=lambda k:None)
+        m=N(c=c,mode='sensors',touch=lambda k:None,get_clock=lambda:N(now=lambda:N(nanoseconds=0)))
         Adapter.lidar(m,msg)
         np.testing.assert_allclose(m.raw_near_points,[[.146,-.2644],[.65,-.15]],atol=1e-6)
         del c['raw_zero_intensity_min_range_m']

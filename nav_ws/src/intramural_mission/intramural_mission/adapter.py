@@ -16,6 +16,7 @@ from std_msgs.msg import Bool, String
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster, Buffer, TransformListener, TransformException
 from intramural_mission.proximity import obstacle_near, obstacle_on_path, lidar_to_body
 from intramural_mission.route import curve_speed_limit
+from intramural_mission.safety import executable_path
 
 
 class Adapter(Node):
@@ -42,8 +43,12 @@ class Adapter(Node):
         if self.c.get('raw_collision_follow_path', False):
             self.path_tf = Buffer(node=self)
             self.path_listener = TransformListener(self.path_tf, self)
-            self.create_subscription(RosPath, 'mission/collision_path', self.receive_path,
-                QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+            if self.c.get('navigation_engine')=='trajectory':
+                self.create_subscription(String,'mission/trajectory',self.receive_trajectory,
+                    QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL))
+            else:
+                self.create_subscription(RosPath, 'mission/collision_path', self.receive_path,
+                    QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.pub = self.create_publisher(Twist, "cmd_vel", 10)
         self.hazard_pub = self.create_publisher(Bool, "motion_guard/hazard", 10)
         self.diagnostic = self.create_publisher(String, "motion_guard/status", 10)
@@ -93,7 +98,24 @@ class Adapter(Node):
         self.last[key] = time.monotonic()
 
     def receive_mission_status(self,msg):
-        self.mission_phase=json.loads(msg.data)['phase']
+        status=json.loads(msg.data)
+        self.mission_phase=status['phase']
+        self.mission_state=status.get('state','')
+        self.mission_context=(status.get('run_id',''),status.get('route_id',''))
+
+    def receive_trajectory(self,msg):
+        d=json.loads(msg.data)
+        points=np.asarray(d['points'],dtype=float)
+        self.collision_context=(d['run_id'],d['route_id'])
+        if points.ndim!=2 or points.shape[1]!=2 or not np.isfinite(points).all() or not math.isfinite(d['stamp']):
+            self.collision_path=None
+            return
+        from geometry_msgs.msg import PoseStamped
+        path=RosPath();path.header.frame_id='map';path.header.stamp.sec=int(d['stamp'])
+        path.header.stamp.nanosec=int((d['stamp']-int(d['stamp']))*1e9)
+        for x,y in points:
+            p=PoseStamped();p.pose.position.x=float(x);p.pose.position.y=float(y);path.poses.append(p)
+        self.collision_path=path
 
     def receive_path(self, msg):
         self.collision_path = msg
@@ -101,6 +123,10 @@ class Adapter(Node):
     def body_path(self):
         if self.collision_path is None or len(self.collision_path.poses) < 2:
             return None
+        if self.c.get('navigation_engine')=='trajectory':
+            if getattr(self,'collision_context',None)!=getattr(self,'mission_context',None):return None
+            stamp=self.collision_path.header.stamp.sec+self.collision_path.header.stamp.nanosec/1e9
+            if abs(self.get_clock().now().nanoseconds/1e9-stamp)>.3:return None
         try:
             t = self.path_tf.lookup_transform('base_footprint', self.collision_path.header.frame_id, rclpy.time.Time())
         except TransformException:
@@ -149,7 +175,6 @@ class Adapter(Node):
         self.tf.sendTransform(t)
 
     def lidar(self, msg):
-        self.touch("lidar")
         raw_fields = {f.name: f for f in msg.fields}
         if all(k in raw_fields and raw_fields[k].datatype == 7 for k in ("x", "y", "z")):
             raw_dtype = np.dtype({"names": ["x", "y", "z"], "formats": ["<f4"] * 3,
@@ -168,7 +193,10 @@ class Adapter(Node):
                 # Observed 10–12 cm zero-strength near returns; retain all stronger or farther returns.
                 valid &= (strength != 0) | (ranges2 >= minimum * minimum)
             xyz = xyz[valid]
+            stamp=msg.header.stamp.sec+msg.header.stamp.nanosec/1e9
             body = lidar_to_body(xyz, self.c["lidar_pose"])
+            if np.any(np.sum(body[:,:2]**2,axis=1)>self.c["robot_radius"]**2) and abs(self.get_clock().now().nanoseconds/1e9-stamp)<.7:
+                self.touch("lidar")
             mask = ((body[:, 2] > .15) & (body[:, 2] < 1.4)
                     & (np.sum(body[:, :2] ** 2, axis=1) > self.c["robot_radius"] ** 2))
             self.raw_near_points = body[mask, :2]
@@ -240,7 +268,7 @@ class Adapter(Node):
         target = values[:2] if self.motion_permitted and self.enabled and not stale and valid else [0.0, 0.0]
         speed_limit = self.c['bypass_speed'] if self.bypassing else self.c['max_speed']
         path = self.body_path() if self.c.get('raw_collision_follow_path', False) else None
-        if path is not None and self.c.get('continuous_corners', False):
+        if path is not None and self.c.get('continuous_corners', False) and self.c.get('navigation_engine')!='trajectory':
             speed_limit = min(speed_limit, curve_speed_limit(path, speed_limit,
                 self.c['lateral_acceleration'], self.c['max_acceleration']))
             if getattr(self,'mission_phase','')=='RETURN':
@@ -256,6 +284,9 @@ class Adapter(Node):
         if math.hypot(*scheduled) > .05:
             self.last_motion_direction = tuple(scheduled)
         speed = max(math.hypot(*scheduled), math.hypot(*self.output))
+        if self.c.get('navigation_engine')=='trajectory':
+            if getattr(self,'mission_state','')=='BLOCKED':speed=max(speed,getattr(self,'held_speed',0.))
+            else:self.held_speed=speed
         # shortcut: 0.2 s latency + configured braking, replace after vehicle stop-distance measurements.
         radial = self.c['robot_radius'] + self.c.get('minimum_clearance', .1)
         braking = min(self.c['max_acceleration'], self.c.get('braking_acceleration', self.c['max_acceleration']))
@@ -267,11 +298,15 @@ class Adapter(Node):
         self.guard_mode = 'velocity'
         if self.c.get('raw_collision_follow_path', False):
             if path is not None:
+                if self.c.get('navigation_engine')=='trajectory':
+                    path=executable_path(path,self.output,self.c.get('response_delay',.2))
                 self.hazard = obstacle_on_path(self.raw_near_points, path,
                     reach=stop_radius-radial+self.c.get('minimum_clearance', 0.), radius=self.c['robot_radius'], min_points=min_points)
                 self.guard_mode = 'ordered_path'
         if self.hazard:
             target = [0.0, 0.0]
+        if self.c.get('navigation_engine')=='trajectory' and self.enabled:
+            if self.c.get('raw_collision_follow_path') and path is None:stale=True
         self.hazard_pub.publish(Bool(data=self.hazard))
         length = math.hypot(*target)
         if length > self.c["max_speed"]:
@@ -291,6 +326,7 @@ class Adapter(Node):
                         "enabled": self.enabled,
                         "motion_permitted": self.motion_permitted,
                         "stale": stale,
+                        "sensors_fresh": all(now-self.last.get(k,0)<age for k,age in (("odom",.5),("lidar",.7),("imu",.2))),
                         "finite": valid,
                         "mode": self.mode,
                         "wz_disabled": True,

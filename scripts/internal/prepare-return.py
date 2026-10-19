@@ -49,7 +49,7 @@ def main():
             floor=min(c.get('minimum_clearance',.05),max(floor,value-.01))
     if out.exists():
         raise ValueError('Output must be a new directory')
-    c.update(mission_variant='return',return_path=path,max_speed=.1,allow_bypass=False,
+    c.update(mission_variant='return',navigation_engine='legacy',return_path=path,max_speed=.1,allow_bypass=False,
              assumptions='Debug recovery along reversed recorded actual poses; not a competition lap')
     params=yaml.safe_load((source/'nav.yaml').read_text())
     params['controller_server']['ros__parameters']['FollowPath'].update(v_linear_min=-.1,v_linear_max=.1)

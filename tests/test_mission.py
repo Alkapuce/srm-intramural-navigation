@@ -20,6 +20,8 @@ from rclpy.qos import QoSProfile, DurabilityPolicy
 _root = Path(__file__).resolve().parents[1]
 _config_path = Path("/work/config/arena.json") if Path("/work/config/arena.json").exists() else _root / "config/arena.json"
 C = json.loads(_config_path.read_text())
+# Legacy action regressions keep their original geometry and parking contract.
+C.update(smooth_transitions=False,parking_tolerance=.12)
 
 
 def ray_winding(path, p):

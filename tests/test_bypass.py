@@ -5,6 +5,7 @@ import numpy as np
 from intramural_mission.bypass import plan, winding
 from intramural_mission.route import segments, clearance
 C = json.loads((Path(__file__).resolve().parents[1]/'config/arena.json').read_text())
+C['smooth_transitions']=False  # This suite exercises the legacy bounded-bypass geometry.
 
 
 def box(x,y):

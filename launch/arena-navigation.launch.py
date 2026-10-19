@@ -14,6 +14,7 @@ def generate_launch_description():
     root = Path(__file__).resolve().parents[1]
     c = json.loads((root / "config/arena.json").read_text())
     ns = c["namespace"]
+    trajectory = c.get("navigation_engine")=="trajectory"
     mode = os.environ.get("INTRAMURAL_LOCALIZATION", "ideal")
     transport = os.environ.get("INTRAMURAL_TRANSPORT", "direct")
     if mode not in ("ideal", "sensors"):
@@ -66,10 +67,10 @@ def generate_launch_description():
     for package, executable, name in specs:
         remaps = []
         if name == "controller_server":
-            remaps = [("cmd_vel", "cmd_vel_controller")]
+            remaps = [("cmd_vel", "legacy_cmd_vel" if trajectory else "cmd_vel_controller")]
         if name == "velocity_smoother":
             remaps = [
-                ("cmd_vel", "cmd_vel_controller"),
+                ("cmd_vel", "legacy_cmd_vel" if trajectory else "cmd_vel_controller"),
                 ("cmd_vel_smoothed", "cmd_vel_nav2_result"),
             ]
         nodes.append(
@@ -104,12 +105,13 @@ def generate_launch_description():
             Node(
                 package="intramural_mission",
                 executable="adapter",
+                remappings=[("cmd_vel_nav2_result","cmd_vel_controller")] if trajectory else [],
                 parameters=[{"use_sim_time": True, "localization": mode, "arena_config": str(root / "config/arena.json")}],
                 output="screen",
             ),
             Node(
                 package="intramural_mission",
-                executable="mission",
+                executable="trajectory_mission" if trajectory else "mission",
                 parameters=[
                     {
                         "use_sim_time": True,
@@ -127,7 +129,7 @@ def generate_launch_description():
         nodes.append(Node(package="intramural_base", executable="serial_bridge",
             name="serial_bridge", parameters=[{"simulation": True,
                 "device_file": str(root / "cache/runtime/intramural-sim-tty"),
-                "calibration": str(root / "config/base-sim.json")}], output="screen"))
+                "calibration": str(root / "simulation/generated/base-sim.json")}], output="screen"))
     return LaunchDescription(
         [
             RegisterEventHandler(OnProcessExit(on_exit=failed)),
