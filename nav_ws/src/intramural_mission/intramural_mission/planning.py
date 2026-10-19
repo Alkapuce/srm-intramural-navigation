@@ -248,9 +248,12 @@ def compile_route(c, grid, start=None):
         raise ValueError("No ordered route fits the map and complete pole/vehicle envelopes")
     if not fixed:
         from intramural_mission.response import predict_execution
+        reserve = c.get('execution_clearance', 0.)
+        def fits(prediction):
+            return prediction['passed'] and prediction['minimum_clearance'] >= reserve
         for plan,_,report in results:
             report["execution_prediction"] = predict_execution(plan,c,measured)
-        feasible = [x for x in results if x[2]["execution_prediction"]["passed"]]
+        feasible = [x for x in results if fits(x[2]["execution_prediction"])]
         if not feasible:
             raise ValueError("No geometrically valid route can be tracked with the configured response model")
         for plan,route,report in sorted(feasible,key=lambda x:x[2]['execution_prediction']['duration']):
@@ -258,8 +261,8 @@ def compile_route(c, grid, start=None):
             for delay,tau in c.get('response_models',[]):
                 prediction=predict_execution(plan,c,measured,plant_response=(delay,tau))
                 predictions.append(dict(delay=delay,tau=tau,**prediction))
-                if not prediction['passed']:break
-            if all(p['passed'] for p in predictions):
+                if not fits(prediction):break
+            if all(fits(p) for p in predictions):
                 report['response_predictions']=predictions
                 break
         else:

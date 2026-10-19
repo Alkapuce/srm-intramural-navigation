@@ -29,6 +29,7 @@ class PlanningTests(unittest.TestCase):
         for plant in c['response_models']:
             result=predict_execution(plan,c,GridMap(g,c),plant_response=plant)
             self.assertTrue(result['passed'],result)
+            self.assertGreaterEqual(result['minimum_clearance'],c['execution_clearance'],result)
 
     def test_changed_pole_spacing_in_a_corridor_can_use_narrower_loops(self):
         c=json.loads((ROOT/'config/arena.json').read_text())
@@ -88,6 +89,8 @@ class PlanningTests(unittest.TestCase):
             _, state = tracker.step(plan.points[0], 0.0, 0.025)
             self.assertFalse(state["done"])
             self.assertTrue(report["execution_prediction"]["passed"])
+            self.assertGreaterEqual(min(p['minimum_clearance'] for p in report['response_predictions']),
+                                    c['execution_clearance'])
             frozen = dict(c,optimized_route=report["optimized_route"])
             reloaded,_,cached = compile_route(frozen,g,start)
             np.testing.assert_allclose(reloaded.points,plan.points,atol=1e-10)
