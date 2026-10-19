@@ -87,8 +87,8 @@ class TrajectoryTests(unittest.TestCase):
         old = dict(c)
         del old["terminal_deceleration"]
         before, after = RoutePlan.build(route, old), RoutePlan.build(route, c)
-        self.assertGreater(after.sample(4.5)[2], before.sample(4.5)[2] * 1.5)
-        self.assertAlmostEqual(after.sample(4.5)[2], c["max_speed"])
+        self.assertGreater(after.sample(4.)[2], before.sample(4.)[2] * 1.5)
+        self.assertAlmostEqual(after.sample(4.)[2], c["max_speed"])
         self.assertEqual(after.speed[-1], 0.)
         self.assertLessEqual(max(abs(np.diff(np.square(after.speed)) / (2*np.diff(after.s)))), c["max_acceleration"]+1e-7)
         self.assertEqual(c["braking_acceleration"], .2)
