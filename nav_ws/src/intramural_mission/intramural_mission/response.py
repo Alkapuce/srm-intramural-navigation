@@ -28,7 +28,11 @@ class Plant:
 
 def predict_execution(plan, c, measured, plant_response=None):
     """Score executable model time, including response and the final zero-command tail."""
-    delay,tau = plant_response if plant_response is not None else (c.get("response_delay",.2),c.get("response_tau",.15))
+    if plant_response is None:
+        models = c.get("response_models")
+        # Recorded response predicts normal driving; collision latency is a separate bound.
+        plant_response = np.median(models,axis=0) if models else (c.get("response_delay",.2),c.get("response_tau",.15))
+    delay,tau = plant_response
     plant = Plant(plan.points[0],delay,tau)
     tracker = OmniTracker(plan,c)
     policy = CommandPolicy([[1,0],[0,1]],c["max_speed"],c["max_acceleration"],c["max_speed"])
@@ -66,5 +70,6 @@ def predict_execution(plan, c, measured, plant_response=None):
             passed = (parking < c.get("parking_tolerance",.08) and np.linalg.norm(plant.velocity) < .06
                       and np.max(np.abs(winding-reference_turns)) < .15)
             return dict(passed=bool(passed),duration=finished,parking_error=parking,
-                        minimum_clearance=minimum,max_tracking_error=maximum,winding=winding.tolist(),pose_update_period=pose_period)
+                        minimum_clearance=minimum,max_tracking_error=maximum,winding=winding.tolist(),pose_update_period=pose_period,
+                        response_delay=float(delay),response_tau=float(tau))
     return dict(passed=False,reason="predicted_timeout",minimum_clearance=minimum)

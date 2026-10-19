@@ -30,8 +30,8 @@ def start(context):
         CommandPolicy(base["body_to_protocol"], base["max_body_speed_mps"], base["max_body_acceleration_mps2"], base["max_protocol_axis"], base["input_timeout_seconds"])
         if not manifest.get("field_geometry_verified"):
             raise ValueError("Confirm actual parking/pole geometry in this map before enabling motion")
-        if not 0 < c["max_speed"] <= min(1.7, base["max_body_speed_mps"]):
-            raise ValueError("Real mission speed must be positive and no greater than 1.7 and vehicle limit")
+        if not 0 < c["max_speed"] <= min(2.0, base["max_body_speed_mps"]):
+            raise ValueError("Real mission speed must be positive and no greater than 2.0 and vehicle limit")
         if c.get('continuous_corners', False) and not (
             c.get('raw_collision_follow_path') and 0 < c.get('lateral_acceleration',0) <= c['max_acceleration']
             and 0 < c.get('braking_acceleration',0) <= c['max_acceleration']

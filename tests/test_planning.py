@@ -18,6 +18,7 @@ class PlanningTests(unittest.TestCase):
     def test_fast_tracking_prediction_matches_recorded_response_on_tight_loops(self):
         c=json.loads((ROOT/'config/arena.json').read_text())
         c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['candidate'])
+        c.update(max_speed=1.2,max_acceleration=2.5,lateral_acceleration=1.4,max_jerk=7.,terminal_deceleration=1.)
         c.update(lower_pole=[0.,0.],upper_pole=[0.,1.218],loop_radius=.609,
                  parking=[-1.4,-.35],entry_angle=math.pi,
                  bounds=[-3.,3.,-3.,4.],optimized_route=dict(shape=None,entry_angle=math.pi,transition_scale=1.25))
@@ -28,6 +29,10 @@ class PlanningTests(unittest.TestCase):
         for x,y in (c['lower_pole'],c['upper_pole']):
             pixels[np.hypot(-3+(xx+.5)*.025-x,-3+(yy+.5)*.025-y)<c['pole_radius']]=100
         g.data=pixels.ravel().tolist();plan,_,_=compile_route(c,g)
+        nominal=predict_execution(plan,c,GridMap(g,c))
+        self.assertTrue(nominal['passed'],nominal)
+        self.assertAlmostEqual(nominal['response_delay'],float(np.median(c['response_models'],axis=0)[0]))
+        self.assertEqual(c['response_delay'],.2)
         for plant in c['response_models']:
             result=predict_execution(plan,c,GridMap(g,c),plant_response=plant)
             self.assertTrue(result['passed'],result)

@@ -10,10 +10,10 @@
     "response_models": [[0.09168461485123885, 0.08902560958962843], [0.08984127804154006, 0.029510894483599153], [0.07683024285400192, 0.05243267286377716]]
   },
   "candidate": {
-    "navigation_engine": "trajectory", "optimize_route": true, "max_speed": 1.7,
-    "max_acceleration": 2.8, "lateral_acceleration": 1.8,
-    "max_jerk": 9.0, "response_delay": 0.2, "tracking_prediction_delay": 0.09, "execution_clearance": 0.03,
-    "braking_acceleration": 0.2, "terminal_deceleration": 1.2, "normal_gain": 2.5,
+    "navigation_engine": "trajectory", "optimize_route": true, "max_speed": 2.0,
+    "max_acceleration": 3.5, "lateral_acceleration": 2.5,
+    "max_jerk": 13.0, "response_delay": 0.2, "tracking_prediction_delay": 0.09, "execution_clearance": 0.03,
+    "braking_acceleration": 0.2, "terminal_deceleration": 1.5, "normal_gain": 2.5,
     "tangent_gain": 1.0, "velocity_gain": 0.1,
     "parking_tolerance": 0.08, "finish_distance": 0.05,
     "smooth_transitions": true,
