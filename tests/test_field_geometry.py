@@ -124,6 +124,19 @@ class FieldGeometryTest(unittest.TestCase):
     def test_ambiguous_three_poles_refuse_automatic_selection(self):
         self.assertFalse(self.run_field(ambiguous=True)['passed'])
 
+    def test_broad_upper_object_is_not_a_third_thin_pole(self):
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts/internal'))
+        from field_geometry import detect_poles
+        points=[]
+        for cx,cy in ((0.,2.),(1.,3.5),(3.,1.)):
+            for h in np.linspace(.15,1.35,16):
+                radius=(.04 if h<.7 else .14) if cx==3. else (.14 if h<.35 else .04)
+                for a in np.linspace(0,2*math.pi,20,endpoint=False):
+                    points.append([cx+radius*math.cos(a),cy+radius*math.sin(a),h])
+        candidates=detect_poles(np.asarray(points),[0.,0.,0.])
+        self.assertEqual(len(candidates),2)
+        np.testing.assert_allclose(sorted(p['center'] for p in candidates),[[0.,2.],[1.,3.5]],atol=.01)
+
     def test_unknown_route_is_blocked(self):
         self.assertFalse(self.run_field(blocked=True)['passed'])
 

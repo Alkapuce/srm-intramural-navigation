@@ -90,6 +90,10 @@ def detect_poles(points, plane):
         levels = np.unique(np.floor(h/.15).astype(int))
         if max(span) > .35 or np.ptp(h) < .5 or len(levels) < 4:
             continue
+        # A broad base is allowed; the shaft above the base must remain thin.
+        shaft = p[h > .35]
+        if not len(shaft) or max(np.ptp(shaft[:, :2], axis=0)) > .16:
+            continue
         center = np.median(p[:, :2], axis=0)
         level_centers = [np.median(p[np.floor(h/.15).astype(int) == k, :2], axis=0) for k in levels]
         if max(np.linalg.norm(v-center) for v in level_centers) > .12:
