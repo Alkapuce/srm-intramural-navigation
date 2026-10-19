@@ -47,11 +47,6 @@ try:
     if not binary.exists() or binary.stat().st_mtime<source.stat().st_mtime:
         includes=["-I"+str(d) for d in Path("/opt/ros/humble/include").iterdir() if d.is_dir()]
         subprocess.run(["g++","-std=c++17",str(source),*includes,"-L/opt/ros/humble/lib","-Wl,-rpath,/opt/ros/humble/lib","-lrclcpp","-ltracetools","-lrosidl_runtime_c","-llibstatistics_collector","-lstatistics_msgs__rosidl_typesupport_cpp","-lrcutils","-lrmw","-lrcl","-ltf2_msgs__rosidl_typesupport_cpp","-o",str(binary)],check=True)
-    captured=subprocess.check_output([str(binary),""],text=True,timeout=10)
-    (out/"tf-authorities.tsv").write_text(captured)
-    for row in captured.splitlines():
-        f=row.split("\t")
-        if f[0]=="TF":edges.setdefault(f[1]+"->"+f[2],set()).add(f[3])
     for topic,typ in [("odometry",Odometry),("livox/lidar",PointCloud2),("registered_scan",PointCloud2),("terrain_map",PointCloud2),("terrain_map_ext",PointCloud2)]:
         subscriptions.append(n.create_subscription(typ,ns+"/"+topic,lambda msg,t=topic:collect(t,msg),qos_profile_sensor_data))
     latched=QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -63,6 +58,12 @@ try:
         req=ManageLifecycleNodes.Request();req.command=0
         startup=call(ManageLifecycleNodes,ns+"/lifecycle_manager_vehicle/manage_nodes",req,30)
         if not startup.success:raise RuntimeError("Vehicle lifecycle startup failed")
+    # Relocalization completes before navigation launches; sample authorities after startup.
+    captured=subprocess.check_output([str(binary),""],text=True,timeout=10)
+    (out/"tf-authorities.tsv").write_text(captured)
+    for row in captured.splitlines():
+        f=row.split("\t")
+        if f[0]=="TF":edges.setdefault(f[1]+"->"+f[2],set()).add(f[3])
     deadline=time.monotonic()+12
     while time.monotonic()<deadline:rclpy.spin_once(n,timeout_sec=.1)
     required=["odometry","livox/lidar","registered_scan","terrain_map","terrain_map_ext","mission/status","motion_guard/status","local_costmap/costmap","map"]
