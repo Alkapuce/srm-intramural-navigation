@@ -10,12 +10,13 @@ import time
 from pathlib import Path
 
 import rclpy
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, OccupancyGrid
 from geometry_msgs.msg import Twist
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
 from intramural_mission.route import clearance, segments
+from intramural_mission.planning import compile_route
 
 
 p = argparse.ArgumentParser()
@@ -77,6 +78,8 @@ def receive(key, msg):
 
 node.create_subscription(String, ns + "mission/status", state,
     QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+node.create_subscription(OccupancyGrid,ns+'map',lambda msg: receive('map',msg),
+    QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL))
 for key, typ, name in [("truth", Odometry, "chassis_odometry_gt"),
                        ("cmd", Twist, "cmd_vel"),
                        ("transport", Twist, "cmd_vel_transport")]:
@@ -169,6 +172,13 @@ failure = None
 try:
     until(lambda: status.get("state") == "IDLE" and status.get("ready") and latest.get("truth"),
           120, "startup readiness")
+    if c.get('navigation_engine')=='trajectory':
+        until(lambda: 'map' in latest,10,'static map for obstacle placement')
+        plan,route,_=compile_route(c,latest['map'])
+        targets={"entry":(0,route[0][1][3*len(route[0][1])//4]),
+                 "lower":(2,route[2][1][len(route[2][1])//2]),
+                 "upper":(4,route[4][1][len(route[4][1])//2]),
+                 "cross":(3,route[3][1][-1])}
     for scenario in a.scenarios:
         segment, target = targets[scenario]
         if status["state"] == "DONE":

@@ -33,7 +33,9 @@ for k in ["lower_pole", "upper_pole"]:
             edgecolor="gray",
         )
     )
-route = primitives(c) if r["variant"] == "primitives" else segments(c)
+reference=folder/'reference-path.json'
+route = ([('FULL',json.loads(reference.read_text())['points'])] if reference.is_file() else
+         primitives(c) if r["variant"] == "primitives" else segments(c))
 for _, points in route:
     ax.plot(
         [v[0] for v in points], [v[1] for v in points], "--", color="gray", linewidth=1

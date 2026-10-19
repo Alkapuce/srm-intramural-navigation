@@ -7,7 +7,7 @@ import rclpy
 import numpy as np
 from std_srvs.srv import Trigger
 from std_msgs.msg import String
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, Path as RosPath
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import PointCloud2, Imu
 from rosgraph_msgs.msg import Clock
@@ -178,6 +178,8 @@ node.create_subscription(
     state,
     QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
 )
+node.create_subscription(RosPath,ns+'mission/path',lambda msg: receive('reference',msg),
+                         QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL))
 for key, typ, topic in [
     ("truth", Odometry, "chassis_odometry_gt"),
     ("odom", Odometry, "odometry"),
@@ -343,7 +345,15 @@ try:
             entry.update(lower_winding_rad=lo, upper_winding_rad=hi)
             if history != expected or not 6.0 < lo < 6.6 or not -6.6 < hi < -6.0:
                 raise RuntimeError(f"Missed pole/direction/segment: {entry}")
-            path = [point for _, points in segments(c) for point in points]
+            if c.get('navigation_engine')=='trajectory':
+                reference=latest.get('reference')
+                if reference is None or reference.header.frame_id!='map' or len(reference.poses)<3:
+                    raise RuntimeError('Missing actual full trajectory reference in map frame')
+                path=[[p.pose.position.x,p.pose.position.y] for p in reference.poses]
+                (out/'reference-path.json').write_text(json.dumps(dict(points=path,
+                    route_id=status.get('route_id'),frame='map'),indent=2)+'\n')
+            else:
+                path = [point for _, points in segments(c) for point in points]
             deviation = max(
                 min(math.dist([r["x"], r["y"]], point) for point in path)
                 for r in data[::5]
