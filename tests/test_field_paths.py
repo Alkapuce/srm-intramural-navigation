@@ -106,6 +106,22 @@ class FieldPathsTests(unittest.TestCase):
         self.assertIn(str(chosen),result.stdout)
         self.assertIn('缺少实车配置',result.stderr)
 
+    def test_mapping_new_project_output_resolves_from_outside_project(self):
+        script=self.root/'scripts/internal/site-mapping.py'
+        code=('import json,runpy,sys; sys.path.insert(0,sys.argv[1]); '
+              'm=runpy.run_path(sys.argv[2]); '
+              'print(json.dumps([str(m["path"](p)) for p in sys.argv[3:]]))')
+        caller=self.root/'caller';caller.mkdir()
+        existing=caller/'artifacts/existing';existing.mkdir(parents=True)
+        result=subprocess.run(['python3','-c',code,str(script.parent),str(script),
+                               'artifacts/mapping/new','cache/new','artifacts/existing',
+                               str(self.root/'artifacts/absolute'),'./other'],cwd=caller,
+                              env=dict(self.env,INTRAMURAL_MAP_CALLER=str(caller)),
+                              text=True,capture_output=True,check=True,timeout=5)
+        self.assertEqual(json.loads(result.stdout),list(map(str,[
+            self.root/'artifacts/mapping/new',self.root/'cache/new',existing,
+            self.root/'artifacts/absolute',caller/'other'])))
+
 
 if __name__=='__main__':
     unittest.main()

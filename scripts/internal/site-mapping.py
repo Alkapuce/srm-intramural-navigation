@@ -25,7 +25,8 @@ CALLER = Path(os.environ.get("INTRAMURAL_MAP_CALLER", os.getcwd()))
 def path(value):
     p = Path(value).expanduser()
     candidate = p if p.is_absolute() else CALLER / p
-    if not candidate.exists() and not p.is_absolute() and (ROOT / p).exists():
+    if not candidate.exists() and not p.is_absolute() and (
+            (ROOT / p).exists() or (p.parts and p.parts[0] in ("cache", "artifacts"))):
         candidate = ROOT / p
     return candidate.resolve()
 
