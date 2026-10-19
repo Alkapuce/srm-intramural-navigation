@@ -22,7 +22,7 @@ class FieldPathsTests(unittest.TestCase):
         self.root = Path(temporary.name)
         (self.root/'scripts/internal').mkdir(parents=True)
         for name in ('srm-nav', 'vehicle-navigation.sh', 'internal/env.sh',
-                     'internal/field_paths.py', 'internal/site-mapping.py'):
+                     'internal/field_paths.py', 'internal/site-mapping.py', 'internal/field_preview.py'):
             shutil.copy2(ROOT/'scripts'/name, self.root/'scripts'/name)
         run = self.root/'scripts/run.sh'
         run.write_text('#!/usr/bin/env python3\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n')

@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 from field_paths import latest
+from field_preview import mapping_result
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "cache/runtime"
@@ -165,6 +166,7 @@ def main():
     p.add_argument("--arena-config", type=path, help="已测量的比赛场地几何；不提供时保持实验几何")
     p.add_argument("--profile",choices=["safe","candidate"],default="safe")
     p.add_argument("--response-model",type=path,help="合格的源时间响应模型；不修改原车辆配置")
+    p.add_argument("--no-preview",action="store_true",help="完成后只显示文件位置，不绘制终端缩略图")
     args = p.parse_args()
     if args.bag:
         try:
@@ -233,7 +235,10 @@ def main():
             raise RuntimeError(f"{name} 异常退出 ({code})，见对应日志")
 
     def run(name, command, timeout=300, allow_failure=False):
-        print(name, flush=True)
+        label = {"bag-quality":"校验录包", "export-map":"导出地图", "map-quality":"检查地图通行空间",
+                 "reload-check":"验证重载定位", "field-detection":"识别双桩与联合规划"}.get(name,name)
+        started = time.monotonic()
+        print(f"\n{label}… 日志: {out / (name + '.log')}", flush=True)
         process = start(name, command)
         try:
             code = process.wait(timeout=timeout)
@@ -244,6 +249,7 @@ def main():
             raise RuntimeError(f"{name} 未通过 ({code})，见 {out / (name + '.log')}")
         if code == 0:
             result["stages"].append(name)
+        print(f"{label}：{'完成' if code == 0 else '未通过'}，用时 {time.monotonic()-started:.1f} 秒",flush=True)
         save()
         return code
 
@@ -349,15 +355,7 @@ def main():
         result["processes_released"] = not result["remaining_pids"]
         save()
         lock.close()
-    print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
-    if result["status"] == "complete":
-        print("流程完成，重启定位检查通过；地图目录:", out / "map", flush=True)
-        if result.get("field_geometry_detected"):
-            print("已自动识别两桩并检查完整八字，导航配置:", result["navigation_config"], flush=True)
-        else:
-            print("未得到无歧义且整圈可通行的两桩配置，检查 field-detection.log；不会自动发车。", flush=True)
-        if not result["map_quality"]["navigation_grid_has_clearance"]:
-            print("注意：二维栅格没有满足车体半径的空闲区域，不能据此开放自主导航。", flush=True)
+    mapping_result(out,result,render=not args.no_preview)
     return exit_code
 
 
