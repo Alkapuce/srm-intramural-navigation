@@ -40,6 +40,25 @@ def completed(value):
 
 
 class MissionTests(unittest.TestCase):
+    def test_entry_exit_spread_turn_without_curvature_spikes(self):
+        for radius, heading, side in ((.55, 0., 0.), (.623, .8, 0.), (1.5, -.6, math.pi)):
+            def rotate(p):
+                return [p[0]*math.cos(heading)-p[1]*math.sin(heading),
+                        p[0]*math.sin(heading)+p[1]*math.cos(heading)]
+            sign = 1 if side == 0 else -1
+            c = dict(C, loop_radius=radius, lower_pole=[0., 0.], upper_pole=rotate([0., 2*radius]),
+                     parking=rotate([sign*2.2*radius, sign*.8*radius]), entry_angle=side,
+                     smooth_transitions=True)
+            route = segments(c)
+            points = np.array([p for _, path in route for p in path])
+            points = points[np.r_[True, np.linalg.norm(np.diff(points, axis=0), axis=1) > 1e-8]]
+            a, b = np.diff(points, axis=0)[:-1], np.diff(points, axis=0)[1:]
+            curvature = 2*np.abs(np.cross(a, b))/(np.linalg.norm(a, axis=1)*np.linalg.norm(b, axis=1)
+                *np.linalg.norm(points[2:]-points[:-2], axis=1))
+            self.assertLess(float(curvature.max()), 2/radius)
+            self.assertLessEqual(float(np.linalg.norm(np.diff(points, axis=0), axis=1).max()), c['path_spacing']*1.001)
+            self.assertEqual([ray_winding(points, c[k]) for k in ('lower_pole', 'upper_pole')], [1, -1])
+
     def test_smoothed_entry_exit_keep_order_winding_and_tangent_handoffs_for_varied_spacing(self):
         for radius in (.55,.623,1.5):
             c=dict(C,loop_radius=radius,lower_pole=[0.,0.],upper_pole=[0.,2*radius],
@@ -142,6 +161,15 @@ class MissionTests(unittest.TestCase):
         self.assertEqual(len(m.route),10)
         self.assertEqual(m.route[-1][1][-1],c['parking'])
         self.assertEqual(gate,[True])
+        # Starting above the first gate must approach in the arc direction,
+        # rather than producing a hairpin whose far endpoint is already nearby.
+        m.state='IDLE';m.pose=[.6,1.6]
+        result=Mission.start_here(m,Trigger.Request(),Trigger.Response())
+        self.assertTrue(result.success,result.message)
+        incoming=np.array(m.route[0][1][-1])-m.route[0][1][-2]
+        outgoing=np.array(m.route[1][1][1])-m.route[1][1][0]
+        self.assertGreater(np.dot(incoming,outgoing)/np.linalg.norm(incoming)/np.linalg.norm(outgoing),.95)
+        m.pose=pose
         # Measured occupancy and unknown space still reject before enabling motion.
         m.state='IDLE';gate.clear()
         row,col=int((pose[1]+3)/.025),int((pose[0]+3)/.025)
@@ -195,7 +223,58 @@ class MissionTests(unittest.TestCase):
             finally:
                 m.destroy_node();rclpy.shutdown()
 
+    def test_continuous_handoff_preserves_lateral_tolerance_and_ordered_progress(self):
+        c=dict(C,continuous_segments=True,checkpoint_tolerance=.15)
+        route=segments(c);points=route[3][1]
+        a,b=points[-2:];dx,dy=b[0]-a[0],b[1]-a[1];length=math.hypot(dx,dy)
+        advances=[]
+        m=N(c=c,continuous_goal=True,goal_pending=False,segment_result=None,route=route,index=3,
+            pose=[b[0]-.053*dy/length,b[1]+.053*dx/length],progress_fraction=len(points)-1-.4,
+            next_segment=lambda:advances.append(True))
+        # A 5.3 cm lateral error missed the former 5 cm endpoint disk and left
+        # the mission on its old segment while the controller followed the next.
+        Mission.finish_segment(m)
+        self.assertEqual(advances,[True])
+        advances.clear();m.progress_fraction=len(points)-1-2.
+        Mission.finish_segment(m)
+        self.assertEqual(advances,[])
 
+    def test_continuous_tick_hands_off_within_tracking_corridor_without_skipping_progress(self):
+        c=dict(C,continuous_segments=True,continuous_corners=True,pole_clearance_from_map=True,
+               lower_pole=[0.,0.],upper_pole=[0.,1.246],loop_radius=.623,entry_angle=0.)
+        with tempfile.TemporaryDirectory(dir=_root/'cache') as tmp:
+            config=Path(tmp)/'arena.json';config.write_text(json.dumps(c))
+            rclpy.init(domain_id=79,args=['--ros-args','-p',f'arena_config:={config}'])
+            m=Mission()
+            try:
+                for timer in m.timers:timer.cancel()
+                # TF and the action transport are the external boundaries; tick and handoff stay real.
+                goals=[]
+                def send(goal):goals.append(goal);return Future()
+                m.client=N(send_goal_async=send)
+                points=m.route[2][1];a,b=points[-2:]
+                dx,dy=b[0]-a[0],b[1]-a[1];length=math.hypot(dx,dy)
+                pose=[]
+                def lookup(*args):
+                    t=TransformStamped();t.header.stamp=m.get_clock().now().to_msg()
+                    t.transform.rotation.w=1.;t.transform.translation.x,t.transform.translation.y=pose
+                    return t
+                m.tf=N(lookup_transform=lookup)
+                for lateral,remaining,index,state in ((.17,.02,3,'RUNNING'),(.17,.20,2,'RUNNING'),(.34,.02,2,'FAULT')):
+                    pose[:]=[b[0]-remaining*dx/length-lateral*dy/length,
+                             b[1]-remaining*dy/length+lateral*dx/length]
+                    m.state='RUNNING';m.index=2;m.phase='LOWER';m.reason=''
+                    m.progress=max(0,len(points)-1-math.ceil(remaining/length))
+                    m.progress_fraction=float(m.progress)
+                    m.continuous_goal=True;m.goal_pending=False;m.segment_result=None
+                    m.resume_at=m.last_check=time.monotonic();m.navigator_active=True
+                    m.tick()
+                    self.assertEqual((m.index,m.state),(index,state),m.reason)
+                    if index==3:self.assertEqual(goals[-1].goal_checker_id,'continuous_goal_checker')
+                m.index=8;m.next_segment()
+                self.assertEqual(goals[-1].goal_checker_id,'general_goal_checker')
+            finally:
+                m.destroy_node();rclpy.shutdown()
 
     def test_tangent_goal_overlap_preserves_order_and_keeps_sharp_corner_stops(self):
         c=dict(C,entry_angle=0.)

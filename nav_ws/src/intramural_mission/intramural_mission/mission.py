@@ -172,7 +172,7 @@ class Mission(Node):
             if self.c.get('continuous_segments',False) else (self.route[self.index][1],False))
         goal.path = self.make_path(points[self.progress:])
         goal.controller_id = "FollowPath"
-        goal.goal_checker_id = "general_goal_checker"
+        goal.goal_checker_id = "continuous_goal_checker" if self.continuous_goal else "general_goal_checker"
         self.path_pub.publish(goal.path)
         self.goal_pending = True
         self.client.send_goal_async(goal).add_done_callback(partial(self.accepted,segment=self.index))
@@ -253,6 +253,16 @@ class Mission(Node):
                 response.message = "Start here requires the figure8 mission"
                 return response
             path = entry_path(self.c, self.pose, route[0][1][-1], self.static_map)
+            if path is not None and len(path)>1:
+                incoming=[b-a for a,b in zip(path[-2],path[-1])]
+                outgoing=[b-a for a,b in zip(route[1][1][0],route[1][1][1])]
+                length=math.hypot(*outgoing)
+                if sum(a*b for a,b in zip(incoming,outgoing)) < .95*math.hypot(*incoming)*length:
+                    # Approach along the first arc, so long lookahead cannot shortcut an entry hairpin.
+                    stage=[p-min(.5,.8*self.c['loop_radius'])*v/length for p,v in zip(path[-1],outgoing)]
+                    approach=entry_path(self.c,self.pose,stage,self.static_map)
+                    tail=entry_path(self.c,stage,path[-1],self.static_map)
+                    path=approach+tail[1:] if approach is not None and tail is not None else None
             if path is None:
                 response.message = "No known free path from current pose to entry; check map and localization"
                 return response
@@ -393,7 +403,7 @@ class Mission(Node):
             if self.c.get('continuous_segments',False) else (points,False))
         goal.path = self.make_path(points)
         goal.controller_id = "FollowPath"
-        goal.goal_checker_id = "general_goal_checker"
+        goal.goal_checker_id = "continuous_goal_checker" if self.continuous_goal else "general_goal_checker"
         self.path_pub.publish(goal.path)
         self.goal_pending = True
         self.goal_handle = None
@@ -452,12 +462,14 @@ class Mission(Node):
         points = self.route[self.index][1]
         tolerance = self.c["parking_tolerance"] if self.route[self.index][0] == "RETURN" else self.c["checkpoint_tolerance"]
         remaining_tolerance = min(tolerance,.05) if continuous and not self.c.get('continuous_corners',False) else tolerance
+        # Continuous goals already extend past this endpoint; keep the allowed tracking corridor at handoff.
+        endpoint_tolerance = max(tolerance,self.c['max_tracking_error']) if continuous else tolerance
         # Metric path remainder preserves ordered progress without a conflicting percentage gate on short segments.
         remaining = sum(math.dist(a, b) * min(1.0, max(0.0, i + 1 - self.progress_fraction))
                         for i, (a, b) in enumerate(zip(points, points[1:])))
         if (
             self.pose is not None
-            and math.dist(self.pose, points[-1]) <= tolerance
+            and math.dist(self.pose, points[-1]) <= endpoint_tolerance
             and remaining <= remaining_tolerance
         ):
             self.segment_result = None

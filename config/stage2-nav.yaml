@@ -326,6 +326,7 @@ controller_server:
     - progress_checker
     goal_checker_plugins:
     - general_goal_checker
+    - continuous_goal_checker
     controller_plugins:
     - FollowPath
     progress_checker:
@@ -336,6 +337,12 @@ controller_server:
       stateful: true
       plugin: nav2_controller::SimpleGoalChecker
       xy_goal_tolerance: 0.15
+      yaw_goal_tolerance: 6.28
+    # Mission completes continuous goals by ordered progress before their extended endpoint.
+    continuous_goal_checker:
+      stateful: false
+      plugin: nav2_controller::SimpleGoalChecker
+      xy_goal_tolerance: 0.001
       yaw_goal_tolerance: 6.28
     FollowPath:
       plugin: pb_omni_pid_pursuit_controller::OmniPidPursuitController

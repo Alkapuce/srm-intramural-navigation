@@ -64,17 +64,19 @@ def segments(c, smooth=True):
 
 
 def smooth_route(route,c):
-    """Round only the two entry/exit junctions; keep the shared straight trunk."""
+    """Spread each entry/exit turn with curvature-continuous quintic transitions."""
     if not c.get('smooth_transitions',False):
         return route
     result=[(name,list(points)) for name,points in route]
-    for index in (0,len(route)-2):
-        name,left=result[index];following,right=result[index+1]
+    for index,count in ((0,3),(len(route)-2,1)):
+        name,left=result[index]
+        right=[p for offset,(_,points) in enumerate(result[index+1:index+1+count])
+               for p in points[1 if offset else 0:]]
         if len(left)<3 or len(right)<3 or math.dist(left[-1],right[0])>1e-6:
             continue
-        trim=min(.4*c['loop_radius'],.35,
-            .8*sum(math.dist(a,b)for a,b in zip(left,left[1:])),
-            .8*sum(math.dist(a,b)for a,b in zip(right,right[1:])))
+        trim=min(1.25*c['loop_radius'],
+            .75*sum(math.dist(a,b)for a,b in zip(left,left[1:])),
+            .75*sum(math.dist(a,b)for a,b in zip(right,right[1:])))
         i,j,d=len(left)-1,0,0.
         while i>1 and d<trim:
             d+=math.dist(left[i],left[i-1]);i-=1
@@ -84,17 +86,30 @@ def smooth_route(route,c):
         a,b=left[i],right[j]
         incoming=[x-y for x,y in zip(a,left[i-1])]
         outgoing=[y-x for x,y in zip(b,right[j+1])]
+        if index==0:
+            outgoing=[-(b[1]-c['lower_pole'][1]),b[0]-c['lower_pole'][0]]
+        else:
+            incoming=[-(a[1]-c['lower_pole'][1]),a[0]-c['lower_pole'][0]]
         na,nb=math.hypot(*incoming),math.hypot(*outgoing)
         if min(na,nb)<1e-6:
             continue
-        handle=2*min(math.dist(a,left[-1]),math.dist(left[-1],b))/3
-        p=[a[k]+handle*incoming[k]/na for k in range(2)]
-        q=[b[k]-handle*outgoing[k]/nb for k in range(2)]
-        n=max(8,2*math.ceil((math.dist(a,p)+math.dist(p,q)+math.dist(q,b))/c['path_spacing']))
-        curve=[[(1-t)**3*a[k]+3*(1-t)**2*t*p[k]+3*(1-t)*t*t*q[k]+t**3*b[k]
+        u=[v/na for v in incoming];v=[w/nb for w in outgoing]
+        length=math.dist(a,b)
+        ka,kb=(0.,1/c['loop_radius']) if index==0 else (1/c['loop_radius'],0.)
+        control=[a,[a[k]+length*u[k]/5 for k in range(2)],
+            [a[k]+2*length*u[k]/5+length*length*ka*[-u[1],u[0]][k]/20 for k in range(2)],
+            [b[k]-2*length*v[k]/5+length*length*kb*[-v[1],v[0]][k]/20 for k in range(2)],
+            [b[k]-length*v[k]/5 for k in range(2)],b]
+        # Bound sample spacing by the largest Bezier derivative control vector.
+        n=max(12,math.ceil(5*max(math.dist(p,q)for p,q in zip(control,control[1:]))/c['path_spacing']))
+        curve=[[sum(math.comb(5,h)*(1-t)**(5-h)*t**h*control[h][k]for h in range(6))
                 for k in range(2)]for t in (v/n for v in range(n+1))]
         result[index]=(name,left[:i]+curve[:n//2+1])
-        result[index+1]=(following,curve[n//2:]+right[j+1:])
+        following=curve[n//2:]+right[j+1:]
+        for offset in range(count):
+            lo=offset*(len(following)-1)//count
+            hi=(offset+1)*(len(following)-1)//count
+            result[index+1+offset]=(route[index+1+offset][0],following[lo:hi+1])
     return result
 
 
