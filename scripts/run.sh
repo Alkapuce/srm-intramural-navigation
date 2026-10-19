@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/internal/env.sh"
+# Tiny planar operations do not need a BLAS worker pool in every ROS Python process.
+export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-1}"
 # SSH / agent sessions may omit DISPLAY even while WSLg is running.
 if [[ -z "${DISPLAY:-}" && -S /mnt/wslg/.X11-unix/X0 ]]; then
   export DISPLAY=:0
@@ -45,7 +47,7 @@ if [[ "${INTRAMURAL_NATIVE:-0}" == 1 ]] || ! command -v docker >/dev/null 2>&1; 
   fi
 fi
 args=(--rm --init -i --network host --ipc host --ulimit core=0 --user "$(id -u):$(id -g)"
-  -e "INTRAMURAL_SOURCE_OVERLAY=${INTRAMURAL_SOURCE_OVERLAY:-1}"
+  -e "INTRAMURAL_SOURCE_OVERLAY=${INTRAMURAL_SOURCE_OVERLAY:-1}" -e OPENBLAS_NUM_THREADS
   -e HOME=/work/cache/home -e ROS_LOG_DIR=/work/nav_ws/log/runtime
   -e "MESA_D3D12_DEFAULT_ADAPTER_NAME=${INTRAMURAL_GPU_ADAPTER:-NVIDIA}"
   -e "LIBGL_ALWAYS_SOFTWARE=${INTRAMURAL_SOFTWARE_RENDERING:-0}"

@@ -1,9 +1,38 @@
 """Finish the active callback before releasing ROS during process shutdown."""
 
 import signal
+import os
+import time
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.signals import SignalHandlerOptions
+
+
+def shutdown_before_peers(process):
+    """Quiesce the owned serial process before launch tears down its DDS peers."""
+    from launch.actions import RegisterEventHandler
+    from launch.event_handlers import OnShutdown
+
+    def stop_process(event, context):
+        pid = process.process_details.get('pid')
+        if pid is None:
+            return []
+        try:
+            os.kill(pid, signal.SIGINT)
+        except ProcessLookupError:
+            return []
+        deadline = time.monotonic()+5
+        while time.monotonic()<deadline:
+            try:
+                if os.waitid(os.P_PID,pid,os.WEXITED|os.WNOHANG|os.WNOWAIT) is not None:
+                    return []
+            except ChildProcessError:
+                return []
+            time.sleep(.01)
+        raise RuntimeError('Serial bridge did not finish zero/close before peer shutdown')
+
+    # Register after the processes: launch prepends handlers, so this one runs first.
+    return RegisterEventHandler(OnShutdown(on_shutdown=stop_process))
 
 
 def run(factory, cleanup=None, args=None):

@@ -9,6 +9,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, PushRosNamespace
 from launch_ros.descriptions import ParameterFile
 from nav2_common.launch import RewrittenYaml
+from intramural_base.runtime import shutdown_before_peers
 
 
 def start(context):
@@ -66,14 +67,16 @@ def start(context):
         Node(package="nav2_lifecycle_manager",executable="lifecycle_manager",name="lifecycle_manager_vehicle",
              parameters=[{"use_sim_time":sim,"autostart":motion,"node_names":["map_server","controller_server","velocity_smoother"]}],output="screen"),
     ]
+    serial = None
     if motion:
-        nodes.append(Node(package="intramural_base", executable="serial_bridge", name="serial_bridge",
-            parameters=[{"use_sim_time":False,"simulation":False,"device":device,"calibration":str(vehicle/"base-vehicle.json")}], output="screen"))
+        serial = Node(package="intramural_base", executable="serial_bridge", name="serial_bridge",
+            parameters=[{"use_sim_time":False,"simulation":False,"device":device,"calibration":str(vehicle/"base-vehicle.json")}], output="screen")
+        nodes.append(serial)
     pose=c["lidar_pose"]
     static=Node(package="tf2_ros",executable="static_transform_publisher",name="vehicle_lidar_mount",
         arguments=["--x",str(pose[0]),"--y",str(pose[1]),"--z",str(pose[2]),"--roll",str(pose[3]),"--pitch",str(pose[4]),"--yaw",str(pose[5]),"--frame-id","base_footprint","--child-frame-id","livox_frame"],
         parameters=[{"use_sim_time":sim}],output="screen")
-    return [static,GroupAction([PushRosNamespace(c["namespace"]),*nodes])]
+    return [static,GroupAction([PushRosNamespace(c["namespace"]),*nodes])] + ([shutdown_before_peers(serial)] if serial is not None else [])
 
 
 def generate_launch_description():

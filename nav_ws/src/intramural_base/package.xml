@@ -5,6 +5,7 @@
   <maintainer email="local@example.invalid">SRM intramural participant</maintainer>
   <license>Apache-2.0</license>
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>launch</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend>

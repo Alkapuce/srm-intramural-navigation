@@ -8,6 +8,7 @@ from launch.event_handlers import OnProcessExit
 from launch_ros.actions import Node, PushRosNamespace, SetRemap
 from launch_ros.descriptions import ParameterFile
 from nav2_common.launch import RewrittenYaml
+from intramural_base.runtime import shutdown_before_peers
 
 
 def generate_launch_description():
@@ -125,11 +126,13 @@ def generate_launch_description():
             ),
         ]
     )
+    serial = None
     if transport == "serial-sim":
-        nodes.append(Node(package="intramural_base", executable="serial_bridge",
+        serial = Node(package="intramural_base", executable="serial_bridge",
             name="serial_bridge", parameters=[{"simulation": True,
                 "device_file": str(root / "cache/runtime/intramural-sim-tty"),
-                "calibration": str(root / "simulation/generated/base-sim.json")}], output="screen"))
+                "calibration": str(root / "simulation/generated/base-sim.json")}], output="screen")
+        nodes.append(serial)
     return LaunchDescription(
         [
             RegisterEventHandler(OnProcessExit(on_exit=failed)),
@@ -141,5 +144,5 @@ def generate_launch_description():
                     *nodes,
                 ]
             ),
-        ]
+        ] + ([shutdown_before_peers(serial)] if serial is not None else [])
     )

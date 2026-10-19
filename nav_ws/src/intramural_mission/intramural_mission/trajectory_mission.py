@@ -33,6 +33,7 @@ class TrajectoryMission(Node):
         self.start_permitted = self.get_parameter("start_permitted").value
         self.state = "IDLE"
         self.reason = ""
+        self.input_failure = {}
         self.pose = None
         self.pose_stamp = 0.0
         self.pose_age = math.inf
@@ -230,6 +231,7 @@ class TrajectoryMission(Node):
         self.index = -1
         self.reason = ""
         self.plan = None
+        self.input_failure.clear()
         self.tracker = None
         response.success = True
         response.message = "Reset"
@@ -350,6 +352,8 @@ class TrajectoryMission(Node):
                 self.stop("FAULT", "STOP_UNCONFIRMED")
         if self.state in ("RUNNING", "BLOCKED"):
             if not self.ready():
+                self.input_failure=dict(tf_age=self.pose_age,costmap_age=now-self.costmap_at,
+                    guard_age=now-self.guard_at,guard=self.guard)
                 self.stop("FAULT", "LOCALIZATION_OR_SENSOR_STALE")
             elif self.obstacle():
                 if self.state != "BLOCKED":
@@ -405,6 +409,7 @@ class TrajectoryMission(Node):
             ready=self.ready(),
             start_permitted=self.start_permitted,
             reason=self.reason,
+            input_failure=self.input_failure,
             history=self.history,
             blocked_count=self.blocked_count,
             bypass_count=0,
