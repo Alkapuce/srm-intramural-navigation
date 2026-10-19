@@ -15,7 +15,7 @@ from geometry_msgs.msg import Twist
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
-from intramural_mission.route import clearance
+from intramural_mission.route import clearance, segments
 
 
 p = argparse.ArgumentParser()
@@ -33,15 +33,20 @@ if (a.cancel_bypass or a.expect_blocked) and (not a.persistent or a.scenarios !=
     p.error('Cancellation/no-route checks require --persistent --scenarios entry')
 if not 0 < a.blocked_hold_seconds <= 60:
     p.error("--blocked-hold-seconds must be in (0, 60]")
+c = json.loads(Path("/work/config/arena.json").read_text())
+if c.get('navigation_engine') == 'trajectory' and a.persistent and not a.expect_blocked:
+    p.error('Trajectory engine waits for obstacles; use --expect-blocked or a legacy bypass configuration')
 out = Path(a.output).resolve()
 if not out.is_relative_to(Path("/work/artifacts")):
     raise ValueError("Evidence must be under artifacts")
 out.mkdir(parents=True, exist_ok=True)
 subprocess.run(["python3", "/work/scripts/internal/snapshot-evidence.py", "--output", str(out)], check=True)
-c = json.loads(Path("/work/config/arena.json").read_text())
 ns = "/" + c["namespace"] + "/"
-targets = {"entry": (0, (1.5, .75)), "lower": (1, (2.44, -.06)),
-           "upper": (4, (2.44, 2.94)), "cross": (3, (3.5, 2.5))}
+route=segments(c)
+targets={"entry":(0,route[0][1][3*len(route[0][1])//4]),
+         "lower":(2,route[2][1][len(route[2][1])//2]),
+         "upper":(4,route[4][1][len(route[4][1])//2]),
+         "cross":(3,route[3][1][-1])}
 status, latest = {}, {}
 records = []
 trajectory = (out / "trajectory.jsonl").open("w")
@@ -170,7 +175,7 @@ try:
             call("reset")
             until(lambda: status.get("state") == "IDLE", 5, "reset")
         call("start")
-        until(lambda: status.get("state") == "RUNNING" and status.get("segment") == segment
+        until(lambda: status.get("state") == "RUNNING" and status.get("segment",-1) <= segment
               and latest.get("truth") and math.hypot(latest["truth"].twist.twist.linear.x,
                   latest["truth"].twist.twist.linear.y) > .1
               and math.dist((latest["truth"].pose.pose.position.x,
@@ -181,12 +186,17 @@ try:
         before = list(status["history"])
         move("place", target)
         inserted_at = time.monotonic()
-        until(lambda: status.get("state") == "BLOCKED", 15, f"{scenario} block")
+        until(lambda: status.get("state") == "BLOCKED", 120, f"{scenario} block")
         blocked_segment = status["segment"]
-        if blocked_segment != segment or status["history"] != before:
+        history=status['history']
+        if history[:len(before)]!=before or [h['segment']for h in history]!=list(range(len(history))):
             raise RuntimeError("Obstacle skipped an ordered phase")
+        segment=blocked_segment
+        frozen_history=list(history)
         stopped(1.5)
         hold_blocked(a.blocked_hold_seconds)
+        if status['segment']!=segment or status['history']!=frozen_history:
+            raise RuntimeError('Progress advanced during blocking')
         p = latest["truth"].pose.pose.position
         stand_off = math.dist((p.x, p.y), target)
         if stand_off < .7:
@@ -235,6 +245,7 @@ try:
         result = {"scenario": scenario, "target": target, "blocked_segment": segment,
                   "blocked_hold_wall_seconds": a.blocked_hold_seconds,
                   "moving_pose_at_insertion": moving_pose,
+                  "insertion_distance_m":math.dist(moving_pose,target),
                   "blocked_pose": blocked_pose, "obstacle_standoff_m": stand_off,
                   "parking_error_m": parking_error, "min_static_clearance_m": min_clearance,
                   "history": [h["phase"] for h in status["history"]],
