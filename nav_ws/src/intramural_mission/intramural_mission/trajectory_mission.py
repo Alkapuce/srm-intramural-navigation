@@ -406,7 +406,7 @@ class TrajectoryMission(Node):
             route_id=self.plan.route_id if self.plan else "",
             pose=self.pose,
             tf_age_sim_seconds=self.pose_age if math.isfinite(self.pose_age) else None,
-            ready=self.ready(),
+            ready=self.start_permitted and self.ready(),
             start_permitted=self.start_permitted,
             reason=self.reason,
             input_failure=self.input_failure,

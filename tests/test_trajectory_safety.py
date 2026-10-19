@@ -4,6 +4,7 @@ from array import array
 import json
 from pathlib import Path
 import tempfile
+import time
 from types import SimpleNamespace as N
 import unittest
 import numpy as np
@@ -11,6 +12,8 @@ import rclpy
 from geometry_msgs.msg import TransformStamped
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import String
+from std_srvs.srv import Trigger
+from nav_msgs.msg import OccupancyGrid
 from intramural_mission.adapter import Adapter
 from intramural_mission.trajectory_mission import TrajectoryMission
 from intramural_mission.trajectory import RoutePlan, OmniTracker
@@ -20,6 +23,43 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TrajectorySafetyTests(unittest.TestCase):
+    def test_locked_standby_never_reports_ready_with_healthy_inputs(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / "cache") as folder:
+            config = Path(folder) / "arena.json"
+            config.write_bytes((ROOT / "config/arena.json").read_bytes())
+            rclpy.init(domain_id=77, args=["--ros-args", "-p", f"arena_config:={config}",
+                                         "-p", "start_permitted:=false"])
+            node = TrajectoryMission()
+            statuses = []
+            node.create_subscription(String, "mission/status",
+                                     lambda msg: statuses.append(json.loads(msg.data)), 10)
+            try:
+                def transform(*args):
+                    t = TransformStamped()
+                    t.header.stamp = node.get_clock().now().to_msg()
+                    t.transform.rotation.w = 1.0
+                    return t
+
+                node.tf = N(lookup_transform=transform)
+                node.receive_map(OccupancyGrid())
+                node.receive_costmap(OccupancyGrid())
+                node.receive_guard(String(data='{"sensors_fresh": true}'))
+                node.tick()
+                deadline = time.monotonic() + 2
+                while not statuses and time.monotonic() < deadline:
+                    rclpy.spin_once(node, timeout_sec=.02)
+                self.assertTrue(statuses)
+                self.assertIsNotNone(statuses[-1]["pose"])
+                self.assertFalse(statuses[-1]["start_permitted"])
+                self.assertFalse(statuses[-1]["ready"])
+                response = node.start(Trigger.Request(), Trigger.Response())
+                self.assertFalse(response.success)
+                self.assertEqual(node.state, "IDLE")
+                self.assertIsNone(node.tracker)
+            finally:
+                node.destroy_node()
+                rclpy.shutdown()
+
     def test_missing_localization_latches_fault_and_clears_motion(self):
         c = json.loads((ROOT / "config/arena.json").read_text())
         c.update(json.loads((ROOT / "config/navigation-profiles.json").read_text())["safe"])
