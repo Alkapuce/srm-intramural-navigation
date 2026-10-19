@@ -15,6 +15,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlanningTests(unittest.TestCase):
+    def test_fast_tracking_prediction_matches_recorded_response_on_tight_loops(self):
+        c=json.loads((ROOT/'config/arena.json').read_text())
+        c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['candidate'])
+        c.update(lower_pole=[0.,0.],upper_pole=[0.,1.218],loop_radius=.609,
+                 parking=[-1.4,-.35],entry_angle=math.pi,
+                 bounds=[-3.,3.,-3.,4.],optimized_route=dict(shape=None,entry_angle=math.pi,transition_scale=1.25))
+        g=OccupancyGrid();g.header.frame_id='map';g.info.width=240;g.info.height=280
+        g.info.resolution=.025;g.info.origin.position.x=g.info.origin.position.y=-3.
+        g.info.origin.orientation.w=1.
+        yy,xx=np.mgrid[:280,:240];pixels=np.zeros((280,240),dtype=np.int8)
+        for x,y in (c['lower_pole'],c['upper_pole']):
+            pixels[np.hypot(-3+(xx+.5)*.025-x,-3+(yy+.5)*.025-y)<c['pole_radius']]=100
+        g.data=pixels.ravel().tolist();plan,_,_=compile_route(c,g)
+        for plant in c['response_models']:
+            result=predict_execution(plan,c,GridMap(g,c),plant_response=plant)
+            self.assertTrue(result['passed'],result)
+            self.assertLess(result['max_tracking_error'],.06,result)
+
     def test_frozen_route_entry_avoids_full_bases_when_only_thin_poles_are_mapped(self):
         c=json.loads((ROOT/'config/arena.json').read_text())
         c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['safe'])

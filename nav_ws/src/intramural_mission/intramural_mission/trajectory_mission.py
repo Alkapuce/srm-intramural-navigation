@@ -410,6 +410,7 @@ class TrajectoryMission(Node):
             start_permitted=self.start_permitted,
             reason=self.reason,
             input_failure=self.input_failure,
+            guard=self.guard,
             history=self.history,
             blocked_count=self.blocked_count,
             bypass_count=0,

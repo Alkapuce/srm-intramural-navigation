@@ -31,7 +31,7 @@ class RoutePlan:
         for key in ("max_jerk", "parking_tolerance", "finish_distance"):
             if key in limits and (not math.isfinite(limits[key]) or limits[key] <= 0):
                 raise ValueError("Positive finite trajectory constraints required")
-        for key in ("response_delay", "response_tau", "normal_gain", "tangent_gain", "velocity_gain"):
+        for key in ("response_delay", "response_tau", "tracking_prediction_delay", "normal_gain", "tangent_gain", "velocity_gain"):
             if key in limits and (not math.isfinite(limits[key]) or limits[key] < 0):
                 raise ValueError("Nonnegative finite response parameters required")
         if limits["lateral_acceleration"] > limits["max_acceleration"]:
@@ -206,7 +206,7 @@ class OmniTracker:
         )
         s = self.progress.s
         remaining = self.plan.s[-1] - s
-        delay = self.limits.get("response_delay", 0.2) + max(0.0, pose_age)
+        delay = self.limits.get("tracking_prediction_delay", self.limits.get("response_delay", 0.2)) + max(0.0, pose_age)
         predicted = p + self.velocity * delay
         ahead = min(
             self.plan.s[-1], s + max(0.06, np.linalg.norm(self.velocity) * delay)

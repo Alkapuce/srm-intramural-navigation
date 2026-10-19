@@ -333,6 +333,11 @@ class Adapter(Node):
                         "raw_lidar_hazard": self.hazard,
                         "collision_check": self.guard_mode,
                         "path_speed_limit": speed_limit,
+                        "command": values[:2], "output": self.output,
+                        "input_ages": {k: now-self.last.get(k, 0.) for k in ('command','odom','lidar','imu')},
+                        "nearest_raw_points": (self.raw_near_points[np.argsort(np.sum(self.raw_near_points**2,axis=1))[:6]].tolist()
+                                               if self.hazard else []),
+                        "collision_prefix": path[:8] if self.hazard and path is not None else [],
                     }
                 )
             )
