@@ -14,6 +14,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlanningTests(unittest.TestCase):
+    def test_changed_pole_spacing_in_a_corridor_can_use_narrower_loops(self):
+        c=json.loads((ROOT/'config/arena.json').read_text())
+        c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['safe'])
+        c.update(lower_pole=[0.,0.],upper_pole=[0.,3.],loop_radius=1.5,parking=[.3,-2.],entry_angle=0.)
+        g=OccupancyGrid();g.header.frame_id='map';g.info.width=120;g.info.height=320;g.info.resolution=.025
+        g.info.origin.position.x=-1.5;g.info.origin.position.y=-2.5;g.info.origin.orientation.w=1.
+        yy,xx=np.mgrid[:320,:120];x=-1.5+(xx+.5)*.025;y=-2.5+(yy+.5)*.025
+        pixels=np.where(np.abs(x)>1.15,100,0)
+        for px,py in (c['lower_pole'],c['upper_pole']):pixels[np.hypot(x-px,y-py)<.15]=100
+        g.data=pixels.astype(np.int8).ravel().tolist()
+        with self.assertRaises(ValueError):compile_route(dict(c,optimize_route=False),g)
+        plan,_,report=compile_route(c,g)
+        self.assertTrue(report['execution_prediction']['passed'])
+        self.assertLess(max(report['optimized_route']['shape'][:2]),1.)
+        self.assertEqual(len(plan.gates),10)
+        self.assertGreater(min(plan.clearance),0)
+
     def test_fresh_map_and_arbitrary_entry_are_one_ordered_smooth_plan(self):
         c = json.loads((ROOT / "config/arena.json").read_text())
         c.update(json.loads((ROOT / "config/navigation-profiles.json").read_text())["safe"])
@@ -46,7 +63,8 @@ class PlanningTests(unittest.TestCase):
             self.assertEqual(len(plan.gates), 10)
             self.assertEqual(plan.points[-1], tuple(c["parking"]))
             self.assertGreater(min(plan.clearance), 0)
-            self.assertLessEqual(max(map(abs, plan.curvature)), 2 / c["robot_radius"])
+            self.assertTrue(np.isfinite(plan.curvature).all())
+            self.assertLessEqual(max(np.asarray(plan.speed)**2*np.abs(plan.curvature)),c['lateral_acceleration']+1e-6)
             tracker = OmniTracker(plan, c)
             _, state = tracker.step(plan.points[0], 0.0, 0.025)
             self.assertFalse(state["done"])

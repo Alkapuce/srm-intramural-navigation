@@ -48,8 +48,10 @@ def spline_route(c, shape, entry_angle):
 def shapes(c):
     """Coarse joint search, followed by a small coordinate refinement around its winner."""
     r = math.dist(c["lower_pole"],c["upper_pole"])/2
-    for width in (.85*r, r, 1.2*r):
-        for fraction in (.45,.5,.55):
+    minimum = c["robot_radius"]+c["pole_radius"]+c.get("minimum_clearance",.02)+c.get("map_resolution",.05)/math.sqrt(2)+c["path_spacing"]/2
+    extent = min(.25,max(0.,(.5-minimum/(2*r))*.7))
+    for width in sorted(set((minimum*1.02,minimum*1.4,max(r,minimum*1.02),max(1.2*r,minimum*1.02)))):
+        for fraction in sorted(set((.5-extent,.5,.5+extent))):
             yield (width,width,fraction)
 
 

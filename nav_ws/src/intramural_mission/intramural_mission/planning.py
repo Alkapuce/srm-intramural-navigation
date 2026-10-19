@@ -129,7 +129,7 @@ class GridMap:
                 / np.linalg.norm(d, axis=1).clip(1e-9) ** 3
             )
             path = curve(sample)
-            if max(k) <= 2 / self.c["robot_radius"] and min(self.clearance(path)) > 0:
+            if (self.c.get("optimize_route") or max(k) <= 2 / self.c["robot_radius"]) and min(self.clearance(path)) > 0:
                 yield path.tolist()
 
 
@@ -178,7 +178,8 @@ def _compile(c, measured, start=None, route=None, geometry=None, scales=None):
                 )
             except ValueError:
                 continue
-            if max(map(abs, plan.curvature)) > 2 / c["robot_radius"]:
+            # Omni steering has no radius-derived curvature limit; speed and predicted tracking decide feasibility.
+            if geometry is None and max(map(abs, plan.curvature)) > 2 / c["robot_radius"]:
                 continue
             # Validate both topology and footprint after the actual map-aware smoothing.
             if c.get("mission_variant", "figure8") == "figure8":
