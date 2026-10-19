@@ -63,7 +63,7 @@ def segments(c, smooth=True):
     return smooth_route(result,c) if smooth else result
 
 
-def smooth_route(route,c):
+def smooth_route(route,c,scale=1.25):
     """Spread each entry/exit turn with curvature-continuous quintic transitions."""
     if not c.get('smooth_transitions',False):
         return route
@@ -74,7 +74,7 @@ def smooth_route(route,c):
                for p in points[1 if offset else 0:]]
         if len(left)<3 or len(right)<3 or math.dist(left[-1],right[0])>1e-6:
             continue
-        trim=min(1.25*c['loop_radius'],
+        trim=min(scale*c['loop_radius'],
             .75*sum(math.dist(a,b)for a,b in zip(left,left[1:])),
             .75*sum(math.dist(a,b)for a,b in zip(right,right[1:])))
         i,j,d=len(left)-1,0,0.

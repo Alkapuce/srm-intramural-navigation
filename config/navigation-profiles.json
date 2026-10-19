@@ -1,0 +1,27 @@
+{
+  "safe": {
+    "navigation_engine": "trajectory", "max_speed": 0.65,
+    "max_acceleration": 1.2, "lateral_acceleration": 0.65,
+    "max_jerk": 5.0, "response_delay": 0.2,
+    "braking_acceleration": 0.2, "normal_gain": 1.5,
+    "tangent_gain": 1.0, "velocity_gain": 0.1,
+    "parking_tolerance": 0.08, "finish_distance": 0.05,
+    "smooth_transitions": true
+  },
+  "candidate": {
+    "navigation_engine": "trajectory", "max_speed": 1.2,
+    "max_acceleration": 2.5, "lateral_acceleration": 1.4,
+    "max_jerk": 7.0, "response_delay": 0.2,
+    "braking_acceleration": 0.2, "normal_gain": 2.5,
+    "tangent_gain": 1.0, "velocity_gain": 0.1,
+    "parking_tolerance": 0.08, "finish_distance": 0.05,
+    "smooth_transitions": true
+  },
+  "gold-reference": {
+    "navigation_engine": "legacy", "max_speed": 1.5,
+    "max_acceleration": 0.6, "lateral_acceleration": 0.5,
+    "braking_acceleration": 0.2, "translation_kp": 4.0,
+    "lookahead_dist": 0.18, "parking_tolerance": 0.12,
+    "smooth_transitions": true
+  }
+}
