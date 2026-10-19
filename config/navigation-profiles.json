@@ -6,7 +6,8 @@
     "braking_acceleration": 0.2, "normal_gain": 1.5,
     "tangent_gain": 1.0, "velocity_gain": 0.1,
     "parking_tolerance": 0.08, "finish_distance": 0.05,
-    "smooth_transitions": true
+    "smooth_transitions": true,
+    "response_models": [[0.09168461485123885, 0.08902560958962843], [0.08984127804154006, 0.029510894483599153], [0.07683024285400192, 0.05243267286377716]]
   },
   "candidate": {
     "navigation_engine": "trajectory", "optimize_route": true, "max_speed": 1.2,
@@ -15,7 +16,8 @@
     "braking_acceleration": 0.2, "normal_gain": 2.5,
     "tangent_gain": 1.0, "velocity_gain": 0.1,
     "parking_tolerance": 0.08, "finish_distance": 0.05,
-    "smooth_transitions": true
+    "smooth_transitions": true,
+    "response_models": [[0.09168461485123885, 0.08902560958962843], [0.08984127804154006, 0.029510894483599153], [0.07683024285400192, 0.05243267286377716]]
   },
   "gold-reference": {
     "navigation_engine": "legacy", "max_speed": 1.5,

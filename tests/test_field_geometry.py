@@ -31,6 +31,7 @@ class FieldGeometryTest(unittest.TestCase):
             (source/'prior.pcd').write_bytes(b'FIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\nDATA binary\n'+raw)
             (source/'occupancy.json').write_text(json.dumps({'floor_plane':{'z_equals_ax_by_c':[0.,0.,0.]}}))
             config=json.loads((root/'config/arena.json').read_text());config['lidar_pose']=[0.]*6
+            config['optimized_route']=dict(shape=[20.,20.,.5],entry_angle=0.,transition_scale=1.25)
             (source/'arena.json').write_text(json.dumps(config))
             Image.fromarray(np.full((300,300),205 if blocked else 254,dtype=np.uint8)).save(source/'map.pgm')
             (source/'map.yaml').write_text(yaml.safe_dump(dict(image='map.pgm',resolution=.05,origin=[-5.,-5.,0.])))

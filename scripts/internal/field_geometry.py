@@ -227,6 +227,7 @@ def main():
                     metadata['origin'][1],metadata['origin'][1]+grid.shape[0]*metadata['resolution']],
             assumptions='Observed map and geometric pole detection; identity vehicle scale is an operator-approved initial estimate')
         attempts=[]
+        config.pop('optimized_route',None)
         if config['loop_radius'] <= config['robot_radius']+config['pole_radius']+.05:
             report['error']='Pole spacing cannot accommodate the complete vehicle envelope'
         else:

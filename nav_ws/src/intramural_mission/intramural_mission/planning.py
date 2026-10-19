@@ -253,7 +253,17 @@ def compile_route(c, grid, start=None):
         feasible = [x for x in results if x[2]["execution_prediction"]["passed"]]
         if not feasible:
             raise ValueError("No geometrically valid route can be tracked with the configured response model")
-        plan,route,report = min(feasible,key=lambda x:x[2]["execution_prediction"]["duration"])
+        for plan,route,report in sorted(feasible,key=lambda x:x[2]['execution_prediction']['duration']):
+            predictions=[]
+            for delay,tau in c.get('response_models',[]):
+                prediction=predict_execution(plan,c,measured,plant_response=(delay,tau))
+                predictions.append(dict(delay=delay,tau=tau,**prediction))
+                if not prediction['passed']:break
+            if all(p['passed'] for p in predictions):
+                report['response_predictions']=predictions
+                break
+        else:
+            raise ValueError('No route fits the configured response models and complete vehicle envelope')
     else:
         plan,route,report = results[0]
     report.update(optimization="bounded joint geometry/speed search",candidates_evaluated=evaluated,

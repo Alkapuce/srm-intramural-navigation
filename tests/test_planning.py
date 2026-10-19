@@ -15,6 +15,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlanningTests(unittest.TestCase):
+    def test_default_candidate_tracks_known_faster_plants_without_retuning(self):
+        c=json.loads((ROOT/'config/arena.json').read_text())
+        c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['candidate'])
+        c.pop('optimized_route',None)
+        g=OccupancyGrid();g.header.frame_id='map';g.info.width=g.info.height=200;g.info.resolution=.05
+        g.info.origin.position.x=g.info.origin.position.y=-2.;g.info.origin.orientation.w=1.
+        yy,xx=np.mgrid[:200,:200];pixels=np.zeros((200,200),dtype=np.int8)
+        for x,y in (c['lower_pole'],c['upper_pole']):
+            pixels[np.hypot(-2+(xx+.5)*.05-x,-2+(yy+.5)*.05-y)<c['pole_radius']]=100
+        g.data=pixels.ravel().tolist()
+        plan,_,_=compile_route(c,g)
+        for plant in c['response_models']:
+            result=predict_execution(plan,c,GridMap(g,c),plant_response=plant)
+            self.assertTrue(result['passed'],result)
+
     def test_changed_pole_spacing_in_a_corridor_can_use_narrower_loops(self):
         c=json.loads((ROOT/'config/arena.json').read_text())
         c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['safe'])
