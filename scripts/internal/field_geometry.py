@@ -14,6 +14,8 @@ from scipy.ndimage import distance_transform_edt, label
 import yaml
 from intramural_mission.proximity import lidar_to_body
 from intramural_mission.route import segments
+from intramural_mission.planning import compile_route
+from types import SimpleNamespace as N
 
 
 def detect_poles(points, plane):
@@ -51,6 +53,19 @@ def detect_poles(points, plane):
 
 
 def check_route(config, grid, metadata):
+    if config.get('navigation_engine')=='trajectory':
+        yaw=metadata['origin'][2];res=float(metadata['resolution'])
+        msg=N(header=N(frame_id='map'),info=N(resolution=res,width=grid.shape[1],height=grid.shape[0],
+            origin=N(position=N(x=metadata['origin'][0],y=metadata['origin'][1]),
+                orientation=N(w=math.cos(yaw/2),x=0.,y=0.,z=math.sin(yaw/2)))),
+            data=np.where(grid[::-1]==254,0,np.where(grid[::-1]==205,-1,100)).ravel().tolist())
+        try:
+            plan,route,report=compile_route(config,msg)
+            needed=config['robot_radius']+res/math.sqrt(2)+config['path_spacing']/2+config.get('minimum_clearance',.02)
+            return dict(passed=True,minimum_obstacle_distance_m=report['minimum_clearance']+needed,
+                required_obstacle_distance_m=needed,blocked_samples=0,examples=[],route_id=plan.route_id,compiler=report)
+        except ValueError as exc:
+            return dict(passed=False,minimum_obstacle_distance_m=0.,blocked_samples=1,examples=[str(exc)])
     free = np.asarray(grid)[::-1] == 254
     res = float(metadata['resolution'])
     distances = distance_transform_edt(np.pad(free, 1))[1:-1, 1:-1]*res
@@ -76,9 +91,13 @@ def main():
     parser.add_argument('--map-config', required=True)
     parser.add_argument('--output')
     parser.add_argument('--parking', nargs=2, type=float, default=[0.,0.], help='Confirmed mapping-start parking location in map frame')
+    parser.add_argument('--profile',choices=['safe','candidate','gold-reference'],default='safe')
     args = parser.parse_args()
+    profiles=json.loads((Path(__file__).resolve().parents[2]/'config/navigation-profiles.json').read_text())
+    profile=profiles[args.profile]
     source = Path(args.map_config).resolve()
-    out = Path(args.output).resolve() if args.output else root/'artifacts/navigation'/datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    output=Path(args.output) if args.output else root/'artifacts/navigation'/datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    out=(output if output.is_absolute()else root/output).resolve()
     if out.exists() or not any(out.is_relative_to(root/k) and out != root/k for k in ('cache','artifacts')):
         parser.error('Choose a new directory under project cache/ or artifacts/')
     if not all(math.isfinite(v) for v in args.parking):
@@ -110,8 +129,7 @@ def main():
             raise ValueError('Unexpected occupancy encoding')
         config.update(lower_pole=lower, upper_pole=upper, parking=args.parking,
             loop_radius=math.dist(lower,upper)/2, pole_radius=max(config['pole_radius'],*(p['radius_bound_m'] for p in poles)),
-            max_speed=1.5, max_acceleration=.6, braking_acceleration=.2,
-            continuous_corners=True, lateral_acceleration=.5, smooth_transitions=True,
+            continuous_corners=True,
             bypass_speed=.2, allow_bypass=False, minimum_clearance=.02,
             raw_zero_intensity_min_range_m=.15,
             raw_collision_follow_path=True,
@@ -126,6 +144,8 @@ def main():
             report['error']='Pole spacing cannot accommodate the complete vehicle envelope'
         else:
             for angle in (0.,math.pi):
+                config.update(profile)
+                config['navigation_profile']=args.profile
                 config['entry_angle']=angle
                 check=check_route(config,grid,metadata)
                 attempts.append(dict(entry_angle=angle,**check))
@@ -143,13 +163,23 @@ def main():
                 params['map_server']['ros__parameters']['yaml_filename']=str(out/'map.yaml')
                 speed=config['max_speed']
                 params['controller_server']['ros__parameters']['FollowPath'].update(v_linear_min=-speed,v_linear_max=speed,
-                    lookahead_dist=.18,use_velocity_scaled_lookahead_dist=False,min_lookahead_dist=.18,max_lookahead_dist=.18,
-                    use_interpolation=True,translation_kp=4.0,min_approach_linear_velocity=.05,approach_velocity_scaling_dist=.2,reduction_ratio_at_high_curvature=.9)
+                    lookahead_dist=profile.get('lookahead_dist',.4),use_velocity_scaled_lookahead_dist=False,min_lookahead_dist=profile.get('lookahead_dist',.4),max_lookahead_dist=profile.get('lookahead_dist',.4),
+                    use_interpolation=True,translation_kp=profile.get('translation_kp',3.4),min_approach_linear_velocity=.05,approach_velocity_scaling_dist=.2,reduction_ratio_at_high_curvature=.9)
                 params['controller_server']['ros__parameters']['general_goal_checker']['xy_goal_tolerance']=min(config['checkpoint_tolerance'],config['parking_tolerance'])
+                controller=params['controller_server']['ros__parameters']
+                checkers=controller.setdefault('goal_checker_plugins',['general_goal_checker'])
+                if 'continuous_goal_checker' not in checkers:
+                    checkers.append('continuous_goal_checker')
+                controller['continuous_goal_checker']=dict(plugin='nav2_controller::SimpleGoalChecker',stateful=False,
+                    xy_goal_tolerance=.001,yaw_goal_tolerance=6.28)
                 smooth=params['velocity_smoother']['ros__parameters']
-                smooth.update(max_velocity=[speed,speed,0.],min_velocity=[-speed,-speed,0.])
+                smooth.update(max_velocity=[speed,speed,0.],min_velocity=[-speed,-speed,0.],
+                    max_accel=[config['max_acceleration']]*2+[0.],max_decel=[-config['max_acceleration']]*2+[0.])
                 (out/'nav.yaml').write_text(yaml.safe_dump(params,sort_keys=False))
                 manifest=json.loads((source/'manifest.json').read_text())
+                manifest['navigation_profile']=args.profile
+                manifest['profile_sha256']=hashlib.sha256(json.dumps(profile,sort_keys=True).encode()).hexdigest()
+                manifest['physical_validation']='pending' if args.profile!='gold-reference' else 'reference_configuration_only'
                 manifest.update(field_geometry_source='automatic geometric pole extraction from source point cloud',
                     field_geometry_verified=True, motion_permitted=False,start_permitted=False,
                     source_map=str(source),source_pcd_sha256=report['source_pcd_sha256'],
