@@ -1,0 +1,118 @@
+{
+  "scope": "Offline planning on a recorded field map; no hardware commands or new physical timing measurement",
+  "source_commit": "6474db5af02be40a63137fde59f2a2fb8d86d676",
+  "source_sha256": {
+    "nav_ws/src/intramural_mission/intramural_mission/planning.py": "401d0783597a4784783e3cc57f064ad5c76187520fcd7087f0dd87b023d0800c",
+    "nav_ws/src/intramural_mission/intramural_mission/route.py": "3532688f21f62a6f70611ecd7a9250cc7c581620ce59b93fdfd5abadbba8cc84",
+    "nav_ws/src/intramural_mission/intramural_mission/route_optimization.py": "c3c7ea1753880574de073124c39472d6cb34b9a28f9e81227c360a0b952304aa",
+    "nav_ws/src/intramural_mission/intramural_mission/response.py": "e9f9e88152ae6ab1c112fd43a9aa349e5d00b19da20e94e45f157eb3b1225dbb",
+    "nav_ws/src/intramural_mission/intramural_mission/trajectory.py": "2d5240a4cb091d94602efdd9e849bb5c010bf2830d287da51b519fe5ea966518",
+    "scripts/internal/field_geometry.py": "22ab450578a6f0d7bb90b4a383e279b48d53475c6c2c690615d58ad6cd3f43d0",
+    "scripts/internal/site-mapping.py": "12d969160d912d6fc2c138251969b498a21412a275f733f4119e14f53a8c0d52",
+    "config/navigation-profiles.json": "be3436781476dbb6b9239a386f9a87d6c68cbfc8403e831b21d1b38ef959f11b"
+  },
+  "profile": "candidate",
+  "map_id": "f0816f9014ac8f1e72c7447ae6cc9eebafd66f4f2e5aa120fa6fe47f82ce4bab",
+  "robot_radius_m": 0.29,
+  "pole_radius_m": 0.15,
+  "pole_spacing_m": 1.2462212453706696,
+  "response": {
+    "response_delay_s": 0.09168461485123885,
+    "response_tau_s": 0.08902560958962843,
+    "clock": "source",
+    "validation_rmse_m": 0.01980757555708483,
+    "model_sha256": "adbff5bbdcef45e618d2445e1bd08b6330bf7b7e3a63f2f501a2cbe13b09582a",
+    "gain": "Unit planar gain; fitted world-frame gains not imported",
+    "pose_update_period_s": 0.1,
+    "control_period_s": 0.025
+  },
+  "fixed_circle": {
+    "entry_angle": 0.0,
+    "reference_duration": 13.867869591079488,
+    "prediction": {
+      "passed": true,
+      "duration": 12.925,
+      "parking_error": 0.040512116148602076,
+      "minimum_clearance": 0.015199788487071597,
+      "max_tracking_error": 0.030116065163268545,
+      "winding": [
+        0.9989376517085105,
+        -1.0036690663911838
+      ],
+      "pose_update_period": 0.1
+    }
+  },
+  "joint": {
+    "map_id": "f0816f9014ac8f1e72c7447ae6cc9eebafd66f4f2e5aa120fa6fe47f82ce4bab",
+    "transition_scale": 1.25,
+    "minimum_clearance": 0.01684192315206446,
+    "curvature_peak": 3.2708415792707792,
+    "expected_duration": 12.896701221274563,
+    "optimized_route": {
+      "shape": [
+        0.5307624458405138,
+        0.5307624458405138,
+        0.5
+      ],
+      "entry_angle": 0.0,
+      "transition_scale": 1.25
+    },
+    "execution_prediction": {
+      "passed": true,
+      "duration": 11.925,
+      "parking_error": 0.04098528975655597,
+      "minimum_clearance": 0.036852695171536484,
+      "max_tracking_error": 0.029375558806666594,
+      "winding": [
+        0.999158922512522,
+        -1.0036086739895662
+      ],
+      "pose_update_period": 0.1
+    },
+    "optimization": "bounded joint geometry/speed search",
+    "candidates_evaluated": 32,
+    "planning_seconds": 2.463358538000193,
+    "fixed_circle_duration": 13.867869591079488
+  },
+  "frozen_reload": {
+    "map_id": "f0816f9014ac8f1e72c7447ae6cc9eebafd66f4f2e5aa120fa6fe47f82ce4bab",
+    "transition_scale": 1.25,
+    "minimum_clearance": 0.01684192315206446,
+    "curvature_peak": 3.2708415792707792,
+    "expected_duration": 12.896701221274563,
+    "optimized_route": {
+      "shape": [
+        0.5307624458405138,
+        0.5307624458405138,
+        0.5
+      ],
+      "entry_angle": 0.0,
+      "transition_scale": 1.25
+    },
+    "optimization": "bounded joint geometry/speed search",
+    "candidates_evaluated": 1,
+    "planning_seconds": 0.0044848860002275615
+  },
+  "predicted_time_reduction_percent": 7.736943907156673,
+  "metric": "Tracker completion time; delayed zero-command/coasting tail is additionally checked but is not included in duration",
+  "constraints": [
+    "Observed free map only; unknown remains blocked",
+    "Full circular robot and physical pole base, map quantization and sampling margins",
+    "10 ordered phase gates; lower CCW then upper CW",
+    "Speed, vector acceleration, lateral acceleration and curvature-change speed shaping",
+    "Production tracker and transport policy; predicted tracking, winding, clearance and parking"
+  ],
+  "validation": [
+    "Changed 3 m pole spacing and a corridor requiring narrower loops",
+    "Arbitrary entry poses and frozen-route reconstruction",
+    "Real ROS map/TF boundary, non-origin start, wrong-map rejection, fitted response import",
+    "Ambiguous pair, short clutter and unknown-map rejection"
+  ],
+  "limits": [
+    "Bounded family search, not a proof of globally minimum physical completion time",
+    "Single old map, one eligible response model, fixed yaw and isotropic unit planar gain",
+    "Does not model raw LiDAR protection, moving obstacles or full localization errors",
+    "End-to-end fresh mapping and vehicle motion require the next field session",
+    "18.554 s field baseline is preserved and is not directly comparable to these model times"
+  ]
+}
