@@ -30,7 +30,7 @@ srm-nav status
 srm-map
 ```
 
-复用 9.43 秒实测版的控制参数并适配新图，使用 `srm-map --profile candidate`。此分支的 candidate 固定使用相切圆弧路线，按新桩位、间距及停车点重算半径、平滑出入路径和速度曲线；速度上限 2.0、切向加速度 3.5、横向加速度 2.5、末端减速度 1.5。固定的是参数和路线族，不复用旧图坐标，也不保证新场地达到相同用时。两侧路线均需通过新地图净空及已有响应模型检查；较窄场地可能无法生成该路线。
+提速候选使用 `srm-map --profile candidate`：合速度上限 2.0、矢量加速度 3.5、横向加速度 2.5、末端减速度 1.5。按新桩位、间距、地图及停车点联合选择圆弧／样条、平滑接缝和速度曲线；响应检查不通过时降低弯道与曲率变化处的速度，保留直线巡航上限。结果冻结在 `optimized_route`，不复用旧图坐标；模型通过仍需实车验证。
 
 先保持静止，等终端出现“录制中”，再由操作者缓慢移动整车，覆盖两桩、两侧绕行区域及出入路线。可在电机禁用后手推；若使用遥控驾驶，需由现场人员控制，本命令本身不发送底盘速度。
 
@@ -82,7 +82,7 @@ systemctl --user enable --now srm-map-png-sync.timer
 
 自动识桩依据细高物体的几何形状与高度连续性；只有恰好两个无歧义候选，且完整八字位于已观测的可通行区域，才生成可供 `drive` 使用的配置。仍应核对识别结果与现场两桩、停车点一致。它没有识别任意场景中“比赛桩”语义的能力。
 
-`status=complete` 表示建图与重载流程结束；若 `field_geometry_detected=false`，地图仍保留，但没有可直接发车的两桩配置。阅读 `navigation/field-detection.json` 与 `field-detection.log`，补扫缺失区域或排除候选歧义，不要把未知区填白。
+`status=complete` 表示导图、重载定位和路线生成均通过。识桩或规划失败会明确显示失败、返回非零状态，保留地图、bag 和诊断记录，不能直接发车。查看 `navigation/field-detection.json` 与 `field-detection.log` 区分候选歧义、未观测通道及执行模型不通过；不要把未知区填白。
 
 常用变体：
 
@@ -188,7 +188,7 @@ srm-nav drive cache/navigation-candidate
 srm-nav start-here
 ```
 
-`safe` 上限 0.65，`candidate` 上限 1.2；两个档位均会按曲率、矢量加速度和最终制动距离调速。个人车辆配置中的速度、加速度上限须覆盖选定档位；超出时入口会拒绝，请核对实际底盘条件后配置。`gold-reference` 只保留旧引擎参数作对照，不能当作逐字节恢复的 18.554 秒实车版本。详细设计和本机复现见[整圈轨迹导航](architecture/trajectory-navigation.md)。
+`safe` 上限 0.65，`candidate` 上限 2.0；两个档位均会按曲率、矢量加速度和最终制动距离调速。个人车辆配置中的速度、加速度上限须覆盖选定档位；超出时入口会拒绝，请核对实际底盘条件后配置。`gold-reference` 只保留旧引擎参数作对照，不能当作逐字节恢复的 18.554 秒实车版本。详细设计和本机复现见[整圈轨迹导航](architecture/trajectory-navigation.md)。
 
 路线依次为 `ENTER → LOWER → UPPER → LOWER_EXIT → RETURN → DONE`，内部仍记录 10 个有序分段。新引擎 `segment` 是分段号，`continuous_progress` 是全程有序弧长（米），`progress` 是按采样间距换算的全程索引；`tracking` 中包含剩余长度、跟踪误差和前馈/反馈。交叉点不做全图最近点匹配。每次运行生成独立 `run_id`、`route_id`，源码哈希、配置和状态保存在 `artifacts/navigation-runs/<run_id>/`。
 
@@ -244,8 +244,8 @@ srm-nav ros topic echo --once --full-length /intramural_robot/motion_guard/statu
 
 | 参数 | 值与含义 |
 |---|---|
-| 巡航指令上限 | safe：0.65；candidate：1.2，均为合速度限幅 |
-| 正常矢量加速度 / 横向加速度 | safe：1.2 / 0.65；candidate：2.5 / 1.4 m/s² |
+| 巡航指令上限 | safe：0.65；candidate：2.0，均为合速度限幅 |
+| 正常矢量加速度 / 横向加速度 | safe：1.2 / 0.65；candidate：3.5 / 2.5 m/s² |
 | 响应延迟 / 制动预测 | 0.2 s / 0.2 m/s²，仍需实车日志校准 |
 | 控制方式 | 切向速度前馈＋独立切向/法向位置纠偏＋速度反馈，不再靠追固定前瞻点产生巡航速度 |
 | 最终停车 | 位置 < 0.08 m、有序余程 < 0.05 m、估计速度 < 0.06 且稳定 0.15 s |

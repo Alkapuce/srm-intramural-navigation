@@ -45,9 +45,9 @@ srm-map --bag
 srm-map --vehicle-config cache/vehicle-01 --arena-config config/local/field.json
 ```
 
-默认输出到项目 `artifacts/mapping/<时间>/`，每次新建目录，不覆盖旧数据。`--output` 可指定项目 `cache/` 或 `artifacts/` 下的新目录；相对路径按执行命令时所在目录解析。主要产物为 `bag/`、`bag-quality.json`、`map/`、`map-quality.json`、`navigation/field-detection.json`、`reload-check/` 和 `result.json`。两桩无歧义且完整路线通行时，`navigation/` 还会生成独立导航配置、`route-plan.json`、`route-plan.png` 和 `route-analysis.json`；识别失败仍保留地图与报告。复用 bag 时原始数据保持原位置。档位与响应模型可分别通过 `--profile safe|candidate`、`--response-model` 选择，默认 safe。
+默认输出到项目 `artifacts/mapping/<时间>/`，每次新建目录，不覆盖旧数据。`--output` 可指定项目 `cache/` 或 `artifacts/` 下的新目录；已有相对路径优先按执行目录解析；新建的 `artifacts/`、`cache/` 输出按项目根目录解析。主要产物为 `bag/`、`bag-quality.json`、`map/`、`map-quality.json`、`navigation/field-detection.json`、`reload-check/` 和 `result.json`。两桩无歧义且完整路线通行时，`navigation/` 还会生成独立导航配置、`route-plan.json`、`route-plan.png` 和 `route-analysis.json`；识别失败仍保留地图与报告。复用 bag 时原始数据保持原位置。档位与响应模型可分别通过 `--profile safe|candidate`、`--response-model` 选择，默认 safe。
 
-`result.json` 的 `status=complete` 表示采集/处理与定位重载流程完成，**不表示已具备自主行驶条件**。栅格通行性见 `map_quality.navigation_grid_has_clearance`；它将未知区域视为不可通行，并检查车体半径净空。即使有空闲区域，也仍须核对实际比赛路线、控制标定与停机行为。
+`result.json` 的 `status=complete` 表示导图、定位重载及路线生成均通过；识桩或规划失败则保留地图并报告失败。软件检查通过仍不等于实车验收完成。栅格通行性见 `map_quality.navigation_grid_has_clearance`；它将未知区域视为不可通行，并检查车体半径净空。即使有空闲区域，也仍须核对实际比赛路线、控制标定与停机行为。
 
 重复运行会正常关闭本项目记录过的、身份匹配的个人零速待机进程；同时运行第二个 `srm-map` 会被拒绝。其他用户的雷达程序、网卡地址错误、传感器停更、磁盘不足或检查失败都会明确退出并保留日志，不自动修改系统服务或停止别人的程序。开机后旧哨兵程序重新占用雷达时，须先由其用户正常停止，再运行本命令。
 
@@ -91,7 +91,7 @@ scripts/run.sh python3 /work/scripts/prepare-vehicle-navigation.py \
   --output "$PWD/cache/vehicle-navigation-lab"
 ```
 
-工具从 `camera_init` 中的真实注册点云生成 `prior.pcd`。二维图使用与扫描时间戳匹配的 Point-LIO 位姿及固定 LiDAR/IMU 外参恢复每帧射线起点，拟合近水平地面，再由 OctoMap 更新三维空闲/占据体素并投影为 `map.pgm/map.yaml`。地面按拟合平面距离分类，不假定其地图高度恰好为零；地面回波只清除已观测空间，距地面 0.05—1.4 m 的回波更新障碍占据。投影按体素边界检查高度范围，障碍优先于同列空闲体素，未观测区域保持未知；不对整幅图填白或缩小车体半径来获得通路。`occupancy.json` 保存地面平面、拟合残差、射线数量和算法范围，`manifest.json` 保存来源、点数和文件校验值。缺少同步位姿或地面观测不足时拒绝导图；斜坡、台阶和落差需要另行验证，不能仅依赖这个近平面地面模型。当前导图保留初始雷达原点周围 12 m 内的点，栅格分辨率为 0.05 m；比赛区域超出此范围时必须先调整范围并重新验证，不能把裁掉的区域当成已建图。
+工具从 `camera_init` 中的真实注册点云生成 `prior.pcd`。二维图使用与扫描时间戳匹配的 Point-LIO 位姿及固定 LiDAR/IMU 外参恢复每帧射线起点，拟合近水平地面，再由 OctoMap 更新三维空闲/占据体素并投影为 `map.pgm/map.yaml`。地面按拟合平面距离分类，不假定其地图高度恰好为零；地面回波只清除已观测空间，距地面 0.05—1.4 m 的回波更新障碍占据。高处终点仍提供穿过障碍高度带的自由射线；占据体素须有至少两帧命中，或与其它占据体素形成空间支持，单帧孤立终点不会自行生成空闲区。动态物体离开后由后续真实射线清除，未重新观测的遮挡区不凭时间填白。投影按体素边界检查高度范围，障碍优先于同列空闲体素，未观测区域保持未知；不对整幅图填白或缩小车体半径来获得通路。`occupancy.json` 保存地面平面、拟合残差、射线数量和算法范围，`manifest.json` 保存来源、点数和文件校验值。缺少同步位姿或地面观测不足时拒绝导图；斜坡、台阶和落差需要另行验证，不能仅依赖这个近平面地面模型。当前导图保留初始雷达原点周围 12 m 内的点，栅格分辨率为 0.05 m；比赛区域超出此范围时必须先调整范围并重新验证，不能把裁掉的区域当成已建图。
 
 这是局部实验地图，不含测量过的比赛桩位、停车位与路线坐标；`arena.json` 中的任务几何仍为待替换的初值。手推数据没有独立距离、角度基准，不能据此宣称定位精度或外参已标定。
 
