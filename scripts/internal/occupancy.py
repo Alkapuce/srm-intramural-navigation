@@ -66,7 +66,8 @@ def raycast_grid(scans, sensor_origins, plane, origin, size, resolution, root):
             height = points[:, 2] - (points[:, :2] @ plane[:2] + plane[2])
             ground = np.abs(height) <= .03
             obstacle = (height >= .05) & (height <= 1.4)
-            selected = ground | obstacle
+            # High endpoints still clear the observed rays through the collision-height band.
+            selected = ground | (height >= .05)
             data = np.c_[points[selected], obstacle[selected]].astype("<f4")
             process.stdin.write(struct.pack("<I3f", len(data), *sensor))
             process.stdin.write(data.tobytes())
@@ -82,6 +83,7 @@ def raycast_grid(scans, sensor_origins, plane, origin, size, resolution, root):
             "algorithm": "octomap_3d_rays_floor_relative_projection",
             "ground_tolerance_m": .03, "obstacle_height_range_m": [.05, 1.4],
             "projection_uses_voxel_bounds": True,
+            "static_support": "two distinct frames or occupied voxel neighbors; unsupported endpoints do not create free space",
             "inserted_points": used, "scans": len(scans),
             "octomap": json.loads(error.decode().strip()),
             "limits": "Near-horizontal floor assumed; unknown space is not filled and vehicle radius is unchanged",

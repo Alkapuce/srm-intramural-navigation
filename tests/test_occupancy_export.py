@@ -16,6 +16,34 @@ import yaml
 
 
 class OccupancyExportTests(unittest.TestCase):
+    def test_isolated_hits_stay_unconfirmed_but_thin_and_low_objects_survive(self):
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts/internal'))
+        from occupancy import raycast_grid
+        floor=np.array([[x,y,0.] for x in np.arange(-.5,2.1,.05) for y in np.arange(-1.,1.1,.05)])
+        scans=[np.vstack((floor,[[1.,.6,.6],[.6,-.6,.055]])) for _ in range(10)]
+        scans[0]=np.vstack((scans[0],[[1.,0.,.6],[3.,3.,.6],
+                                    [.81,-.29,.31],[.86,-.29,.31],[.81,-.24,.31]]))
+        grid,report=raycast_grid(scans,np.tile([0.,0.,.25],(len(scans),1)),np.zeros(3),
+                                [-1.,-1.],np.array([100,100]),.05,Path(__file__).resolve().parents[1])
+        def pixel(x,y):return grid[int(round((y+1)/.05)),int(round((x+1)/.05))]
+        self.assertEqual(pixel(1.,0.),254)
+        self.assertEqual(pixel(3.,3.),205,'An unconfirmed endpoint must not invent free space')
+        self.assertEqual(pixel(1.,.6),0,'Repeated sparse thin obstacle was lost')
+        self.assertTrue(np.any(grid[7:10,31:34]==0),'Low obstacle was lost')
+        self.assertTrue(np.any(grid[13:16,35:38]==0),'Spatially supported single-frame object was lost')
+        self.assertGreater(report['octomap']['unsupported_occupied_voxels'],0)
+
+    def test_high_rays_clear_a_departed_object_without_filling_behind_a_wall(self):
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts/internal'))
+        from occupancy import raycast_grid
+        # The ray to z=1.6 crosses the old object at x=1, z=.925.
+        scans=[np.array([[1.,0.,.925]]) for _ in range(3)]
+        scans += [np.array([[2.,0.,1.6]]) for _ in range(14)]
+        grid,_=raycast_grid(scans,np.tile([0.,0.,.25],(len(scans),1)),np.zeros(3),
+                            [-1.,-1.],np.array([100,100]),.05,Path(__file__).resolve().parents[1])
+        self.assertEqual(grid[20,40],254)
+        self.assertEqual(grid[20,80],205)
+
     def scene(self, with_pose=True, with_ground=True):
         root = Path(__file__).resolve().parents[1]
         base = root / "artifacts/tests/occupancy-export"

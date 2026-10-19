@@ -315,6 +315,8 @@ def main():
         os.environ["INTRAMURAL_NAVIGATION_CONFIG"] = str(out / "map")
         start("navigation", [str(ROOT / "scripts/vehicle-navigation.sh")])
         run("reload-check", [sys.executable, str(ROOT / "scripts/validation/verify-vehicle-standby.py"), "--output", str(out / "reload-check"), "--map-config", str(out / "map")], 150)
+        result.update(localization_reload_verified=True,
+                      map_quality=json.loads((out / "map-quality.json").read_text()), map_config=str(out / "map"))
         command = [sys.executable,str(ROOT/"scripts/internal/field_geometry.py"),"--map-config",str(out/"map"),
                    "--output",str(out/"navigation"),"--parking-here","--profile",args.profile]
         if args.response_model:
@@ -323,8 +325,10 @@ def main():
         result["field_geometry_detected"] = detection_code == 0
         if detection_code == 0:
             result["navigation_config"] = str(out/"navigation")
-        result.update(status="complete", localization_reload_verified=True,
-                      map_quality=json.loads((out / "map-quality.json").read_text()), map_config=str(out / "map"))
+        else:
+            detection = json.loads((out/"navigation/field-detection.json").read_text())
+            raise RuntimeError("地图已保存，但导航路线未生成：" + detection.get('error', '见 field-detection.log'))
+        result.update(status="complete")
         exit_code = 0
     except KeyboardInterrupt:
         result.update(status="cancelled", error="用户中断；已录制数据保留，未宣称验收通过")
