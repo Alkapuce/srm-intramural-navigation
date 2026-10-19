@@ -20,7 +20,7 @@ flowchart TD
     Guard --> Zero["唯一 cmd_vel 发布者，持续零速"]
 ```
 
-原始防撞点云保留 Livox 坐标和消息时间戳，不使用地图坐标下的注册点云代替原始扫描。点内时间继续由 Point-LIO 消费，原始防撞适配仅提取 XYZ 和反射强度。驱动的坐标旋转同时作用于点云和 IMU；车体安装变换仅在静态 TF 和车体防撞坐标转换中使用一次。
+原始防撞点云保留 Livox 坐标、消息时间戳、反射强度和 `tag`，不使用地图坐标下的注册点云代替原始扫描。MID-360 三组置信度位均为零时按正常回波立即判断；中低置信度回波单独造成预测阻挡时，需要第二帧独立扫描仍阻挡才停车，贴近车体包络及静态余量的回波不等待确认。没有标签的仿真扫描保持原判据。标签含义见 [Livox MID-360 协议](https://livox-wiki-en.readthedocs.io/en/latest/tutorials/new_product/mid360/livox_eth_protocol_mid360.html#tag-information)。点内时间继续由 Point-LIO 消费；驱动旋转作用于点云和 IMU，车体安装变换仅使用一次。
 
 ## 单命令现场流程
 

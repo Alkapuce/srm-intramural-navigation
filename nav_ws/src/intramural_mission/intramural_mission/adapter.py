@@ -11,7 +11,7 @@ from rclpy.clock import Clock, ClockType
 from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
 from geometry_msgs.msg import Twist, TransformStamped
 from nav_msgs.msg import Odometry, Path as RosPath
-from sensor_msgs.msg import PointCloud2, Imu
+from sensor_msgs.msg import PointCloud2, Imu, PointField
 from std_msgs.msg import Bool, String
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster, Buffer, TransformListener, TransformException
 from intramural_mission.proximity import obstacle_near, obstacle_on_path, lidar_to_body
@@ -199,6 +199,16 @@ class Adapter(Node):
                 self.touch("lidar")
             mask = ((body[:, 2] > .15) & (body[:, 2] < 1.4)
                     & (np.sum(body[:, :2] ** 2, axis=1) > self.c["robot_radius"] ** 2))
+            tag = raw_fields.get("tag")
+            self.raw_trusted_points = None
+            if tag is not None and tag.datatype == PointField.UINT8:
+                confidence = np.ndarray((msg.height,msg.width),dtype="u1",buffer=msg.data,
+                    offset=tag.offset,strides=(msg.row_step,msg.point_step)).reshape(-1)[valid]
+                # Preserve contact protection regardless of MID-360 confidence.
+                contact = self.c["robot_radius"] + self.c.get("minimum_clearance", .02)
+                supported = ((confidence & 0x3f) == 0) | (np.sum(body[:,:2]**2,axis=1) < contact**2)
+                self.raw_trusted_points = body[mask & supported, :2]
+            self.raw_stamp = stamp
             self.raw_near_points = body[mask, :2]
         else:
             self.raw_near_points = np.empty((0, 2), dtype=np.float32)
@@ -233,8 +243,6 @@ class Adapter(Node):
         p = self.last_truth.pose.pose.position
         points += np.array([p.x, p.y, 0])
         packed = np.column_stack([points, np.ones(len(points))]).astype("<f4")
-        from sensor_msgs.msg import PointField
-
         cloud = PointCloud2()
         cloud.header = copy.deepcopy(msg.header)
         cloud.header.frame_id = "odom"
@@ -303,6 +311,17 @@ class Adapter(Node):
                 self.hazard = obstacle_on_path(self.raw_near_points, path,
                     reach=stop_radius-radial+self.c.get('minimum_clearance', 0.), radius=self.c['robot_radius'], min_points=min_points)
                 self.guard_mode = 'ordered_path'
+        if self.hazard and path is not None and getattr(self, 'raw_trusted_points', None) is not None:
+            trusted = obstacle_on_path(self.raw_trusted_points, path,
+                reach=stop_radius-radial+self.c.get('minimum_clearance', 0.), radius=self.c['robot_radius'], min_points=min_points)
+            if trusted:
+                self.pending_raw_stamp = None
+            else:
+                # A single uncertain scan must not stop the car; persistent weak obstacles still stop it.
+                if getattr(self, 'pending_raw_stamp', None) is None:self.pending_raw_stamp = self.raw_stamp
+                self.hazard = self.raw_stamp > self.pending_raw_stamp
+        else:
+            self.pending_raw_stamp = None
         if self.hazard:
             target = [0.0, 0.0]
         if self.c.get('navigation_engine')=='trajectory' and self.enabled:
@@ -331,6 +350,7 @@ class Adapter(Node):
                         "mode": self.mode,
                         "wz_disabled": True,
                         "raw_lidar_hazard": self.hazard,
+                        "raw_hazard_unconfirmed": getattr(self, "pending_raw_stamp", None) is not None and not self.hazard,
                         "collision_check": self.guard_mode,
                         "path_speed_limit": speed_limit,
                         "command": values[:2], "output": self.output,

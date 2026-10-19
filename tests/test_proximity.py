@@ -18,6 +18,36 @@ from intramural_mission.route import curve_speed_limit, arc, line
 
 
 class ProximityTests(unittest.TestCase):
+    def test_mid360_confidence_reaches_guard_without_hiding_contact_or_normal_returns(self):
+        from livox_ros_driver2.msg import CustomMsg, CustomPoint
+        from intramural_mission.livox_adapter import convert
+        path=[[0.,0.],[.124,-.158],[.105,-.182],[.130,-.222],[.159,-.261],[.190,-.297],[.225,-.330],[.261,-.361]]
+        for tag,contact,blocked in ((16,False,False),(0,False,True),(128,False,True),(16,True,True)):
+            now=time.monotonic();cmd=Twist();cmd.linear.x=.6;cmd.linear.y=-.8
+            c=dict(lidar_pose=[0.]*6,robot_radius=.29,minimum_clearance=.02,max_speed=1.7,
+                max_acceleration=3.,braking_acceleration=.2,bypass_speed=.2,
+                raw_collision_min_points=3,raw_collision_follow_path=True)
+            m=N(c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
+                motion_permitted=True,enabled=True,bypassing=False,output=[.6,-.8],
+                last_motion_direction=(.6,-.8),body_path=lambda:path,mode='sensors',
+                touch=lambda k:None,get_clock=lambda:N(now=lambda:N(nanoseconds=0)),
+                pub=N(publish=lambda v:None),hazard_pub=N(publish=lambda v:None),diagnostic=N(publish=lambda v:None))
+            msg=CustomMsg();msg.header.frame_id='livox_frame'
+            xyz=[(.381,-.092,.371),(.392,-.077,.422),(.416,-.120,.251)]
+            if contact:xyz=[(.30,-.01,.3),(.30,0.,.3),(.30,.01,.3)]
+            msg.points=[CustomPoint(x=x,y=y,z=z,reflectivity=1,tag=tag)for x,y,z in xyz];msg.point_num=3
+            Adapter.lidar(m,convert(msg));Adapter.tick(m)
+            with self.subTest(tag=tag,contact=contact):
+                self.assertEqual(m.hazard,blocked)
+                self.assertEqual(m.output==[0.,0.],blocked)
+                if not blocked:
+                    m.last_tick=time.monotonic()-.025;Adapter.tick(m)
+                    self.assertFalse(m.hazard)  # Rechecking the same scan is not confirmation.
+                    msg.header.stamp.nanosec=100000000
+                    Adapter.lidar(m,convert(msg));m.last_tick=time.monotonic()-.025;Adapter.tick(m)
+                    self.assertTrue(m.hazard)
+                    self.assertEqual(m.output,[0.,0.])
+
     def test_long_horizon_does_not_select_a_later_crossing_visit(self):
         path=[[.1,.05],[.5,.05],[1.,0.],[1.,1.],[0.,1.],[0.,0.],[0.,-1.]]
         self.assertTrue(obstacle_on_path([[.3,.05]],path,.4,.1))
