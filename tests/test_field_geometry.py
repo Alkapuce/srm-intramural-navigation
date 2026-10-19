@@ -17,7 +17,7 @@ from intramural_mission.bypass import winding
 
 
 class FieldGeometryTest(unittest.TestCase):
-    def run_field(self, ambiguous=False, blocked=False, short=False, parking=None, response=False):
+    def run_field(self, ambiguous=False, blocked=False, short=False, parking=None, response=False, wrong_map=False):
         root=Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(dir=root/'cache') as temp:
             source=Path(temp)/'map';source.mkdir();out=Path(temp)/'configured'
@@ -46,6 +46,11 @@ class FieldGeometryTest(unittest.TestCase):
                 model.write_text(json.dumps(dict(eligible_for_model=True,clock='source',response_delay=.09,response_tau=.08)))
                 command += ['--response-model',str(model)]
             result=subprocess.run(command,capture_output=True,text=True,timeout=25)
+            if wrong_map:
+                self.assertNotEqual(result.returncode,0)
+                self.assertIn('selected map',result.stderr)
+                self.assertFalse(out.exists())
+                return dict(passed=False)
             report=json.loads((out/'field-detection.json').read_text())
             self.assertEqual(result.returncode,0 if report['passed'] else 1,result.stderr)
             self.assertEqual((source/'prior.pcd').read_bytes().split(b'DATA binary\n',1)[1],raw)
@@ -129,9 +134,15 @@ class FieldGeometryTest(unittest.TestCase):
         from rclpy.context import Context
         from geometry_msgs.msg import TransformStamped
         from tf2_ros import TransformBroadcaster
+        from nav_msgs.msg import OccupancyGrid
+        from rclpy.qos import QoSProfile,DurabilityPolicy
         context=Context();rclpy.init(context=context)
         node=rclpy.create_node('field_parking_fixture',context=context)
         broadcaster=TransformBroadcaster(node)
+        maps=node.create_publisher(OccupancyGrid,'/intramural_robot/map',QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        grid=OccupancyGrid();grid.header.frame_id='map';grid.info.width=grid.info.height=300;grid.info.resolution=.05
+        grid.info.origin.position.x=grid.info.origin.position.y=-5.;grid.info.origin.orientation.w=1.;grid.data=[0]*90000
+        maps.publish(grid)
         stop=threading.Event()
         def publish():
             while not stop.is_set():
@@ -142,6 +153,8 @@ class FieldGeometryTest(unittest.TestCase):
         worker=threading.Thread(target=publish);worker.start()
         try:
             self.assertTrue(self.run_field(parking=[-.6,.2],response=True)['passed'])
+            grid.info.origin.position.x=-4.5;maps.publish(grid)
+            self.assertFalse(self.run_field(parking=[-.6,.2],wrong_map=True)['passed'])
         finally:
             stop.set();worker.join();node.destroy_node();context.shutdown()
 

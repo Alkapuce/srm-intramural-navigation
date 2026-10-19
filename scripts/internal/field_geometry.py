@@ -20,14 +20,32 @@ from dataclasses import asdict
 from response_fit import model_overrides
 
 
-def current_parking():
+def current_parking(source):
     import time
     import rclpy
     from tf2_ros import Buffer, TransformListener
+    from nav_msgs.msg import OccupancyGrid
+    from rclpy.qos import QoSProfile,DurabilityPolicy
+    metadata=yaml.safe_load((source/'map.yaml').read_text())
+    pixels=np.asarray(Image.open(source/metadata['image']))
+    expected=np.where(pixels[::-1]==254,0,np.where(pixels[::-1]==205,-1,100)).ravel()
     rclpy.init()
     node = rclpy.create_node('field_start_position')
     buffer = Buffer(node=node)
     listener = TransformListener(buffer,node)
+    matching=False
+    def receive_map(message):
+        nonlocal matching
+        q=message.info.origin.orientation
+        yaw=math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
+        matching=(message.header.frame_id=='map' and message.info.width==pixels.shape[1]
+            and message.info.height==pixels.shape[0] and math.isclose(message.info.resolution,metadata['resolution'],rel_tol=1e-6)
+            and abs(math.atan2(math.sin(yaw-metadata['origin'][2]),math.cos(yaw-metadata['origin'][2])))<1e-8
+            and np.allclose([message.info.origin.position.x,message.info.origin.position.y],metadata['origin'][:2],atol=1e-8,rtol=0)
+            and np.array_equal(message.data,expected))
+    namespace=json.loads((source/'arena.json').read_text())['namespace'].strip('/')
+    node.create_subscription(OccupancyGrid,'/'+namespace+'/map',receive_map,
+        QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL))
     deadline = time.monotonic()+8
     try:
         while time.monotonic()<deadline:
@@ -39,9 +57,9 @@ def current_parking():
             stamp = pose.header.stamp.sec+pose.header.stamp.nanosec/1e9
             age = node.get_clock().now().nanoseconds/1e9-stamp
             xy = [pose.transform.translation.x,pose.transform.translation.y]
-            if abs(age)<.25 and all(math.isfinite(v) for v in xy):
+            if matching and abs(age)<.25 and all(math.isfinite(v) for v in xy):
                 return xy,dict(source='localized_current_vehicle',frame='map',stamp=stamp,age=age)
-        raise RuntimeError('No fresh map -> base_footprint; start localized standby before --parking-here')
+        raise RuntimeError('No fresh pose in the selected map; start matching localized standby before --parking-here')
     finally:
         node.destroy_node()
         rclpy.shutdown()
@@ -157,14 +175,14 @@ def main():
     args = parser.parse_args()
     profiles=json.loads((Path(__file__).resolve().parents[2]/'config/navigation-profiles.json').read_text())
     profile=profiles[args.profile].copy()
+    source = Path(args.map_config).resolve()
     if args.response_model:
         args.response_model = args.response_model if args.response_model.is_absolute() else root/args.response_model
         profile.update(model_overrides(args.response_model))
     parking_source = dict(source='explicit_coordinates' if args.parking else 'mapping_origin',frame='map')
     if args.parking_here:
-        args.parking,parking_source = current_parking()
+        args.parking,parking_source = current_parking(source)
     args.parking = args.parking or [0.,0.]
-    source = Path(args.map_config).resolve()
     output=Path(args.output) if args.output else root/'artifacts/navigation'/datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     out=(output if output.is_absolute()else root/output).resolve()
     if out.exists() or not any(out.is_relative_to(root/k) and out != root/k for k in ('cache','artifacts')):
