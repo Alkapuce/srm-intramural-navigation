@@ -265,6 +265,7 @@ def main():
     results = []
     for name in args.profiles:
         c = dict(base, **profiles[name], profile=name)
+        c.pop("optimized_route",None)
         if model:
             c.update(response_delay=model["response_delay"], response_tau=model["response_tau"])
         plan, _, _ = compile_route(c, g)
@@ -280,7 +281,7 @@ def main():
                     (args.output / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     if hashes != fingerprints():
         raise RuntimeError("Sources or map changed during the comparison; results are not a frozen run")
-    manifest = dict(scope="offline controllers, same C2 route/ordered progress/CommandPolicy/assumed plant; no motion_guard or hardware",
+    manifest = dict(scope="offline controllers sharing the production-tracker-optimized route, progress and CommandPolicy; no per-backend route tuning, motion_guard or hardware",
                     source_commit=os.environ.get("INTRAMURAL_SOURCE_REVISION", "not supplied; use compare-controllers.sh"),
                     scenarios=SCENARIOS, model_delay=model["response_delay"] if model else .2,
                     model_tau=model["response_tau"] if model else .15, dt=DT, plant_gain="identity; gain identification not applied",

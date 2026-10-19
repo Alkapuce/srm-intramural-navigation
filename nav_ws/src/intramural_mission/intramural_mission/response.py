@@ -35,6 +35,8 @@ def predict_execution(plan, c, measured):
     policy.enabled,policy.last_tick = True,-plant.dt
     minimum, maximum, finished = math.inf,0.,None
     turns = np.zeros(2)
+    observed,source_stamp = plant.pose.copy(),0.
+    pose_period = c.get("pose_update_period",.1)
     reference_turns = []
     for key in ("lower_pole","upper_pole"):
         relative = np.asarray(plan.points)-c[key]
@@ -42,7 +44,9 @@ def predict_execution(plan, c, measured):
         reference_turns.append(np.sum(np.arctan2(a[:,0]*b[:,1]-a[:,1]*b[:,0],np.sum(a*b,axis=1)))/(2*math.pi))
     for tick in range(7200):
         t = tick*plant.dt
-        command,detail = tracker.step(plant.pose,0.,plant.dt,stamp=t)
+        if t-source_stamp >= pose_period-1e-9:
+            observed,source_stamp = plant.pose.copy(),t
+        command,detail = tracker.step(observed,0.,plant.dt,pose_age=t-source_stamp,stamp=source_stamp)
         if finished is not None:command = np.zeros(2)
         policy.receive(*command,0.,now=t)
         sent,_ = policy.tick(t)
@@ -62,5 +66,5 @@ def predict_execution(plan, c, measured):
             passed = (parking < c.get("parking_tolerance",.08) and np.linalg.norm(plant.velocity) < .06
                       and np.max(np.abs(winding-reference_turns)) < .15)
             return dict(passed=bool(passed),duration=finished,parking_error=parking,
-                        minimum_clearance=minimum,max_tracking_error=maximum,winding=winding.tolist())
+                        minimum_clearance=minimum,max_tracking_error=maximum,winding=winding.tolist(),pose_update_period=pose_period)
     return dict(passed=False,reason="predicted_timeout",minimum_clearance=minimum)
