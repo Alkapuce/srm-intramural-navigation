@@ -1,0 +1,99 @@
+# 整圈轨迹导航
+
+现场建图后，使用本次地图、停车位和双桩位置编译整条路线。切入、八字与返回共享几何、速度曲线和有序进度；普通阶段交接不重新发送控制目标。传感器、定位、比赛串口及底盘接口沿用现有实现。
+
+## 数据流与所有权
+
+```mermaid
+flowchart LR
+    Sensor[雷达 / IMU] --> LIO[Point-LIO / small_gicp]
+    Field[本次实测地图 / 两桩 / 停车位] --> Plan[地图约束的整圈轨迹 / 速度曲线]
+    LIO --> Tracker[全向前馈与反馈控制]
+    Plan --> Tracker
+    Tracker --> Guard[motion_guard]
+    Plan --> Envelope[带运行版本的未来轨迹]
+    Envelope --> Guard
+    Sensor --> Guard
+    Guard --> Serial[19 字节串口 / 模拟串口]
+    Serial --> Chassis[底盘]
+```
+
+`trajectory_mission` 是新引擎的唯一任务与进度所有者，直接发布 `cmd_vel_controller`。Nav2 继续提供地图、局部代价地图及生命周期服务；PB 控制器输出隔离到 `legacy_cmd_vel`，Nav2 速度平滑器不串入新控制链。最终 `cmd_vel` 仍只有 `motion_guard` 发布，串口层保留物理接口限幅和命令过期处理。
+
+旧 `mission`、PB 控制器和分段 FollowPath 执行链保留在 `navigation_engine=legacy`，用于历史配置和绕行实验。新引擎当前采用障碍停车等待，不自动绕人。两种引擎由启动配置选择，不能同时运行。
+
+| 模块 | 职责 |
+|---|---|
+| `planning.py` | 实测栅格、切向接入、平滑候选、净空与绕数检查 |
+| `trajectory.py` | 不可变 RoutePlan、单调弧长进度、全程速度曲线、全向跟踪 |
+| `trajectory_mission.py` | 启停服务、传感器时效、阻挡恢复、阶段记录 |
+| `safety.py` / `adapter.py` | 实际运动延伸、未来路线扫掠、最终速度保护 |
+| `route.py` | 参数化双桩八字与五次过渡几何 |
+
+## 同一条路线贯穿执行
+
+双桩连线确定局部坐标，按任务顺序生成 10 个语义段。直线与圆弧接缝使用曲率连续的五次过渡；当前接入点需要绕障时，先搜索已观测空闲栅格中的路径，再生成末端切向一致的样条。程序在多组过渡尺度和两侧接入候选中，选择通过地图净空与曲率检查、预计用时较短的一条。
+
+地图检查保留未知区，使用完整 0.29 m 车体、静态净空、栅格量化与路径采样余量。候选生成后再次检查完整路线和两瓣绕数，失败返回原因，不发车。没有使用上一次场地的固定桩坐标生成新场地路线。识桩仍是几何检测，需要核对现场候选。
+
+RoutePlan 保存点、弧长、切线、曲率、速度、静态净空和阶段 gate；运行时不在交叉点搜索整条路线的最近点。当前位置只投影到原进度附近可达的有序窗口，弧长不倒退。超过跟踪阈值的投影不会先推进阶段再报错。
+
+`start-here` 重新编译当前位置到主路线的平滑接入，并完整执行八字、返回原停车位。它依赖正确定位，也可能因未知区、障碍或曲率限制而拒绝；它不继承旧任务进度。
+
+## 速度与跟踪
+
+速度曲线先按 `sqrt(a_lat / |curvature|)` 限弯速，再作前向加速、反向减速传播，并为转弯保留矢量加速度。曲率变化率和 `max_jerk` 用于压低突变位置的参考速度；这不是对实际底盘或反馈指令加加速度的严格保证。最终停车提前按响应延迟和独立制动假设减速，中间 gate 不设零速。
+
+跟踪指令由切向速度前馈、独立切向/法向位置反馈及滤波后的速度反馈组成。按配置响应延迟与定位年龄进行短期预测，再依据实际车头角转换为底盘 vx/vy；wz 固定为零。矢量加速度只在主控制环整形，下游保留硬限幅。明确停车会立即清除历史速度，不等待舒适减速。
+
+[档位文件](../../config/navigation-profiles.json)是新生成配置的统一入口：
+
+| 档位 | 合速度上限 | 矢量 / 横向加速度 | 用途 |
+|---|---:|---:|---|
+| safe | 0.65 | 1.2 / 0.65 | 新场地默认验证 |
+| candidate | 1.2 | 2.5 / 1.4 | 完成低速检查后的提速试验 |
+| gold-reference | 1.5 | 0.6 / 0.5 | 旧引擎参数对照 |
+
+指令沿用获准的 1:1 初值，尚不能当作独立量测的物理速度。两个新档位的响应延迟 0.2 s、制动能力 0.2 m/s² 均为软件假设。候选档在较大延迟、较慢底盘响应和紧弯组合下仍可能失去跟踪；下一次实车必须从 safe 开始，利用运行日志核对响应，再比较 candidate，不能仅根据仿真时间选择最高速度。`gold-reference` 不是逐字节恢复的历史实车代码。
+
+## 停车、恢复与数据失效
+
+`IDLE → RUNNING → DONE` 是普通流程。真实障碍触发 `BLOCKED`：立即零速、保留原弧长及阻挡前的检查距离；同一未来路线的新鲜点云和局部代价地图持续清空 0.5 s 后，从原进度恢复，不重新 start。
+
+`mission/trajectory` 将 `run_id`、`route_id`、时间戳和未来路径放在同一消息中。安全层拒绝旧运行、旧路线和过期轨迹；新引擎不会默默切回只看速度方向。扫掠首先覆盖当前运动在响应延迟内的延伸，再接入有序路线，避免把理想路径误当成底盘已经执行的路径。空点云、无效返回不刷新健康状态。未来路线以外的侧后方点不阻断，实际将经过的侧方区域仍检查。
+
+取消进入 `CANCELLING`，先输出零速，再观察速度下降；未确认停车进入故障。最终完成要求有序余程、位置误差和估计速度同时满足条件并稳定。TF/传感器过期、跟踪超限和运行中静态地图变更均进入锁定故障，需排除原因再 reset。软件零速和定位速度估计不能替代下位机断链停车、现场停动力及独立测速。
+
+系统没有人体语义识别。人和其他真实障碍进入未来扫掠都会触发停车；不能为了减少误停而屏蔽整类立桩或车体会经过的侧方区域。
+
+## 生成、运行与复现
+
+现场流程见[命令手册](../field-cli.md)。新图完成后：
+
+```bash
+srm-nav field artifacts/mapping/本次/map --profile safe --output cache/navigation-safe
+# 两终端保持运行
+srm-nav sensors
+srm-nav drive cache/navigation-safe
+# 第三终端：核对定位与 ready 后发车
+srm-nav mission-status
+srm-nav start-here
+```
+
+每次运行在 `artifacts/navigation-runs/<run_id>/` 保存源码哈希、配置、地图身份、RoutePlan 和状态日志。记录包含前馈、反馈、估计速度、弧长进度和控制计算时间；记录存在不等于实车已验收。
+
+本机纯模型验证不打开设备：
+
+```bash
+scripts/run.sh python3 /work/scripts/validation/benchmark-trajectory.py --profile safe --output /work/artifacts/benchmark-safe
+scripts/run.sh python3 /work/scripts/validation/benchmark-trajectory.py --profile candidate --output /work/artifacts/benchmark-candidate
+scripts/run.sh python3 -m unittest discover -s /work/tests
+```
+
+标准场景的传感器定位及串口模拟：
+
+```bash
+scripts/verify-stage34.sh --output /work/artifacts/trajectory-sensors --mode sensors --transport serial-sim --rounds 3
+```
+
+这些试验分别验证控制模型、传感器仿真和软件传输，不能证明真实制动能力，也不能把理想定位的完成时间称为实车提速结果。

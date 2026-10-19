@@ -2,6 +2,8 @@
 
 本入口在自己的电脑上运行校内赛候选导航系统。车体已使用赛方提供的圆柱哨兵 Xacro，保留圆柱、四轮碰撞和惯性；雷达安装采用 SRM 参考初值。场地尺寸、平面速度驱动和瞬时雷达扫描仍是仿真假设；地图由场景几何生成。接车后需核实安装、真实地图、底盘接口和制动性能，再验收实车。
 
+默认配置现在使用[整圈轨迹引擎](../architecture/trajectory-navigation.md)：一条路线管理10个语义阶段，普通交接不停止，障碍移除后恢复原弧长。`navigation_engine=legacy` 保留旧版 FollowPath 与持续障碍绕行实验，下面单独标明旧链行为。
+
 ## 启动与操作
 
 从 `intramural/` 执行。先完成 [环境部署](../deployment/environment.md)，构建工作空间：
@@ -26,7 +28,7 @@ scripts/run.sh ros2 service call /intramural_robot/mission/cancel std_srvs/srv/T
 scripts/run.sh ros2 service call /intramural_robot/mission/reset std_srvs/srv/Trigger '{}'
 ```
 
-`cancel` 成功表示取消请求已受理，待状态成为 `CANCELLED` 才表示当前 action 已取消或已经结束，后续任务不会再提交。运动中拒绝复位。复位只清任务状态，不传送机器人；取消后若停在场中，再次启动会因不在停车位而被拒绝。重新开始一次全新仿真可回到初始停车位。正常结束后直接复位、启动即可连续重复。
+`cancel` 成功表示取消请求已受理，待状态成为 `CANCELLED` 后才可复位；新引擎会先观察速度降低，旧引擎等待 action 取消或结束。运动中拒绝复位。复位只清任务状态，不传送机器人；取消后若停在场中，再次启动会因不在停车位而被拒绝。重新开始一次全新仿真可回到初始停车位。正常结束后直接复位、启动即可连续重复。
 
 本项目通过 `config/fastdds-services.xml` 将 Fast DDS 服务回包的 reader 发现等待设为 5 s（默认 100 ms），防止请求已发现、回包尚未匹配时丢失生命周期响应。仅覆盖服务 reply writer，普通点云、TF 和速度话题保持 ROS QoS。原生 API 复核命令为 `scripts/run.sh python3 /work/scripts/validation/verify-service-qos.py`；应输出 `response_max_blocking_time_ns: 5000000000`。这是对本项目已出现服务发现竞争的配置规避，不能断言消除了全部 DDS 故障。依据见 [Humble 回包实现](https://github.com/ros2/rmw_fastrtps/blob/humble/rmw_fastrtps_shared_cpp/src/rmw_response.cpp) 和 [官方问题 842](https://github.com/ros2/rmw_fastrtps/issues/842)。
 
@@ -57,12 +59,12 @@ scripts/run.sh python3 -m unittest discover -s /work/tests -v
 | 桩半径 / 高度、绕行半径 | 0.15 / 1.0 / 1.5 m |
 | 赛方车体直径 / 圆柱碰撞高度 | 0.54 / 0.20 m（z 为 0.05–0.25 m） |
 | 雷达安装初值 XYZ / RPY | (0.15, −0.15, 0.22) m / (0,0,0) rad |
-| 合速度 / 加速度上限 | 0.35 m/s / 0.6 m/s² |
+| 合速度 / 加速度上限 | 0.65 m/s / 1.2 m/s² |
 | 栅格 / 路径采样间距 | 0.05 / 0.05 m |
-| 回位容差 / 段终点复核容差 | 0.12 / 0.15 m |
+| 回位容差 / 段终点复核容差 | 0.08 / 0.15 m |
 | 允许跟踪误差 | 0.30 m |
 
-这些容差不是比赛正式判定标准。轮体联合碰撞包络半径为 0.28462 m，导航、碰桩及出界检查使用 0.29 m 保守圆；边界墙位于界外，内部边界仍按参数检查。当前路线生成器要求两桩竖直对齐、间距等于两倍绕行半径；不满足会拒绝生成，需要按正式场地重新设计路线，不能仅修改桩距后沿用切圆拓扑。
+这些容差不是比赛正式判定标准。轮体联合碰撞包络半径为 0.28462 m，导航、碰桩及出界检查使用 0.29 m 保守圆；边界墙位于界外，内部边界仍按参数检查。路线按两桩连线旋转，切圆几何要求桩距等于两倍绕行半径；现场生成器由识别到的桩距确定半径，再对实测地图检查完整路线。
 
 每次 `arena.sh` / `verify-stage34.sh` 启动前生成 `simulation/generated/`：世界 SDF、赛方车体 SDF/URDF、桥接配置、栅格地图、几何先验 PCD、Nav2 参数和路线。派生文件不入版本控制。栅格包含边界和固定桩；可移动干扰物由实时雷达感知。解析先验包含地面、墙、桩和障碍初始位置，供 small_gicp 匹配；PCD 经雷达外参逆变换生成，以适配上游地图加载时的基座变换。当前停车位为地图原点、初始车体 yaw 为零；改变初始位姿后须重新核查重定位初始化。
 
@@ -83,10 +85,10 @@ flowchart TD
     O --> TF
     O --> T[terrain_analysis]
     T --> C[Nav2 局部代价地图]
-    C --> M[有序分段任务 / 受约束 A*]
+    C --> M[整圈轨迹 / 有序弧长进度]
     M --> V
     TF --> M
-    C --> V[全向 PID 控制器 → velocity_smoother]
+    C --> V[全向切向前馈 / 位置速度反馈]
     V --> S[motion_guard 限幅 / 过期检查 / 任务使能]
     S --> B[Gazebo 赛方模型 / 平面驱动]
     B --> G
@@ -115,19 +117,19 @@ stateDiagram-v2
     IDLE --> RUNNING: 就绪且位于停车位 / start
     RUNNING --> DONE: 全部分段成功且实际进度到位
     RUNNING --> CANCELLING: cancel，先关闭运动使能
-    CANCELLING --> CANCELLED: 控制器确认取消
-    CANCELLING --> FAULT: 取消结果异常
-    RUNNING --> FAULT: 定位过期 / 偏离 / 越界风险 / action 失败
+    CANCELLING --> CANCELLED: 观测低速 / 旧链确认取消
+    CANCELLING --> FAULT: 停车未确认
+    RUNNING --> FAULT: 定位过期 / 偏离 / 净空不足
     DONE --> IDLE: reset
     CANCELLED --> IDLE: reset
-    FAULT --> IDLE: 无待完成 action 时 reset
+    FAULT --> IDLE: 故障排除后 reset
 ```
 
 停车位直线到下瓣左端 `(2,1)`；下桩逆时针走 270° 到交叉点 `(3.5,2.5)`；上桩顺时针走 360° 回交叉点；再补下桩剩余 90° 回原入口，沿驶入直线反向回位。整条轨迹对下桩绕数 +1，对上桩 −1，与规则示意图的 8 字拓扑一致。下瓣尾段 `LOWER_EXIT` 是完成下桩一周并返回原入口所需部分。
 
-默认按四分之一圆分段；实车路线随桩连线旋转，并根据入场侧调整首尾圆弧。每段进度只能单调推进，搜索窗口限制在当前段。段成功须同时满足 action 成功、终点距离和有序剩余路径长度均在同一米制容差内，才进入下一段；返回段采用停车容差。连续进度通过当前采样点附近的线段投影计算，避免短路径的整数采样误差。action 成功后最多等 0.5 s，让异步 TF 更新到达；仍未满足条件则进入故障。重复经过交叉点不会根据全路径最近点跳段。当前直接使用 `FollowPath`，未启用自由全局重规划或默认后退恢复，避免把规定绕桩任务变成任意到点。
+默认整圈引擎保留10个语义 gate，并在当前弧长附近单调投影；不在交叉点搜索全程最近点。到达普通 gate 只更新标签，最终返回才按余程与停车容差结束。取消需观察低速，最终停车还需稳定0.15 s；详见[轨迹引擎](../architecture/trajectory-navigation.md)。旧引擎使用分段 FollowPath，分别核对 action 结果、终点距离和有序余程。
 
-控制器到位阈值为 0.06 m，最后一段成功后任务关闭使能、最终输出零速。独立验收还要求真值物理速度连续两秒低于 0.03 m/s、最终速度指令接近零，以及回位误差小于 0.12 m。任务状态 `DONE` 本身不替代独立实际停车验证。
+独立验收另外要求真值速度连续两秒低于0.03 m/s、最终速度指令接近零，以及回位误差小于本次配置的停车容差。任务 DONE 不替代独立停车验证。
 
 `motion_guard` 使用单调墙钟检查输入：控制 0.3 s、里程计 0.5 s、雷达 0.7 s、IMU 0.2 s。任一过期、非有限数、使能关闭均立即零速；正常控制按合速度限幅并限制速度变化。这里只实现上位机仍在运行时的保护，没有偷偷加入“下位机自动超时停车”。物理断线、整机断电或发送进程崩溃后的停车必须另行解决。
 
@@ -145,16 +147,15 @@ scripts/arena-obstacle.sh park
 `--obstacle-check` 只验证感知和代价更新。行进中障碍由独立的阶段 6 工具验收：
 
 ```bash
-# 移除后恢复原段；持续障碍保留到整圈完成
+# 新旧引擎：移除后恢复原进度
 scripts/verify-stage6.sh --mode sensors --output /work/artifacts/stage6/removal-new
-scripts/verify-stage6.sh --mode sensors --persistent --output /work/artifacts/stage6/bypass-new
-scripts/run.sh python3 /work/scripts/validation/audit-stage6.py --input /work/artifacts/stage6/bypass-new
-# 绕行中取消；无可行通道时持续停车并取消
-scripts/verify-stage6.sh --mode ideal --persistent --scenarios entry --cancel-bypass --output /work/artifacts/stage6/cancel-new
+# 持续障碍保持停车并取消；新引擎不自动绕行
 scripts/verify-stage6.sh --mode ideal --persistent --scenarios entry --expect-blocked --output /work/artifacts/stage6/no-route-new
 ```
 
-遇到障碍先关闭运动使能、取消当前控制目标并停车。移除后沿当前有序分段恢复；持续阻挡 5 秒后，用实时局部代价地图的致命占用格规划受约束的 A* 绕行。规划使用赛道先验中的桩/边界、0.29 m 车体圆及 0.20 m 额外规划净空；候选路径距原始分段不超过 1.10 m，并受当前绕桩角度区域约束。交叉点被占用时，只能同时重设当前段终点和下一段起点，停车位不能迁移；整条候选路线绕数仍须为下桩 +1、上桩 −1。找不到路线则保持停车，不自动跳段。
+以下绕行细节仅适用于 `navigation_engine=legacy` 且 `allow_bypass=true` 的旧链配置。可用 `verify-stage6.sh --persistent` 验证整圈绕行，用 `--persistent --scenarios entry --cancel-bypass` 验证绕行中取消；当前整圈引擎不支持这些模式，会明确拒绝。
+
+旧链遇到障碍先关闭运动使能、取消当前控制目标并停车。移除后沿当前有序分段恢复；持续阻挡 5 秒后，用实时局部代价地图的致命占用格规划受约束的 A* 绕行。规划使用赛道先验中的桩/边界、0.29 m 车体圆及 0.20 m 额外规划净空；候选路径距原始分段不超过 1.10 m，并受当前绕桩角度区域约束。交叉点被占用时，只能同时重设当前段终点和下一段起点，停车位不能迁移；整条候选路线绕数仍须为下桩 +1、上桩 −1。找不到路线则保持停车，不自动跳段。
 
 移除恢复测试的 `--blocked-hold-seconds` 是要求持续停车的时长，应小于配置中的首次绕行等待时间（默认 5 秒）；默认使用 1.5 秒。测试更长时间的障碍持续存在时使用 `--persistent`，其验收包含实际绕行和整圈完成。
 
@@ -164,7 +165,7 @@ scripts/verify-stage6.sh --mode ideal --persistent --scenarios entry --expect-bl
 
 原始雷达点先按安装外参转换到车体坐标，再排除无返回、车体自回波和地面。独立速度保护检查圆形车体沿制动方向扫过的区域：基础半径为车体半径 +0.10 m，前伸距离另计 0.20 秒延迟和 v²/(2a)。延迟及制动加速度仍为仿真假设，接车必须实测，不能作为实车停车承诺。点云、定位、IMU、控制停更和取消保护保持启用；物理断链仍不具备下位机超时停车保证。
 
-实车地图、安装标定、电控和物理停机仍未验收。当前仿真验收结果以最新模型接入记录为准，历史阶段记录保留原版本。
+实车与本机仿真的结论分别记录。新引擎的模型/仿真结果不替代真实底盘响应、制动及现场导航验收，历史阶段记录保留原版本。
 
 ## 公开来源
 

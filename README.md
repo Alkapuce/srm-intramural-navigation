@@ -2,9 +2,9 @@
 
 基于公开项目 [pb2025_sentry_nav](https://github.com/SMBU-PolarBear-Robotics-Team/pb2025_sentry_nav)，实现从停车位出发、逆时针绕下桩、顺时针绕上桩、沿原路回位的自主导航。支持障碍停车、移除恢复、持续障碍绕行、输入失效保护和比赛串口协议。
 
-main 保留 18.554 秒现场行为对应的部署包实现：10 个有序分段、0 次障碍阻断，定位估计的回位误差约 10.4 cm。实现按当时保留的部署包恢复，未取得整机源码快照；[参数与证据范围](docs/results/2026-10-16/baseline-18s554.json)单独记录。1.5 是协议指令上限，不代表已独立测得的物理速度。后续整圈轨迹引擎在独立 refactor 分支开发。
+main 保留 18.554 秒现场行为对应的部署包实现：10 个有序分段、0 次障碍阻断，定位估计的回位误差约 10.4 cm。参数与部署源码指纹见[基线记录](docs/results/2026-10-16/baseline-18s554.json)；1.5 是协议指令上限，未作独立物理测速。现场复现从[命令手册](docs/field-cli.md)开始，实验过程见[调试日志](docs/debug-log.md)。
 
-现场复现从[命令手册](docs/field-cli.md)开始，实验过程见[调试日志](docs/debug-log.md)。
+新的整圈轨迹引擎已完成模型、传感器串口模拟和障碍恢复验证，实车效果仍待现场测试；原实车结果属于此前执行链。新引擎说明见[整圈轨迹导航](docs/architecture/trajectory-navigation.md)。
 
 ## 项目架构
 
@@ -15,9 +15,9 @@ flowchart TB
     Real --> Raw["原始雷达近距输入"]
     LIO --> Loc["small_gicp：先验地图对齐 / TF"]
     LIO --> Map["地形处理 / Nav2 代价地图"]
-    Loc --> Mission["有序任务 / 受约束 A* 绕行"]
+    Loc --> Mission["整圈轨迹 / 有序弧长进度"]
     Map --> Mission
-    Mission --> Control["Nav2 全向 PID / 速度平滑"]
+    Mission --> Control["全向切向前馈 / 位置速度反馈"]
     Loc --> Control
     Control --> Guard["motion_guard：最终速度保护"]
     Mission --> Future["当前有序进度后的近期路径"]
@@ -31,7 +31,7 @@ flowchart TB
 ```
 
 - **定位**：Point-LIO 接收点云和 IMU；small_gicp 将当前点云与先验对齐，组成 `map → odom → base_footprint`。传感器模式不使用 Gazebo 真值定位。
-- **任务与避障**：自有任务层保存下瓣、上瓣、交叉点和返回段进度，通过 `FollowPath` 执行分段路径。障碍移除后恢复当前阶段；启用绕行时，持续阻挡 5 秒后尝试受路线走廊、绕桩顺序和绕数约束的绕行，无路可走保持停车。当前实车配置采用停车等待策略。
+- **轨迹与任务**：新生成配置使用整圈轨迹引擎，结合本次地图生成平滑切入、八字和返回路线，统一规划速度，以单调弧长管理 10 个有序阶段。障碍移除后恢复原进度。旧版 Nav2 分段执行与受约束绕行入口保留用于对照；当前实车默认停车等待。结构、运行档位和复现命令见[整圈轨迹导航](docs/architecture/trajectory-navigation.md)。
 - **控制与通信**：`motion_guard` 是最终 `cmd_vel` 的唯一发布者，负责时效、限幅和危险区检查；实车沿近期有序路线检查原始点云中的车体扫掠。串口模拟中，底盘只能通过 `serial_bridge → 伪终端 → sim_mcu` 接收速度。
 - **场景**：使用 [赛方圆柱哨兵模型](simulation/models/sentry_robot_cylinder.xacro)和公开 MID-360 资源，导航包络半径 0.29 m。场地、平面动力学和解析先验仍是仿真假设。
 
