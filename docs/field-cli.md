@@ -55,26 +55,28 @@ srm-map
 | `navigation/route-analysis.json` | 起点来源、候选搜索与最终路线检查 |
 | `reload-check/`、`result.json` | 重载定位结果、阶段记录和进程收尾结果 |
 
-建图结束会直接列出地图与路线文件的完整位置，并在终端画出**路线附近的地图、起点、两桩和参考速度曲线**。`S` 是起点/返回点，`L/U` 是下桩/上桩，`*` 是路线，`#` 是障碍，`?` 是未知；彩色终端用蓝到红表示低到高的参考速度。高清图仍保存在 `navigation/route-plan.png`，字符缩略图不用于净空计算。
-
-稍后可随时重看，不需要启动 ROS、雷达或底盘：
+建图结束自动导出 PNG 到本机 `artifacts/.png/`，终端只打印结果和文件位置。普通地图保留障碍与未知区域；已有规划时同时保存路线、速度高清图。文件名包含来源目录，各次建图互不覆盖。
 
 ```bash
-# 选择最新地图或导航产物；若最新地图尚无路线，则只显示地图
+# 将最新地图/路线导出为 PNG，不启动 ROS 或设备
 srm-nav preview
-
-# 可传本次建图总目录、map/ 或 navigation/
 srm-nav preview artifacts/mapping/本次
-srm-nav preview artifacts/mapping/本次/navigation --width 100
+srm-nav preview artifacts/mapping/本次/navigation --output artifacts/route.png
 
-# 在项目根目录保存纯文本记录；管道输出默认也没有颜色控制符
-srm-nav preview --no-color > artifacts/preview.txt
-
-# 建图完成只打印保存位置，跳过自动字符图
-srm-map --no-preview
+# 导出正常产物目录下全部已建地图，保留原始文件
+srm-nav preview --all
 ```
 
-终端自动适应宽度，`--width` 可指定 30–160 列；普通 SSH 无需图形显示或专用终端图像协议。各处理阶段显示中文名称、日志文件和实际耗时，完整机器可读状态保存在 `result.json`。若缩略预览读取失败，提示原因并保留建图结果，不自动发车。
+WSL 可以通过现有 `ssh nuc` 自动接收 PNG。默认接收位置是 `~/workspaces/srm/intramural/artifacts/.png/`；在 WSL 安装一次用户定时器，每 5 秒同步新增或更新的图片：
+
+```bash
+mkdir -p artifacts/.png/ ~/.config/systemd/user/
+cp config/systemd/srm-map-png-sync.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now srm-map-png-sync.timer
+```
+
+其他项目路径可在 service 文件中修改。查看状态用 `systemctl --user status srm-map-png-sync.timer`，暂停同步用 `systemctl --user stop srm-map-png-sync.timer`。连接暂时中断时保留两端图片，恢复连接后继续同步。PNG 不参与净空计算或控制。
 
 自动识桩依据细高物体的几何形状与高度连续性；只有恰好两个无歧义候选，且完整八字位于已观测的可通行区域，才生成可供 `drive` 使用的配置。仍应核对识别结果与现场两桩、停车点一致。它没有识别任意场景中“比赛桩”语义的能力。
 
