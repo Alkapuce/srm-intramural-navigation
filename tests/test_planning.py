@@ -6,7 +6,8 @@ import unittest
 from pathlib import Path
 import numpy as np
 from nav_msgs.msg import OccupancyGrid
-from intramural_mission.planning import compile_route
+from intramural_mission.planning import compile_route, GridMap
+from intramural_mission.response import predict_execution
 from intramural_mission.route import segments
 from intramural_mission.trajectory import OmniTracker
 
@@ -30,6 +31,9 @@ class PlanningTests(unittest.TestCase):
         self.assertLess(max(report['optimized_route']['shape'][:2]),1.)
         self.assertEqual(len(plan.gates),10)
         self.assertGreater(min(plan.clearance),0)
+        # Keep the controller model fixed while the actual plant becomes much slower.
+        stressed=predict_execution(plan,c,GridMap(g,c),plant_response=(1.,.6))
+        self.assertFalse(stressed['passed'])
 
     def test_fresh_map_and_arbitrary_entry_are_one_ordered_smooth_plan(self):
         c = json.loads((ROOT / "config/arena.json").read_text())

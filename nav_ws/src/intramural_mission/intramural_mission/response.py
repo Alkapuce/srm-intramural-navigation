@@ -26,9 +26,9 @@ class Plant:
         self.pose += self.velocity*self.dt
 
 
-def predict_execution(plan, c, measured):
+def predict_execution(plan, c, measured, plant_response=None):
     """Score executable model time, including response and the final zero-command tail."""
-    delay,tau = c.get("response_delay",.2),c.get("response_tau",.15)
+    delay,tau = plant_response if plant_response is not None else (c.get("response_delay",.2),c.get("response_tau",.15))
     plant = Plant(plan.points[0],delay,tau)
     tracker = OmniTracker(plan,c)
     policy = CommandPolicy([[1,0],[0,1]],c["max_speed"],c["max_acceleration"],c["max_speed"])
