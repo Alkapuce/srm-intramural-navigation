@@ -1,0 +1,736 @@
+{
+  "date": "2026-10-19",
+  "field_history": [
+    {
+      "response_delay": 0.10474780388498589,
+      "response_tau": 0.008433087904684984,
+      "gain_world_from_input": [
+        [
+          0.7109593883494498,
+          0.6912252628212054
+        ],
+        [
+          -0.657935289406466,
+          0.7104006127709995
+        ]
+      ],
+      "excited_axes": [
+        0,
+        1
+      ],
+      "training_rmse_m": 0.009995141755405605,
+      "validation_rmse_m": 0.027723838862166422,
+      "validation_max_error_m": 0.03658087952619897,
+      "jacobian_condition": 10000.403713850614,
+      "identifiable": false,
+      "parameters_at_bound": false,
+      "train_samples": 104,
+      "validation_samples": 44,
+      "validation_span_s": 5.498122453689575,
+      "input_condition": 4.730919025132164,
+      "eligible_for_model": false,
+      "scope": "final cmd_vel topic receipt to reconstructed TF source time",
+      "clock": "source",
+      "sha256": "93e383366d3d10002561997f3fdeba7db77b58096fb431f0aa2ba2f7cd2945fa",
+      "physical_actuator_delay_verified": false,
+      "source_type": "field_recording",
+      "braking_acceleration_override": null,
+      "recording": "baseline-18s554.jsonl",
+      "stopping_samples": []
+    },
+    {
+      "response_delay": 0.06551704580266535,
+      "response_tau": 0.045058660030413394,
+      "gain_world_from_input": [
+        [
+          0.8526489653938005,
+          0.4869531990294398
+        ],
+        [
+          -0.46245414185000333,
+          0.8583869365282667
+        ]
+      ],
+      "excited_axes": [
+        0,
+        1
+      ],
+      "training_rmse_m": 0.01352319642457599,
+      "validation_rmse_m": 0.019070567387429817,
+      "validation_max_error_m": 0.04109535109815792,
+      "jacobian_condition": 2058.859809001948,
+      "identifiable": false,
+      "parameters_at_bound": false,
+      "train_samples": 127,
+      "validation_samples": 54,
+      "validation_span_s": 6.7978081703186035,
+      "input_condition": 4.410265749520766,
+      "eligible_for_model": false,
+      "scope": "final cmd_vel topic receipt to reconstructed TF source time",
+      "clock": "source",
+      "sha256": "012bfabc796002bd706ccd33c565d12448657ebba6412eea32bcb693c213ed97",
+      "physical_actuator_delay_verified": false,
+      "source_type": "field_recording",
+      "braking_acceleration_override": null,
+      "recording": "corner-055.jsonl",
+      "stopping_samples": []
+    },
+    {
+      "response_delay": 0.09168461485123885,
+      "response_tau": 0.08902560958962843,
+      "gain_world_from_input": [
+        [
+          0.6579147092638219,
+          0.7469518897248243
+        ],
+        [
+          -0.6009568192664819,
+          0.642799083825603
+        ]
+      ],
+      "excited_axes": [
+        0,
+        1
+      ],
+      "training_rmse_m": 0.013813873987365569,
+      "validation_rmse_m": 0.01980757555708483,
+      "validation_max_error_m": 0.03533316721620987,
+      "jacobian_condition": 8.65056474980694,
+      "identifiable": true,
+      "parameters_at_bound": false,
+      "train_samples": 32,
+      "validation_samples": 15,
+      "validation_span_s": 1.696275234222412,
+      "input_condition": 22.677457314199405,
+      "eligible_for_model": true,
+      "scope": "final cmd_vel topic receipt to reconstructed TF source time",
+      "clock": "source",
+      "sha256": "4644dd272610b404037570632f794ef6c974229c2aeb0dcb1e9a7e522c97ca89",
+      "physical_actuator_delay_verified": false,
+      "source_type": "field_recording",
+      "braking_acceleration_override": null,
+      "recording": "entry-fault-trace.jsonl",
+      "stopping_samples": [
+        {
+          "observed_speed_before_mps": 0.27143573456900055,
+          "zero_to_confirmed_rest_s": 0.42493486404418945,
+          "max_displacement_after_zero_m": 0.02216603073257211,
+          "effective_deceleration_including_delay_mps2": 1.6619429723325914
+        }
+      ]
+    },
+    {
+      "response_delay": 0.07021500063878677,
+      "response_tau": 0.054799099669173165,
+      "gain_world_from_input": [
+        [
+          0.673050264923435,
+          0.6899115310992862
+        ],
+        [
+          -0.7253231592731906,
+          0.5321745299241082
+        ]
+      ],
+      "excited_axes": [
+        0,
+        1
+      ],
+      "training_rmse_m": 0.05674587108288573,
+      "validation_rmse_m": 0.11618879432324335,
+      "validation_max_error_m": 0.14547819736079654,
+      "jacobian_condition": 361.27910279498917,
+      "identifiable": true,
+      "parameters_at_bound": false,
+      "train_samples": 35,
+      "validation_samples": 14,
+      "validation_span_s": 1.6970305442810059,
+      "input_condition": 8.089751046777495,
+      "eligible_for_model": false,
+      "scope": "final cmd_vel topic receipt to reconstructed TF source time",
+      "clock": "source",
+      "sha256": "71076920e229afeea33e23225ab4b6a6a4bb99d553a93ebf7a8f8e18000e94f4",
+      "physical_actuator_delay_verified": false,
+      "source_type": "field_recording",
+      "braking_acceleration_override": null,
+      "recording": "upper-fault-trace.jsonl",
+      "stopping_samples": []
+    },
+    {
+      "response_delay": 0.08984127804154006,
+      "response_tau": 0.029510894483599153,
+      "gain_world_from_input": [
+        [
+          0.7597351709459423,
+          0.6366141595110899
+        ],
+        [
+          -0.6101207722498502,
+          0.7261882705942415
+        ]
+      ],
+      "excited_axes": [
+        0,
+        1
+      ],
+      "training_rmse_m": 0.018515672410461616,
+      "validation_rmse_m": 0.013233419478112933,
+      "validation_max_error_m": 0.029630844594994318,
+      "jacobian_condition": 6.362667852944074,
+      "identifiable": true,
+      "parameters_at_bound": false,
+      "train_samples": 2497,
+      "validation_samples": 1057,
+      "validation_span_s": 132.9996635913849,
+      "input_condition": 7.421398788541068,
+      "eligible_for_model": true,
+      "scope": "final cmd_vel topic receipt to reconstructed TF source time",
+      "clock": "source",
+      "sha256": "02906d636b5ec6cc5790c78819a81018916e998f73eb3349d918f1ba595f4bb7",
+      "physical_actuator_delay_verified": false,
+      "source_type": "field_recording",
+      "braking_acceleration_override": null,
+      "recording": "person-stops.jsonl",
+      "stopping_samples": [
+        {
+          "observed_speed_before_mps": 0.47708177204498226,
+          "zero_to_confirmed_rest_s": 0.8312501907348633,
+          "max_displacement_after_zero_m": 0.05248446611494105,
+          "effective_deceleration_including_delay_mps2": 2.1683274506319714
+        }
+      ]
+    },
+    {
+      "response_delay": 0.1253824086583051,
+      "response_tau": 0.00584230356714818,
+      "gain_world_from_input": [
+        [
+          0.1546526258227474,
+          0.9561635949281809
+        ],
+        [
+          -0.955029583331292,
+          0.13617000268481355
+        ]
+      ],
+      "excited_axes": [
+        0,
+        1
+      ],
+      "training_rmse_m": 0.012695954062134373,
+      "validation_rmse_m": 0.025466901650427556,
+      "validation_max_error_m": 0.05028350534451365,
+      "jacobian_condition": 175.40764727713025,
+      "identifiable": false,
+      "parameters_at_bound": true,
+      "train_samples": 217,
+      "validation_samples": 89,
+      "validation_span_s": 11.398110389709473,
+      "input_condition": 4.518339147704495,
+      "eligible_for_model": false,
+      "scope": "final cmd_vel topic receipt to reconstructed TF source time",
+      "clock": "source",
+      "sha256": "230698d6651bce245076697f95cb47dd7933847bcc7d519c164e6b0fc7daeec6",
+      "physical_actuator_delay_verified": false,
+      "source_type": "field_recording",
+      "braking_acceleration_override": null,
+      "recording": "early-stops.jsonl",
+      "stopping_samples": [
+        {
+          "observed_speed_before_mps": 0.3294434161101767,
+          "zero_to_confirmed_rest_s": 0.457244873046875,
+          "max_displacement_after_zero_m": 0.03658819869516244,
+          "effective_deceleration_including_delay_mps2": 1.4831690037899141
+        }
+      ]
+    },
+    {
+      "response_delay": 0.07683024285400192,
+      "response_tau": 0.05243267286377716,
+      "gain_world_from_input": [
+        [
+          0.056500995215775895,
+          0.9655755487432639
+        ],
+        [
+          -0.9608406823733064,
+          0.049414509755995706
+        ]
+      ],
+      "excited_axes": [
+        0,
+        1
+      ],
+      "training_rmse_m": 0.013336744234799016,
+      "validation_rmse_m": 0.017851753483344474,
+      "validation_max_error_m": 0.04479687875473582,
+      "jacobian_condition": 7.093821145963655,
+      "identifiable": true,
+      "parameters_at_bound": false,
+      "train_samples": 214,
+      "validation_samples": 123,
+      "validation_span_s": 15.39902400970459,
+      "input_condition": 3.9209383722301476,
+      "eligible_for_model": true,
+      "scope": "final cmd_vel topic receipt to reconstructed TF source time",
+      "clock": "source",
+      "sha256": "f3d751cbaf55daafe5cb623f92b1174b74b7c2ca4683aaced3da785e7498b650",
+      "physical_actuator_delay_verified": false,
+      "source_type": "field_recording",
+      "braking_acceleration_override": null,
+      "recording": "later-stops.jsonl",
+      "stopping_samples": []
+    }
+  ],
+  "verified_existing_facts": {
+    "protocol": "competition19",
+    "axis_directions": {
+      "x_positive": "forward",
+      "y_positive": "left"
+    },
+    "serial_send_period_median_ms": 9.983784000041851,
+    "serial_send_period_max_ms": 10.823946000073192,
+    "baseline_tf_age_median_ms": 30.61079978942871,
+    "baseline_tf_age_max_ms": 129.5449733734131,
+    "physical_link_loss_stop": "previously confirmed by operator; not retested in this study"
+  },
+  "offline_assumption_matrix": {
+    "scope": "offline controllers, same C2 route/ordered progress/CommandPolicy/assumed plant; no motion_guard or hardware",
+    "plant_scenarios": {
+      "nominal": [
+        0.2,
+        0.15
+      ],
+      "delayed": [
+        0.4,
+        0.3
+      ]
+    },
+    "model_delay": 0.2,
+    "model_tau": 0.15,
+    "mppi_version": "1.1.20",
+    "plant_gain": "identity; gain identification not applied",
+    "runs": 32,
+    "sources_unchanged_during_run": true,
+    "source_hashes": {
+      "scripts/internal/controller-benchmark/main.cpp": "1f623f4421da3e545c894009d5bf6d33fcaa203d1d49665444b0fe61de50b040",
+      "scripts/validation/compare-controllers.py": "61038a8a0777a931f6bb3d029b23b77b8c80b7cf572fccfb515ee85782f63599",
+      "scripts/internal/controller-benchmark/CMakeLists.txt": "5dbced7da01092ddd2776f9871af784269baf9f4b1e09d4f337c776f28e81e8a",
+      "config/navigation-profiles.json": "f76548dc03d7142278e1d471d0a0ad12c76a693381db08b7314363deafbdf836",
+      "docker/sources.lock.json": "d8d8daf4fb1f6c62ce694b5a5a9d0519eefaae0f70f55456d86264a5fb115392",
+      "nav_ws/src/intramural_mission/intramural_mission/trajectory.py": "4451b3fb15d049e3928b65cc120236aaf15945fedf360c3dbc8b1681d50cad86",
+      "nav_ws/src/intramural_mission/intramural_mission/planning.py": "5d1928247d2788f429efeeee3eea2e147cb7df187162f7a7987cd348187a1a63",
+      "nav_ws/src/intramural_base/intramural_base/transport.py": "e33b2336ae2be2537337c771fc88b443c08bb77650ba0a9a362c6dec02044608",
+      "nav_ws/src/pb2025_sentry_nav/pb_omni_pid_pursuit_controller/src/omni_pid_pursuit_controller.cpp": "40fffeb2c3a70a2f92024aad528126e96d414cb48006f85ed75a9dd9796856b0",
+      "nav_ws/src/pb2025_sentry_nav/pb_omni_pid_pursuit_controller/src/pid.cpp": "4b8861190935034fbf54309b5c5aafc5a656765d19d08e97eb379173982d71cb",
+      "nav_ws/src/pb2025_sentry_nav/pb_omni_pid_pursuit_controller/include/pb_omni_pid_pursuit_controller/omni_pid_pursuit_controller.hpp": "026ad1eaed238a101fc2f577472cd5379b39b8b986b3f09061890a7c1802dc75",
+      "nav_ws/src/pb2025_sentry_nav/pb_omni_pid_pursuit_controller/include/pb_omni_pid_pursuit_controller/pid.hpp": "943fa4412dce17cac121964a3b7796185d68d9af180e516ec9e80d437392351f"
+    },
+    "measured_map_sha256": "0c8c714f40de3a8243d78462c18d9d744dfb6bba226814e4ee0130cd87039d1d",
+    "groups": [
+      {
+        "profile": "safe",
+        "scenario": "nominal",
+        "backend": "tracker",
+        "runs": 2,
+        "passed": 2,
+        "completion_seconds_mean": 17.65,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.16323595493210982,
+        "minimum_map_clearance": 0.015199788487071597,
+        "max_tracking_error": 0.03802785786662606,
+        "max_solver_p95_ms": 0.693171300014228
+      },
+      {
+        "profile": "safe",
+        "scenario": "nominal",
+        "backend": "pb",
+        "runs": 2,
+        "passed": 2,
+        "completion_seconds_mean": 18.7,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.13494585081891572,
+        "minimum_map_clearance": 0.008198051533946427,
+        "max_tracking_error": 0.06108666780991851,
+        "max_solver_p95_ms": 0.8617391999999997
+      },
+      {
+        "profile": "safe",
+        "scenario": "nominal",
+        "backend": "mppi",
+        "runs": 2,
+        "passed": 2,
+        "completion_seconds_mean": 20.0125,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.13820668045044646,
+        "minimum_map_clearance": 0.04515714473600535,
+        "max_tracking_error": 0.05864991820428144,
+        "max_solver_p95_ms": 6.011056699999998
+      },
+      {
+        "profile": "safe",
+        "scenario": "nominal",
+        "backend": "mppi-response",
+        "runs": 2,
+        "passed": 2,
+        "completion_seconds_mean": 22.1,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.07656138237080276,
+        "minimum_map_clearance": 0.10185825644063062,
+        "max_tracking_error": 0.10631100685759247,
+        "max_solver_p95_ms": 9.485289
+      },
+      {
+        "profile": "safe",
+        "scenario": "delayed",
+        "backend": "tracker",
+        "runs": 2,
+        "passed": 0,
+        "completion_seconds_mean": null,
+        "reasons": [
+          "map_clearance"
+        ],
+        "minimum_pole_clearance": 0.06116228133972276,
+        "minimum_map_clearance": -0.009945142434358845,
+        "max_tracking_error": 0.17358709400617386,
+        "max_solver_p95_ms": 0.538718799992921
+      },
+      {
+        "profile": "safe",
+        "scenario": "delayed",
+        "backend": "pb",
+        "runs": 2,
+        "passed": 0,
+        "completion_seconds_mean": null,
+        "reasons": [
+          "pole_contact"
+        ],
+        "minimum_pole_clearance": -0.0015414153229800498,
+        "minimum_map_clearance": 0.0577575483556001,
+        "max_tracking_error": 0.23608731261956933,
+        "max_solver_p95_ms": 0.754798
+      },
+      {
+        "profile": "safe",
+        "scenario": "delayed",
+        "backend": "mppi",
+        "runs": 2,
+        "passed": 0,
+        "completion_seconds_mean": null,
+        "reasons": [
+          "pole_contact"
+        ],
+        "minimum_pole_clearance": -0.001299013026635626,
+        "minimum_map_clearance": 0.04515714473600535,
+        "max_tracking_error": 0.18060562839419636,
+        "max_solver_p95_ms": 4.7390106499999956
+      },
+      {
+        "profile": "safe",
+        "scenario": "delayed",
+        "backend": "mppi-response",
+        "runs": 2,
+        "passed": 2,
+        "completion_seconds_mean": 23.049999999999997,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.11834497003848984,
+        "minimum_map_clearance": 0.0577575483556001,
+        "max_tracking_error": 0.06432104440161773,
+        "max_solver_p95_ms": 8.0033332
+      },
+      {
+        "profile": "candidate",
+        "scenario": "nominal",
+        "backend": "tracker",
+        "runs": 2,
+        "passed": 2,
+        "completion_seconds_mean": 13.850000000000001,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.1296516738890174,
+        "minimum_map_clearance": 0.035433316233868084,
+        "max_tracking_error": 0.053465288259198315,
+        "max_solver_p95_ms": 0.5182195000088541
+      },
+      {
+        "profile": "candidate",
+        "scenario": "nominal",
+        "backend": "pb",
+        "runs": 2,
+        "passed": 2,
+        "completion_seconds_mean": 17.425,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.12387264835069398,
+        "minimum_map_clearance": 0.008198051533946427,
+        "max_tracking_error": 0.0784656044428392,
+        "max_solver_p95_ms": 0.55632795
+      },
+      {
+        "profile": "candidate",
+        "scenario": "nominal",
+        "backend": "mppi",
+        "runs": 2,
+        "passed": 2,
+        "completion_seconds_mean": 18.5,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.1239874054516614,
+        "minimum_map_clearance": 0.008198051533946427,
+        "max_tracking_error": 0.0865436905849013,
+        "max_solver_p95_ms": 3.7988928
+      },
+      {
+        "profile": "candidate",
+        "scenario": "nominal",
+        "backend": "mppi-response",
+        "runs": 2,
+        "passed": 2,
+        "completion_seconds_mean": 19.0375,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.11095353231026425,
+        "minimum_map_clearance": 0.10185825644063062,
+        "max_tracking_error": 0.07202674852444177,
+        "max_solver_p95_ms": 7.3909591
+      },
+      {
+        "profile": "candidate",
+        "scenario": "delayed",
+        "backend": "tracker",
+        "runs": 2,
+        "passed": 0,
+        "completion_seconds_mean": null,
+        "reasons": [
+          "map_clearance"
+        ],
+        "minimum_pole_clearance": 0.0009541176918947125,
+        "minimum_map_clearance": -0.02519912718768491,
+        "max_tracking_error": 0.27139308799159534,
+        "max_solver_p95_ms": 0.5609467500136134
+      },
+      {
+        "profile": "candidate",
+        "scenario": "delayed",
+        "backend": "pb",
+        "runs": 2,
+        "passed": 0,
+        "completion_seconds_mean": null,
+        "reasons": [
+          "pole_contact"
+        ],
+        "minimum_pole_clearance": -0.00025586555944648315,
+        "minimum_map_clearance": 0.08476092429280402,
+        "max_tracking_error": 0.27163916269798727,
+        "max_solver_p95_ms": 0.6638779499999998
+      },
+      {
+        "profile": "candidate",
+        "scenario": "delayed",
+        "backend": "mppi",
+        "runs": 2,
+        "passed": 0,
+        "completion_seconds_mean": null,
+        "reasons": [
+          "pole_contact"
+        ],
+        "minimum_pole_clearance": -0.0055430341744799605,
+        "minimum_map_clearance": 0.04515714473600535,
+        "max_tracking_error": 0.19651883358196168,
+        "max_solver_p95_ms": 4.1237615
+      },
+      {
+        "profile": "candidate",
+        "scenario": "delayed",
+        "backend": "mppi-response",
+        "runs": 2,
+        "passed": 0,
+        "completion_seconds_mean": null,
+        "reasons": [
+          "map_clearance"
+        ],
+        "minimum_pole_clearance": 0.12507848229438598,
+        "minimum_map_clearance": -0.009945142434358845,
+        "max_tracking_error": 0.09284682975546137,
+        "max_solver_p95_ms": 8.8707555
+      }
+    ]
+  },
+  "offline_identified_model": {
+    "scope": "offline controllers, same C2 route/ordered progress/CommandPolicy/assumed plant; no motion_guard or hardware",
+    "plant_scenarios": {
+      "nominal": [
+        0.09168461485123885,
+        0.08902560958962843
+      ],
+      "delayed": [
+        0.4,
+        0.3
+      ]
+    },
+    "model_delay": 0.09168461485123885,
+    "model_tau": 0.08902560958962843,
+    "mppi_version": "1.1.20",
+    "plant_gain": "identity; gain identification not applied",
+    "runs": 8,
+    "sources_unchanged_during_run": true,
+    "source_hashes": {
+      "scripts/internal/controller-benchmark/main.cpp": "1f623f4421da3e545c894009d5bf6d33fcaa203d1d49665444b0fe61de50b040",
+      "scripts/validation/compare-controllers.py": "61038a8a0777a931f6bb3d029b23b77b8c80b7cf572fccfb515ee85782f63599",
+      "scripts/internal/controller-benchmark/CMakeLists.txt": "5dbced7da01092ddd2776f9871af784269baf9f4b1e09d4f337c776f28e81e8a",
+      "config/navigation-profiles.json": "f76548dc03d7142278e1d471d0a0ad12c76a693381db08b7314363deafbdf836",
+      "docker/sources.lock.json": "d8d8daf4fb1f6c62ce694b5a5a9d0519eefaae0f70f55456d86264a5fb115392",
+      "nav_ws/src/intramural_mission/intramural_mission/trajectory.py": "4451b3fb15d049e3928b65cc120236aaf15945fedf360c3dbc8b1681d50cad86",
+      "nav_ws/src/intramural_mission/intramural_mission/planning.py": "5d1928247d2788f429efeeee3eea2e147cb7df187162f7a7987cd348187a1a63",
+      "nav_ws/src/intramural_base/intramural_base/transport.py": "e33b2336ae2be2537337c771fc88b443c08bb77650ba0a9a362c6dec02044608",
+      "nav_ws/src/pb2025_sentry_nav/pb_omni_pid_pursuit_controller/src/omni_pid_pursuit_controller.cpp": "40fffeb2c3a70a2f92024aad528126e96d414cb48006f85ed75a9dd9796856b0",
+      "nav_ws/src/pb2025_sentry_nav/pb_omni_pid_pursuit_controller/src/pid.cpp": "4b8861190935034fbf54309b5c5aafc5a656765d19d08e97eb379173982d71cb",
+      "nav_ws/src/pb2025_sentry_nav/pb_omni_pid_pursuit_controller/include/pb_omni_pid_pursuit_controller/omni_pid_pursuit_controller.hpp": "026ad1eaed238a101fc2f577472cd5379b39b8b986b3f09061890a7c1802dc75",
+      "nav_ws/src/pb2025_sentry_nav/pb_omni_pid_pursuit_controller/include/pb_omni_pid_pursuit_controller/pid.hpp": "943fa4412dce17cac121964a3b7796185d68d9af180e516ec9e80d437392351f"
+    },
+    "measured_map_sha256": "0c8c714f40de3a8243d78462c18d9d744dfb6bba226814e4ee0130cd87039d1d",
+    "groups": [
+      {
+        "profile": "safe",
+        "scenario": "nominal",
+        "backend": "tracker",
+        "runs": 1,
+        "passed": 1,
+        "completion_seconds_mean": 17.4,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.1640612427550536,
+        "minimum_map_clearance": 0.015199788487071597,
+        "max_tracking_error": 0.019417928452719738,
+        "max_solver_p95_ms": 0.5199571999810357
+      },
+      {
+        "profile": "safe",
+        "scenario": "nominal",
+        "backend": "pb",
+        "runs": 1,
+        "passed": 1,
+        "completion_seconds_mean": 18.125,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.17130431215747863,
+        "minimum_map_clearance": 0.035433316233868084,
+        "max_tracking_error": 0.011624814886020443,
+        "max_solver_p95_ms": 0.6776175
+      },
+      {
+        "profile": "safe",
+        "scenario": "nominal",
+        "backend": "mppi",
+        "runs": 1,
+        "passed": 1,
+        "completion_seconds_mean": 19.75,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.15022255857369146,
+        "minimum_map_clearance": 0.0577575483556001,
+        "max_tracking_error": 0.03872258012551325,
+        "max_solver_p95_ms": 4.43416
+      },
+      {
+        "profile": "safe",
+        "scenario": "nominal",
+        "backend": "mppi-response",
+        "runs": 1,
+        "passed": 1,
+        "completion_seconds_mean": 23.8,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.09710424054494735,
+        "minimum_map_clearance": 0.11562188380531702,
+        "max_tracking_error": 0.08584274565892326,
+        "max_solver_p95_ms": 6.956186399999999
+      },
+      {
+        "profile": "candidate",
+        "scenario": "nominal",
+        "backend": "tracker",
+        "runs": 1,
+        "passed": 1,
+        "completion_seconds_mean": 13.625000000000002,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.16425102276500367,
+        "minimum_map_clearance": 0.015199788487071597,
+        "max_tracking_error": 0.025533210779204042,
+        "max_solver_p95_ms": 0.34199499992837445
+      },
+      {
+        "profile": "candidate",
+        "scenario": "nominal",
+        "backend": "pb",
+        "runs": 1,
+        "passed": 1,
+        "completion_seconds_mean": 16.849999999999998,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.16726482269041162,
+        "minimum_map_clearance": 0.035433316233868084,
+        "max_tracking_error": 0.015372012132719128,
+        "max_solver_p95_ms": 0.5016806
+      },
+      {
+        "profile": "candidate",
+        "scenario": "nominal",
+        "backend": "mppi",
+        "runs": 1,
+        "passed": 1,
+        "completion_seconds_mean": 18.5,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.15641667974997905,
+        "minimum_map_clearance": 0.0577575483556001,
+        "max_tracking_error": 0.04136649389586776,
+        "max_solver_p95_ms": 3.79691
+      },
+      {
+        "profile": "candidate",
+        "scenario": "nominal",
+        "backend": "mppi-response",
+        "runs": 1,
+        "passed": 1,
+        "completion_seconds_mean": 19.65,
+        "reasons": [
+          "done"
+        ],
+        "minimum_pole_clearance": 0.12375665680725798,
+        "minimum_map_clearance": 0.08476092429280402,
+        "max_tracking_error": 0.05920807448278885,
+        "max_solver_p95_ms": 5.8204967
+      }
+    ]
+  },
+  "boundaries": [
+    "No vehicle operated in this study",
+    "Identified timing uses reconstructed pose source timestamps and final command topic receipt",
+    "Gain matrix includes vehicle heading; not a body-to-protocol calibration",
+    "No motion_guard, LiDAR obstruction or NUC timing included in the offline plant",
+    "No active configuration or firmware validation flags overwritten"
+  ]
+}

@@ -6,6 +6,8 @@ main 保留 18.554 秒现场行为对应的部署包实现：10 个有序分段�
 
 新的整圈轨迹引擎已完成模型、传感器串口模拟和障碍恢复验证，实车效果仍待现场测试；原实车结果属于此前执行链。新引擎说明见[整圈轨迹导航](docs/architecture/trajectory-navigation.md)。
 
+控制后端可用[PB / MPPI 离线对照](docs/architecture/controller-comparison.md)在相同地图、路线和执行模型上比较；[底盘响应测量](docs/vehicle/response-measurement.md)提供旧实车日志复用、自动采样、拟合和后续实车测试命令。
+
 ## 项目架构
 
 ```mermaid
