@@ -103,7 +103,7 @@ out.mkdir(parents=True)
 header = f"VERSION .7\nFIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\nWIDTH {len(xyz)}\nHEIGHT 1\nVIEWPOINT 0 0 0 1 0 0 0\nPOINTS {len(xyz)}\nDATA binary\n"
 (out/"prior.pcd").write_bytes(header.encode()+xyz.tobytes())
 (out/"map.pgm").write_bytes(f"P5\n{size[0]} {size[1]}\n255\n".encode()+pixels[::-1].tobytes())
-(out/"map.yaml").write_text(yaml.safe_dump({"image":"map.pgm","resolution":res,"origin":[float(origin[0]),float(origin[1]),0.0],"negate":0,"occupied_thresh":.65,"free_thresh":.2}))
+(out/"map.yaml").write_text(yaml.safe_dump({"image":"map.pgm","resolution":res,"origin":[float(origin[0]),float(origin[1]),0.0],"negate":0,"occupied_thresh":.65,"free_thresh":.196}))
 (out/"arena.json").write_text(json.dumps(arena,indent=2)+"\n")
 params = yaml.safe_load((root/"config/stage2-nav.yaml").read_text())
 names = ["loam_interface","sensor_scan_generation","small_gicp_relocalization","terrain_analysis","terrain_analysis_ext","controller_server","local_costmap","map_server","velocity_smoother"]

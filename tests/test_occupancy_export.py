@@ -89,6 +89,17 @@ class OccupancyExportTests(unittest.TestCase):
         self.assertGreater(np.mean(np.any(region(1.60,1.75,-1,1)==0, axis=1)), .9)
         self.assertTrue(np.all(region(1.8,2.5,-1,1)==205))
         self.assertTrue(np.any(region(.68,.84,-.90,-.70)==0), "Low obstacle was lost at the vertical voxel boundary")
+        # Check the exported image/YAML with the production Nav2 loader, including unknown cells.
+        source = Path(__file__).resolve().parent / "fixtures/load-occupancy-map.cpp"
+        binary = folder.parent / "load-occupancy-map"
+        includes = ["-I/opt/ros/humble/include"] + ["-I"+str(p) for p in Path("/opt/ros/humble/include").iterdir() if p.is_dir()]
+        subprocess.run(["g++", "-std=c++17", str(source), *includes, "-L/opt/ros/humble/lib",
+                        "-Wl,-rpath,/opt/ros/humble/lib", "-lmap_io", "-o", str(binary)], check=True)
+        decoded = folder.parent / "nav2-grid.bin"
+        subprocess.run([str(binary), str(folder/"map.yaml"), str(decoded)], check=True)
+        expected = np.where(grid == 254, 0, np.where(grid == 205, -1, 100)).ravel()
+        self.assertTrue(np.array_equal(np.fromfile(decoded, dtype=np.int8), expected),
+                        "Nav2 must preserve exported free, occupied and unknown cells")
         # Pass the generated raster through the same vehicle-radius audit as the CLI.
         check = subprocess.run([sys.executable, str(Path(__file__).resolve().parents[1] / "scripts/validation/verify-map-quality.py"),
                                 "--map-config", str(folder), "--output", str(folder / "quality.json")], capture_output=True, text=True)
