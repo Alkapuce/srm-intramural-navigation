@@ -2,6 +2,8 @@
 
 import unittest
 import time
+from pathlib import Path
+import rclpy
 from types import SimpleNamespace as N
 import numpy as np
 from geometry_msgs.msg import Twist
@@ -12,9 +14,122 @@ from array import array
 from intramural_mission.adapter import Adapter
 from intramural_base.transport import CommandPolicy
 from intramural_mission.proximity import obstacle_near, obstacle_on_path, lidar_to_body
+from intramural_mission.route import curve_speed_limit, arc, line
 
 
 class ProximityTests(unittest.TestCase):
+    def test_long_horizon_does_not_select_a_later_crossing_visit(self):
+        path=[[.1,.05],[.5,.05],[1.,0.],[1.,1.],[0.,1.],[0.,0.],[0.,-1.]]
+        self.assertTrue(obstacle_on_path([[.3,.05]],path,.4,.1))
+        self.assertFalse(obstacle_on_path([[0.,-.3]],path,.4,.1))
+
+    def test_high_cruise_limit_checks_scheduled_motion_then_slows_at_final_parking(self):
+        now=time.monotonic();cmd=Twist();cmd.linear.x=1.5
+        c=dict(robot_radius=.29,minimum_clearance=.02,max_speed=1.5,max_acceleration=.6,
+            braking_acceleration=.2,bypass_speed=.2,raw_collision_min_points=3,
+            raw_collision_follow_path=True,continuous_corners=True,lateral_acceleration=.5,
+            parking_tolerance=.12)
+        path=line([0.,0.],[6.,0.],.05)
+        m=N(c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
+            motion_permitted=True,enabled=True,bypassing=False,output=[0.,0.],
+            last_motion_direction=(0.,0.),raw_near_points=np.array([[.8,-.04],[.8,0.],[.8,.04]]),
+            body_path=lambda:path,mode='sensors',pub=N(publish=lambda v:None),
+            hazard_pub=N(publish=lambda v:None),diagnostic=N(publish=lambda v:None))
+        Adapter.tick(m)
+        self.assertFalse(m.hazard)
+        self.assertGreater(m.output[0],0.)
+        m.output=[.5,0.];m.last_tick=time.monotonic()-.025;Adapter.tick(m)
+        self.assertTrue(m.hazard)
+        self.assertEqual(m.output,[0.,0.])
+        m.raw_near_points=np.empty((0,2));m.mission_phase='RETURN';path=line([0.,0.],[.13,0.],.02)
+        m.output=[.2,0.];m.last_tick=time.monotonic()-.025;Adapter.tick(m)
+        self.assertLess(m.output[0],.2)
+        path=line([0.,0.],[.11,0.],.02);m.last_tick=time.monotonic()-.025;Adapter.tick(m)
+        self.assertLess(m.output[0],.2)
+        self.assertGreater(m.output[0],0.)
+        Adapter.controller_command(m,Twist())
+        self.assertEqual(m.output,[0.,0.])
+
+    def test_corner_speed_envelope_brakes_before_turn_without_zero_and_leaves_straight_free(self):
+        straight=line([0.,0.],[1.5,0.],.05)
+        self.assertEqual(curve_speed_limit(straight,.55,.4,.2),.55)
+        # mission/collision_path repeats each shared segment endpoint.
+        path=line([0.,0.],[.8,0.],.05)+line([.8,0.],[.8,1.],.05)
+        speeds=[curve_speed_limit([[x-offset,y] for x,y in path],.55,.4,.2) for offset in (0.,.3,.65)]
+        self.assertGreater(speeds[0],speeds[1])
+        self.assertGreater(speeds[1],speeds[2])
+        self.assertGreater(speeds[2],0.)
+        self.assertLess(speeds[2],.2)
+        for radius in (.55,.623,1.,1.5):
+            curve=arc([0.,radius],radius,-np.pi/2,0.,.05)
+            self.assertAlmostEqual(curve_speed_limit(curve,.55,.4,.2),min(.55,np.sqrt(.4*radius)),places=5)
+            rotated=[[x*np.cos(.7)-y*np.sin(.7),x*np.sin(.7)+y*np.cos(.7)] for x,y in curve]
+            self.assertAlmostEqual(curve_speed_limit(rotated,.55,.4,.2),curve_speed_limit(curve,.55,.4,.2),places=5)
+            self.assertAlmostEqual(curve_speed_limit(curve,.6,.5,.2),min(.6,np.sqrt(.5*radius)),places=5)
+
+    def test_planned_corner_speed_reaches_guard_and_transport_without_disabling_person_stop(self):
+        now=time.monotonic();cmd=Twist();cmd.linear.x=.55;sent=[]
+        policy=CommandPolicy([[1.,0.],[0.,1.]],.55,.6,.55)
+        policy.enabled=True;policy.last_tick=now-.025
+        def transmit(msg):
+            policy.receive(msg.linear.x,msg.linear.y,msg.angular.z,time.monotonic())
+            sent.append(policy.tick(time.monotonic())[0])
+        c=dict(robot_radius=.29,minimum_clearance=.02,max_speed=.55,max_acceleration=.6,
+            braking_acceleration=.2,bypass_speed=.2,raw_collision_min_points=3,
+            raw_collision_follow_path=True,continuous_corners=True,lateral_acceleration=.4)
+        route=line([0.,0.],[.15,0.],.05)+line([.15,0.],[.15,.7],.05)[1:]
+        m=N(c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
+            motion_permitted=True,enabled=True,bypassing=False,output=[0.,0.],
+            last_motion_direction=(.55,0.),raw_near_points=np.empty((0,2)),body_path=lambda:route,
+            mode='sensors',pub=N(publish=transmit),hazard_pub=N(publish=lambda v:None),
+            diagnostic=N(publish=lambda v:None))
+        for _ in range(30):
+            m.last_tick=time.monotonic()-.025;policy.last_tick=time.monotonic()-.025
+            Adapter.tick(m)
+        self.assertGreater(sent[-1][0],.05)
+        self.assertLess(sent[-1][0],.2)
+        m.raw_near_points=np.array([[.30,.10],[.30,.12],[.31,.10]])
+        Adapter.tick(m)
+        self.assertTrue(m.hazard)
+        self.assertEqual(sent[-1],(0.,0.,0.))
+        m.raw_near_points=np.empty((0,2));m.last_tick=time.monotonic()-.025
+        policy.last_tick=time.monotonic()-.025;Adapter.tick(m)
+        self.assertFalse(m.hazard)
+        self.assertGreater(sent[-1][0],0.)
+
+    def test_faster_tracking_does_not_shorten_conservative_braking_sweep(self):
+        now=time.monotonic();cmd=Twist();cmd.linear.x=.5
+        m=N(c=dict(robot_radius=.29,minimum_clearance=.02,max_speed=.5,max_acceleration=.6,
+                   braking_acceleration=.2,bypass_speed=.2,raw_collision_min_points=3),
+            cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
+            motion_permitted=True,enabled=True,bypassing=False,output=[.5,0.],
+            last_motion_direction=(.5,0.),raw_near_points=np.array([[.8,-.04],[.8,0.],[.8,.04]]),
+            mode='sensors',pub=N(publish=lambda v:None),hazard_pub=N(publish=lambda v:None),
+            diagnostic=N(publish=lambda v:None))
+        Adapter.tick(m)
+        self.assertTrue(m.hazard)
+        self.assertEqual(m.output,[0.,0.])
+
+    def test_raw_controller_zero_ros_topic_reaches_final_stop_without_a_timer_tick(self):
+        config=Path(__file__).resolve().parents[1]/'config/arena.json'
+        rclpy.init(domain_id=78,args=['--ros-args','-p',f'arena_config:={config}','-p','localization:=sensors'])
+        guard=Adapter();peer=rclpy.create_node('controller_zero_observer')
+        for timer in guard.timers:timer.cancel()
+        guard.output=[.3,0.];received=[]
+        peer.create_subscription(Twist,'cmd_vel',received.append,10)
+        pub=peer.create_publisher(Twist,'cmd_vel_controller',10)
+        try:
+            deadline=time.monotonic()+5
+            while not received and time.monotonic()<deadline:
+                pub.publish(Twist())
+                rclpy.spin_once(guard,timeout_sec=.025)
+                rclpy.spin_once(peer,timeout_sec=.025)
+            self.assertTrue(received)
+            self.assertEqual(guard.output,[0.,0.])
+            self.assertEqual((received[-1].linear.x,received[-1].linear.y),(0.,0.))
+        finally:
+            peer.destroy_node();guard.destroy_node();rclpy.shutdown()
+
     def test_field_rejects_isolated_scan_hits_but_stops_for_supported_obstacle(self):
         route=[[0.,0.],[.15,0.],[.3,0.],[.5,0.]]
         cloud=np.array([[.308,-.059],[0.,.8],[-.8,0.]])
@@ -44,6 +159,18 @@ class ProximityTests(unittest.TestCase):
         self.assertEqual(sent[-1][0],0.)
         self.assertGreater(sent[-1][1],0.)
 
+    def test_raw_controller_stop_clears_a_smoothed_old_direction_immediately(self):
+        policy=CommandPolicy([[1.,0.],[0.,1.]],.4,.2,.4)
+        policy.enabled=True;policy.previous=(.3,0.);policy.last_tick=0.
+        m=N(cmd=Twist(),output=[.3,0.],pub=N(publish=lambda msg:policy.receive(msg.linear.x,msg.linear.y,0.,.01)))
+        Adapter.controller_command(m,Twist())
+        self.assertEqual(m.output,[0.,0.])
+        self.assertEqual(policy.previous,(0.,0.))
+        policy.receive(0.,.3,0.,.015)
+        values,_=policy.tick(.02)
+        self.assertEqual(values[0],0.)
+        self.assertGreater(values[1],0.)
+
     def test_ordered_curve_excludes_side_rear_and_straight_extension_but_stops_on_route(self):
         route=[[0.,0.],[.15,0.],[.3,.15],[.3,.5]]
         for point,expected in [([.65,0.],False),([0.,-.5],False),([-.5,0.],False),([.3,.3],True)]:
@@ -67,6 +194,7 @@ class ProximityTests(unittest.TestCase):
         m.body_path=lambda:Adapter.body_path(m)
         for point,blocked in [([.65,0.],False),([.3,.3],True),([.65,0.],False)]:
             now=time.monotonic();m.last={k:now for k in ['command','odom','lidar','imu']};m.last_tick=now-.025
+            m.output=[.4,0.]
             m.raw_near_points=np.array([point]);Adapter.tick(m)
             self.assertEqual(m.hazard,blocked)
             self.assertEqual(m.guard_mode,'ordered_path')
@@ -74,6 +202,7 @@ class ProximityTests(unittest.TestCase):
         c['raw_collision_min_points']=3
         for cloud,blocked in [([[.3,.3]],False),([[.3,.3],[.32,.3],[.3,.32]],True),([[.3,.3]],False)]:
             now=time.monotonic();m.last={k:now for k in ['command','odom','lidar','imu']};m.last_tick=now-.025
+            m.output=[.4,0.]
             m.raw_near_points=np.array(cloud);Adapter.tick(m)
             self.assertEqual(m.hazard,blocked)
             self.assertEqual(commands[-1].linear.x==0.,blocked)

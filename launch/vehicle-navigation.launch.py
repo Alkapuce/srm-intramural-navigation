@@ -28,8 +28,13 @@ def start(context):
         CommandPolicy(base["body_to_protocol"], base["max_body_speed_mps"], base["max_body_acceleration_mps2"], base["max_protocol_axis"], base["input_timeout_seconds"])
         if not manifest.get("field_geometry_verified"):
             raise ValueError("Confirm actual parking/pole geometry in this map before enabling motion")
-        if not 0 < c["max_speed"] <= min(.5, base["max_body_speed_mps"]):
-            raise ValueError("Real mission speed must be positive and no greater than 0.5 and vehicle limit")
+        if not 0 < c["max_speed"] <= min(1.5, base["max_body_speed_mps"]):
+            raise ValueError("Real mission speed must be positive and no greater than 1.5 and vehicle limit")
+        if c.get('continuous_corners', False) and not (
+            c.get('raw_collision_follow_path') and 0 < c.get('lateral_acceleration',0) <= c['max_acceleration']
+            and 0 < c.get('braking_acceleration',0) <= c['max_acceleration']
+        ):
+            raise ValueError("Continuous corners require ordered path and positive lateral/braking acceleration bounds")
         if not device.startswith("/dev/"):
             raise ValueError("Explicit serial device under /dev required for motion")
     sim = LaunchConfiguration("use_sim_time").perform(context).lower()=="true"
@@ -54,7 +59,7 @@ def start(context):
     nodes += [
         Node(package="intramural_mission",executable="livox_adapter",parameters=[{"use_sim_time":sim}],output="screen"),
         Node(package="intramural_mission",executable="adapter",parameters=[{"use_sim_time":sim,"localization":"sensors","motion_permitted":motion,"arena_config":str(folder/"arena.json")}],remappings=[("livox/imu","/livox/imu")],output="screen"),
-        Node(package="intramural_mission",executable="mission",parameters=[{"use_sim_time":sim,"start_permitted":motion,"arena_config":str(folder/"arena.json")}],output="screen"),
+        Node(package="intramural_mission",executable="mission",parameters=[{"use_sim_time":sim,"start_permitted":motion,"arena_config":str(folder/"arena.json"),"variant":c.get("mission_variant","figure8")}],output="screen"),
         Node(package="nav2_lifecycle_manager",executable="lifecycle_manager",name="lifecycle_manager_vehicle",
              parameters=[{"use_sim_time":sim,"autostart":motion,"node_names":["map_server","controller_server","velocity_smoother"]}],output="screen"),
     ]

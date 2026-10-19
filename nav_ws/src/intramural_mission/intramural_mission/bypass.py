@@ -46,11 +46,15 @@ def entry_path(c, start, goal, grid):
     xmin, xmax, ymin, ymax = c['bounds']
     margin = c['robot_radius'] + c.get('minimum_clearance', .05)
     free &= np.minimum.reduce((wx-xmin, xmax-wx, wy-ymin, ymax-wy)) >= margin
-    for pole in ('lower_pole', 'upper_pole'):
-        free &= np.hypot(wx-c[pole][0], wy-c[pole][1]) >= c['pole_radius']+margin
+    if not c.get('pole_clearance_from_map', False):
+        for pole in ('lower_pole', 'upper_pole'):
+            free &= np.hypot(wx-c[pole][0], wy-c[pole][1]) >= c['pole_radius']+margin
     source, target = cell(start), cell(goal)
     if not valid(source) or not valid(target):
         return None
+    direct=line(start,goal,min(res/2,c['path_spacing']))
+    if all(valid(cell(p)) for p in direct):
+        return line(start,goal,c['path_spacing'])
     queue, costs, previous = [(math.dist(source, target), 0., source)], {source: 0.}, {}
     while queue:
         _, cost, v = heapq.heappop(queue)

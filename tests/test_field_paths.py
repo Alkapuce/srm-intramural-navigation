@@ -63,14 +63,14 @@ class FieldPathsTests(unittest.TestCase):
         self.assertEqual(module.latest('navigation',self.root),chosen)
         result=self.cli('drive')
         self.assertIn(str(chosen),result.stderr)
-        self.assertIn('navigation_config:=/work/'+str(chosen.relative_to(self.root)),json.loads(result.stdout))
-        self.assertIn('serial_device:=/dev/null',json.loads(result.stdout))
+        self.assertIn('navigation_config:=/work/'+str(chosen.relative_to(self.root)),json.loads(result.stdout.splitlines()[-1]))
+        self.assertIn('serial_device:=/dev/null',json.loads(result.stdout.splitlines()[-1]))
 
     def test_explicit_project_relative_path_overrides_latest(self):
         chosen=self.output('cache/navigation-old',100)
         self.output('cache/navigation-new',200)
         result=self.cli('drive','cache/navigation-old','/dev/null')
-        self.assertIn('navigation_config:=/work/cache/navigation-old',json.loads(result.stdout))
+        self.assertIn('navigation_config:=/work/cache/navigation-old',json.loads(result.stdout.splitlines()[-1]))
         self.assertEqual(module.latest('navigation',self.root),self.root/'cache/navigation-new')
 
     def test_map_commands_default_to_latest_exported_map(self):

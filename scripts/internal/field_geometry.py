@@ -110,10 +110,14 @@ def main():
             raise ValueError('Unexpected occupancy encoding')
         config.update(lower_pole=lower, upper_pole=upper, parking=args.parking,
             loop_radius=math.dist(lower,upper)/2, pole_radius=max(config['pole_radius'],*(p['radius_bound_m'] for p in poles)),
-            max_speed=.4, max_acceleration=.2, bypass_speed=.2, allow_bypass=False, minimum_clearance=.02,
+            max_speed=1.5, max_acceleration=.6, braking_acceleration=.2,
+            continuous_corners=True, lateral_acceleration=.5, smooth_transitions=True,
+            bypass_speed=.2, allow_bypass=False, minimum_clearance=.02,
             raw_zero_intensity_min_range_m=.15,
             raw_collision_follow_path=True,
             raw_collision_min_points=3,
+            continuous_segments=True,
+            pole_clearance_from_map=True,
             bounds=[metadata['origin'][0],metadata['origin'][0]+grid.shape[1]*metadata['resolution'],
                     metadata['origin'][1],metadata['origin'][1]+grid.shape[0]*metadata['resolution']],
             assumptions='Observed map and geometric pole detection; identity vehicle scale is an operator-approved initial estimate')
@@ -140,7 +144,7 @@ def main():
                 speed=config['max_speed']
                 params['controller_server']['ros__parameters']['FollowPath'].update(v_linear_min=-speed,v_linear_max=speed,
                     lookahead_dist=.18,use_velocity_scaled_lookahead_dist=False,min_lookahead_dist=.18,max_lookahead_dist=.18,
-                    use_interpolation=True,min_approach_linear_velocity=.05,approach_velocity_scaling_dist=.2,reduction_ratio_at_high_curvature=.9)
+                    use_interpolation=True,translation_kp=4.0,min_approach_linear_velocity=.05,approach_velocity_scaling_dist=.2,reduction_ratio_at_high_curvature=.9)
                 params['controller_server']['ros__parameters']['general_goal_checker']['xy_goal_tolerance']=min(config['checkpoint_tolerance'],config['parking_tolerance'])
                 smooth=params['velocity_smoother']['ros__parameters']
                 smooth.update(max_velocity=[speed,speed,0.],min_velocity=[-speed,-speed,0.])

@@ -15,6 +15,7 @@ from sensor_msgs.msg import PointCloud2, Imu
 from std_msgs.msg import Bool, String
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster, Buffer, TransformListener, TransformException
 from intramural_mission.proximity import obstacle_near, obstacle_on_path, lidar_to_body
+from intramural_mission.route import curve_speed_limit
 
 
 class Adapter(Node):
@@ -35,6 +36,8 @@ class Adapter(Node):
         self.raw_near_points = np.empty((0, 2), dtype=np.float32)
         self.last_motion_direction = (0.0, 0.0)
         self.hazard = False
+        self.mission_phase = ''
+        self.create_subscription(String,'mission/status',self.receive_mission_status,10)
         self.collision_path = None
         if self.c.get('raw_collision_follow_path', False):
             self.path_tf = Buffer(node=self)
@@ -45,6 +48,7 @@ class Adapter(Node):
         self.hazard_pub = self.create_publisher(Bool, "motion_guard/hazard", 10)
         self.diagnostic = self.create_publisher(String, "motion_guard/status", 10)
         self.create_subscription(Twist, "cmd_vel_nav2_result", self.command, 10)
+        self.create_subscription(Twist, "cmd_vel_controller", self.controller_command, 10)
         self.create_subscription(
             Bool,
             "mission/enabled",
@@ -88,6 +92,9 @@ class Adapter(Node):
     def touch(self, key):
         self.last[key] = time.monotonic()
 
+    def receive_mission_status(self,msg):
+        self.mission_phase=json.loads(msg.data)['phase']
+
     def receive_path(self, msg):
         self.collision_path = msg
 
@@ -117,6 +124,13 @@ class Adapter(Node):
     def command(self, msg):
         self.cmd = msg
         self.touch("command")
+
+    def controller_command(self, msg):
+        # A segment-end zero must survive the upstream smoother and timer ordering.
+        if msg.linear.x == 0.0 and msg.linear.y == 0.0:
+            self.cmd = Twist()
+            self.output = [0.0, 0.0]
+            self.pub.publish(Twist())
 
     def truth(self, msg):
         self.last_truth = msg
@@ -225,22 +239,33 @@ class Adapter(Node):
         valid = all(math.isfinite(v) for v in values)
         target = values[:2] if self.motion_permitted and self.enabled and not stale and valid else [0.0, 0.0]
         speed_limit = self.c['bypass_speed'] if self.bypassing else self.c['max_speed']
+        path = self.body_path() if self.c.get('raw_collision_follow_path', False) else None
+        if path is not None and self.c.get('continuous_corners', False):
+            speed_limit = min(speed_limit, curve_speed_limit(path, speed_limit,
+                self.c['lateral_acceleration'], self.c['max_acceleration']))
+            if getattr(self,'mission_phase','')=='RETURN':
+                remaining=math.hypot(*path[0])+sum(math.dist(a,b)for a,b in zip(path,path[1:]))
+                speed_limit=min(speed_limit,max(.05,math.sqrt(2*self.c['max_acceleration']*max(0.,remaining-self.c['parking_tolerance']))))
         length = math.hypot(*target)
         if length > speed_limit:
             target = [v*speed_limit/length for v in target]
-        if math.hypot(*target) > .05:
-            self.last_motion_direction = tuple(target)
-        speed = max(math.hypot(*target), math.hypot(*self.output))
+        delta = [target[i]-self.output[i] for i in range(2)]
+        d=math.hypot(*delta)
+        scheduled=([self.output[i]+delta[i]*min(1.,self.c['max_acceleration']*dt/d)for i in range(2)] if d else target)
+        if not any(target):scheduled=[0.,0.]
+        if math.hypot(*scheduled) > .05:
+            self.last_motion_direction = tuple(scheduled)
+        speed = max(math.hypot(*scheduled), math.hypot(*self.output))
         # shortcut: 0.2 s latency + configured braking, replace after vehicle stop-distance measurements.
         radial = self.c['robot_radius'] + self.c.get('minimum_clearance', .1)
-        stop_radius = radial+.2*speed+speed*speed/(2*self.c['max_acceleration'])
+        braking = min(self.c['max_acceleration'], self.c.get('braking_acceleration', self.c['max_acceleration']))
+        stop_radius = radial+.2*speed+speed*speed/(2*braking)
         lateral = self.c['robot_radius'] if 'minimum_clearance' in self.c else radial
         min_points = self.c.get('raw_collision_min_points', 1)
         self.hazard = obstacle_near(self.raw_near_points, self.last_motion_direction,
             radial=radial, forward=stop_radius, lateral=lateral, immediate=lateral, min_points=min_points)
         self.guard_mode = 'velocity'
         if self.c.get('raw_collision_follow_path', False):
-            path = self.body_path()
             if path is not None:
                 self.hazard = obstacle_on_path(self.raw_near_points, path,
                     reach=stop_radius-radial+self.c.get('minimum_clearance', 0.), radius=self.c['robot_radius'], min_points=min_points)
@@ -254,14 +279,7 @@ class Adapter(Node):
         if not self.motion_permitted or not self.enabled or stale or not valid or self.hazard or not any(target):
             self.output = [0.0, 0.0]
         else:
-            delta = [target[i] - self.output[i] for i in range(2)]
-            d = math.hypot(*delta)
-            limit = self.c["max_acceleration"] * dt
-            self.output = (
-                [self.output[i] + delta[i] * min(1.0, limit / d) for i in range(2)]
-                if d
-                else target
-            )
+            self.output = scheduled
         msg = Twist()
         msg.linear.x, msg.linear.y = self.output
         msg.angular.z = 0.0
@@ -278,6 +296,7 @@ class Adapter(Node):
                         "wz_disabled": True,
                         "raw_lidar_hazard": self.hazard,
                         "collision_check": self.guard_mode,
+                        "path_speed_limit": speed_limit,
                     }
                 )
             )

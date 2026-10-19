@@ -38,6 +38,8 @@ class CommandPolicy:
         now = time.monotonic() if now is None else now
         self.invalid = not all(math.isfinite(v) for v in (x, y, wz))
         self.command = (0.0, 0.0) if self.invalid else (x, y)
+        if self.command == (0.0, 0.0):
+            self.previous = (0.0, 0.0)
         self.updated = now
 
     def tick(self, now=None):

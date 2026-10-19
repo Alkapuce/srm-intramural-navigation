@@ -22,7 +22,7 @@ def arc(center, r, start, end, spacing):
     ]
 
 
-def segments(c):
+def segments(c, smooth=True):
     r = c["loop_radius"]
     lo = c["lower_pole"]
     hi = c["upper_pole"]
@@ -60,6 +60,41 @@ def segments(c):
         )
     result.append(("LOWER_EXIT", circle(lo, math.pi / 2, start + (2 * math.pi if start < math.pi / 2 else 0))))
     result.append(("RETURN", line(entry, c["parking"], s)))
+    return smooth_route(result,c) if smooth else result
+
+
+def smooth_route(route,c):
+    """Round only the two entry/exit junctions; keep the shared straight trunk."""
+    if not c.get('smooth_transitions',False):
+        return route
+    result=[(name,list(points)) for name,points in route]
+    for index in (0,len(route)-2):
+        name,left=result[index];following,right=result[index+1]
+        if len(left)<3 or len(right)<3 or math.dist(left[-1],right[0])>1e-6:
+            continue
+        trim=min(.4*c['loop_radius'],.35,
+            .8*sum(math.dist(a,b)for a,b in zip(left,left[1:])),
+            .8*sum(math.dist(a,b)for a,b in zip(right,right[1:])))
+        i,j,d=len(left)-1,0,0.
+        while i>1 and d<trim:
+            d+=math.dist(left[i],left[i-1]);i-=1
+        d=0.
+        while j<len(right)-2 and d<trim:
+            d+=math.dist(right[j],right[j+1]);j+=1
+        a,b=left[i],right[j]
+        incoming=[x-y for x,y in zip(a,left[i-1])]
+        outgoing=[y-x for x,y in zip(b,right[j+1])]
+        na,nb=math.hypot(*incoming),math.hypot(*outgoing)
+        if min(na,nb)<1e-6:
+            continue
+        handle=2*min(math.dist(a,left[-1]),math.dist(left[-1],b))/3
+        p=[a[k]+handle*incoming[k]/na for k in range(2)]
+        q=[b[k]-handle*outgoing[k]/nb for k in range(2)]
+        n=max(8,2*math.ceil((math.dist(a,p)+math.dist(p,q)+math.dist(q,b))/c['path_spacing']))
+        curve=[[(1-t)**3*a[k]+3*(1-t)**2*t*p[k]+3*(1-t)*t*t*q[k]+t**3*b[k]
+                for k in range(2)]for t in (v/n for v in range(n+1))]
+        result[index]=(name,left[:i]+curve[:n//2+1])
+        result[index+1]=(following,curve[n//2:]+right[j+1:])
     return result
 
 
@@ -83,6 +118,53 @@ def primitives(c):
         ("CURVE", arc([x, y + 0.8], 0.8, 0, math.pi / 2, s)),
         ("RETURN", line([x, y + 1.6], [x, y], s)),
     ]
+
+
+def controller_segment(route, index, allow_corners=False):
+    """Overlap goals before their stop; rate corners only with a speed envelope."""
+    points = route[index][1]
+    if index + 1 == len(route) or len(points) < 2:
+        return points, False
+    following = route[index + 1][1]
+    if len(following) < 2 or math.dist(points[-1], following[0]) > 1e-6:
+        return points, False
+    incoming = [b-a for a,b in zip(points[-2],points[-1])]
+    outgoing = [b-a for a,b in zip(following[0],following[1])]
+    scale = math.hypot(*incoming)*math.hypot(*outgoing)
+    if scale == 0 or sum(a*b for a,b in zip(incoming,outgoing)) < (-.95 if allow_corners else .95)*scale:
+        return points, False
+    extended, distance = list(points), 0.
+    for a,b in zip(following,following[1:]):
+        distance += math.dist(a,b)
+        extended.append(b)
+        if distance >= .35:
+            break
+    return extended, True
+
+
+def curve_speed_limit(points, maximum, lateral_acceleration, braking_acceleration):
+    """Backward braking envelope for the short ordered path in body coordinates."""
+    points = [p for i,p in enumerate(points) if i == 0 or math.dist(points[i-1],p) > 1e-6]
+    if len(points) < 3:
+        return maximum
+    # Ignore passed samples; this window is already restricted to ordered progress.
+    nearest=0
+    while nearest+1<len(points) and math.hypot(*points[nearest+1])<=math.hypot(*points[nearest])+1e-9:
+        nearest+=1
+    distance, limit = 0., maximum
+    for i in range(max(1, nearest), len(points)-1):
+        if i > nearest:
+            distance += math.dist(points[i-1], points[i])
+        a, b, c = points[i-1:i+2]
+        ab, bc, ac = math.dist(a,b), math.dist(b,c), math.dist(a,c)
+        if min(ab,bc,ac) < 1e-6:
+            continue
+        curvature = 2*abs((b[0]-a[0])*(c[1]-b[1])-(b[1]-a[1])*(c[0]-b[0]))/(ab*bc*ac)
+        if curvature > 1e-6:
+            # The pursuit direction starts changing one lookahead before a corner.
+            available = max(0., distance-.18)
+            limit = min(limit, math.sqrt(lateral_acceleration/curvature+2*braking_acceleration*available))
+    return limit
 
 
 def projected_progress(points, index, pose):

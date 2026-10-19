@@ -1,6 +1,7 @@
 """Safety regressions for crossings, busy requests and asynchronous cancellation."""
 
-import json, unittest, time
+import json, math, unittest, time
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace as N
 from concurrent.futures import Future
@@ -8,7 +9,8 @@ from unittest.mock import patch, Mock
 from std_srvs.srv import Trigger
 from nav_msgs.msg import Path as RosPath, OccupancyGrid
 from builtin_interfaces.msg import Time
-from intramural_mission.route import segments, projected_progress, primitives
+from geometry_msgs.msg import TransformStamped
+from intramural_mission.route import segments, projected_progress, primitives, controller_segment
 from intramural_mission.mission import Mission
 from intramural_mission.bypass import plan, winding, entry_path
 import numpy as np
@@ -38,6 +40,202 @@ def completed(value):
 
 
 class MissionTests(unittest.TestCase):
+    def test_smoothed_entry_exit_keep_order_winding_and_tangent_handoffs_for_varied_spacing(self):
+        for radius in (.55,.623,1.5):
+            c=dict(C,loop_radius=radius,lower_pole=[0.,0.],upper_pole=[0.,2*radius],
+                parking=[2*radius,-radius],entry_angle=0.,smooth_transitions=True)
+            route=segments(c);points=[p for _,path in route for p in path]
+            self.assertEqual([winding(points,c[k])for k in ('lower_pole','upper_pole')],[1,-1])
+            self.assertEqual(len(route),10)
+            for index in (0,8):
+                left,right=route[index][1],route[index+1][1]
+                self.assertEqual(left[-1],right[0])
+                a=np.array(left[-1])-left[-2];b=np.array(right[1])-right[0]
+                self.assertGreater(np.dot(a,b)/np.linalg.norm(a)/np.linalg.norm(b),.95)
+            self.assertEqual(route[0][1][0],c['parking'])
+            self.assertEqual(route[-1][1][-1],c['parking'])
+
+    def test_open_map_entry_uses_straight_connector_without_grid_staircase(self):
+        grid=OccupancyGrid();grid.header.frame_id='map';grid.info.resolution=.05
+        grid.info.width=grid.info.height=200;grid.info.origin.position.x=grid.info.origin.position.y=-3.
+        grid.info.origin.orientation.w=1.;grid.data=[0]*40000
+        c=dict(C,pole_clearance_from_map=True)
+        path=entry_path(c,[.013,-.017],[.941,.213],grid)
+        a,b=np.array(path[0]),np.array(path[-1])
+        self.assertTrue(all(abs(np.cross(b-a,np.array(p)-a))<1e-10 for p in path))
+
+    def test_obstacle_removal_waits_for_extended_goal_inflation_then_resumes_same_segment(self):
+        c=dict(C,continuous_segments=True,minimum_clearance=.02,allow_bypass=False)
+        root=Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(dir=root/'cache') as tmp:
+            config=Path(tmp)/'arena.json';config.write_text(json.dumps(c))
+            rclpy.init(domain_id=79,args=['--ros-args','-p',f'arena_config:={config}'])
+            m=Mission()
+            try:
+                for timer in m.timers:timer.cancel()
+                m.index=4;m.phase='UPPER';m.state='BLOCKED';m.blocked_count=1
+                current=m.route[4][1];extended,_=controller_segment(m.route,4)
+                m.progress=len(current)-3;pose=current[m.progress];m.pose=pose
+                def lookup(target,source,stamp):
+                    t=TransformStamped();t.header.stamp=m.get_clock().now().to_msg();t.transform.rotation.w=1.
+                    if source=='base_footprint':t.transform.translation.x,t.transform.translation.y=pose
+                    return t
+                m.tf=N(lookup_transform=lookup);m.navigator_active=True
+                m.clear_since=time.monotonic()-1
+                grid=OccupancyGrid();grid.header.frame_id='map';grid.info.width=grid.info.height=200
+                grid.info.resolution=.05;grid.info.origin.position.x=grid.info.origin.position.y=-2.
+                grid.info.origin.orientation.w=1.;data=[0]*(200*200)
+                x,y=extended[-1];res=grid.info.resolution
+                cell=math.floor((y+2)/res)*200+math.floor((x+2)/res)
+                data[cell]=99;grid.data=data;m.receive_costmap(grid)
+                goals=[];result=Future();cancel=[]
+                handle=N(accepted=True,get_result_async=lambda:result,cancel_goal_async=lambda:cancel.append(True))
+                def send(goal):goals.append(goal);return completed(handle)
+                m.client=N(send_goal_async=send)
+                blocked=m.obstacle_index()
+                self.assertIsNotNone(blocked)
+                self.assertGreaterEqual(blocked,len(current))
+                m.tick()
+                self.assertEqual(m.state,'BLOCKED',m.reason)
+                self.assertFalse(goals)
+                data[cell]=0;grid.data=data;m.receive_costmap(grid);m.tick()
+                self.assertEqual(m.state,'BLOCKED')
+                clock=time.monotonic()+.6
+                with patch('intramural_mission.mission.time.monotonic',return_value=clock):
+                    m.receive_costmap(grid);m.tick()
+                self.assertEqual(m.state,'RUNNING',m.reason)
+                self.assertEqual(m.index,4)
+                self.assertEqual(len(goals),1)
+                self.assertEqual(len(goals[0].path.poses),len(extended)-m.progress)
+                # A new actual occupancy in the extension still stops the resumed goal.
+                data[cell]=100;grid.data=data;m.receive_costmap(grid);m.tick()
+                self.assertEqual(m.state,'BLOCKED')
+                self.assertTrue(cancel)
+            finally:
+                m.destroy_node();rclpy.shutdown()
+
+    def test_start_here_uses_measured_map_instead_of_an_oversized_ideal_pole(self):
+        c=dict(C,robot_radius=.29,pole_radius=.15,minimum_clearance=.02,
+               lower_pole=[0.,0.],upper_pole=[0.,1.2],loop_radius=.6,
+               bounds=[-3.,3.,-3.,4.],entry_angle=0.,parking=[2.,-1.])
+        grid=OccupancyGrid();grid.header.frame_id='map';grid.info.width=240;grid.info.height=280
+        grid.info.resolution=.025;grid.info.origin.position.x=grid.info.origin.position.y=-3.
+        grid.info.origin.orientation.w=1.
+        yy,xx=np.mgrid[:280,:240];x=-3+(xx+.5)*.025;y=-3+(yy+.5)*.025
+        data=np.zeros((280,240),dtype=np.int8)
+        for px,py in (c['lower_pole'],c['upper_pole']):data[np.hypot(x-px,y-py)<.1]=100
+        grid.data=data.ravel().tolist();pose=[-.28,.85];goal=segments(c)[0][1][-1]
+        self.assertIsNone(entry_path(c,pose,goal,grid))
+        c['pole_clearance_from_map']=True
+        now=time.monotonic();gate=[]
+        m=N(start_permitted=True,state='IDLE',navigator_active=True,pose=pose,last_pose=now,
+            ready_since=now-3,tf_age=0.,variant='figure8',c=c,run=0,static_map=grid,
+            costmap=grid,costmap_at=now,bypass_pub=Mock(),enabled=gate.append,
+            get_clock=lambda:N(now=lambda:N(nanoseconds=0,to_msg=lambda:Time())),
+            path_pub=Mock(),accepted=lambda f,**kw:None,
+            client=N(server_is_ready=lambda:True,send_goal_async=lambda g:completed(None)))
+        m.make_path=lambda points:Mission.make_path(m,points)
+        m.next_segment=lambda:Mission.next_segment(m)
+        m.start=lambda req,res,**kw:Mission.start(m,req,res,**kw)
+        result=Mission.start_here(m,Trigger.Request(),Trigger.Response())
+        self.assertTrue(result.success,result.message)
+        self.assertEqual(len(m.route),10)
+        self.assertEqual(m.route[-1][1][-1],c['parking'])
+        self.assertEqual(gate,[True])
+        # Measured occupancy and unknown space still reject before enabling motion.
+        m.state='IDLE';gate.clear()
+        row,col=int((pose[1]+3)/.025),int((pose[0]+3)/.025)
+        for value in (100,-1):
+            data[row,col]=value;grid.data=data.ravel().tolist()
+            self.assertFalse(Mission.start_here(m,Trigger.Request(),Trigger.Response()).success)
+            self.assertFalse(gate)
+        m.static_map=None
+        self.assertFalse(Mission.start_here(m,Trigger.Request(),Trigger.Response()).success)
+        # Start through the real planner and one-time curve footprint validation.
+        data[data<0]=0;grid.data=data.ravel().tolist();m.static_map=grid
+        c['smooth_transitions']=True;m.pose=list(c['parking']);m.state='IDLE'
+        m.costmap_at=time.monotonic()
+        result=Mission.start_here(m,Trigger.Request(),Trigger.Response())
+        self.assertTrue(result.success,result.message)
+        left,right=m.route[0][1],m.route[1][1]
+        a=np.array(left[-1])-left[-2];b=np.array(right[1])-right[0]
+        self.assertGreater(np.dot(a,b)/np.linalg.norm(a)/np.linalg.norm(b),.95)
+
+    def test_real_mission_map_guard_remains_active_without_ideal_circle_veto(self):
+        c=dict(C,pole_clearance_from_map=True,robot_radius=.29,pole_radius=.15,
+               minimum_clearance=.02,lower_pole=[0.,0.],upper_pole=[0.,1.246],
+               loop_radius=.623,entry_angle=0.)
+        root=Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(dir=root/'cache') as tmp:
+            config=Path(tmp)/'arena.json';config.write_text(json.dumps(c))
+            rclpy.init(domain_id=79,args=['--ros-args','-p',f'arena_config:={config}'])
+            m=Mission()
+            try:
+                for timer in m.timers:timer.cancel()
+                pose=[-.45,1.246]
+                def lookup(target,source,stamp):
+                    t=TransformStamped();t.transform.rotation.w=1.
+                    t.header.stamp=m.get_clock().now().to_msg()
+                    if source=='base_footprint':t.transform.translation.x,t.transform.translation.y=pose
+                    return t
+                m.tf=N(lookup_transform=lookup)
+                grid=OccupancyGrid();grid.header.frame_id='map';grid.info.width=grid.info.height=160
+                grid.info.resolution=.05;grid.info.origin.position.x=grid.info.origin.position.y=-2.
+                grid.info.origin.orientation.w=1.;grid.data=[0]*(160*160)
+                m.receive_map(grid);m.receive_costmap(grid)
+                m.state='RUNNING';m.index=4;m.phase='UPPER';m.progress=len(m.route[4][1])-1
+                m.resume_at=time.monotonic();m.navigator_active=True
+                m.tick()
+                self.assertEqual(m.state,'RUNNING',m.reason)
+                x,y=m.route[4][1][-1];data=list(grid.data)
+                data[int((y+2)/.05)*160+int((x+2)/.05)]=100
+                grid.data=data;m.receive_costmap(grid);m.tick()
+                self.assertEqual(m.state,'BLOCKED')
+                self.assertEqual(m.blocked_count,1)
+            finally:
+                m.destroy_node();rclpy.shutdown()
+
+
+
+    def test_tangent_goal_overlap_preserves_order_and_keeps_sharp_corner_stops(self):
+        c=dict(C,entry_angle=0.)
+        route=segments(c)
+        for index in range(10):
+            path,continuous=controller_segment(route,index)
+            self.assertEqual(continuous,1<=index<=7)
+            self.assertEqual(path[:len(route[index][1])],route[index][1])
+            if continuous:self.assertGreater(len(path),len(route[index][1]))
+        advances=[]
+        points=route[1][1]
+        m=N(c=dict(c,continuous_segments=True),continuous_goal=True,goal_pending=False,
+            segment_result=None,route=route,index=1,pose=points[-1],progress_fraction=len(points)-1,
+            next_segment=lambda:advances.append(True))
+        Mission.finish_segment(m)
+        self.assertEqual(advances,[True])
+        m.index=2;m.goal_handle=object();handle=m.goal_handle
+        Mission.result(m,completed(N(status=6)),segment=1)
+        self.assertIs(m.goal_handle,handle)
+
+    def test_speed_planned_corners_overlap_entry_exit_but_preserve_route_and_stop_at_parking(self):
+        route=segments(dict(C,entry_angle=0.))
+        for index in range(10):
+            path,continuous=controller_segment(route,index,allow_corners=True)
+            self.assertEqual(continuous,index<9)
+            self.assertEqual(path[:len(route[index][1])],route[index][1])
+            if continuous:self.assertGreater(len(path),len(route[index][1]))
+        reversal=[('ENTER',[[0.,0.],[1.,0.]]),('RETURN',[[1.,0.],[0.,0.]])]
+        self.assertFalse(controller_segment(reversal,0,allow_corners=True)[1])
+        advances=[];points=route[0][1];length=math.dist(points[-2],points[-1])
+        m=N(c=dict(C,continuous_segments=True,continuous_corners=True),route=route,index=0,
+            continuous_goal=True,goal_pending=False,segment_result=None,
+            pose=[points[-1][0]+.03,points[-1][1]-.10],
+            progress_fraction=len(points)-1-.1/length,next_segment=lambda:advances.append(True))
+        Mission.finish_segment(m)
+        self.assertEqual(advances,[True])
+        m.progress_fraction=len(points)-1-.2/length;advances.clear()
+        Mission.finish_segment(m)
+        self.assertFalse(advances)
+
     def test_collision_path_ros_topic_keeps_return_after_current_segment(self):
         rclpy.init(domain_id=79,args=['--ros-args','-p',f'arena_config:={_config_path}'])
         mission, observer = Mission(), rclpy.create_node('collision_path_observer')
@@ -69,7 +267,7 @@ class MissionTests(unittest.TestCase):
             transform=N(header=N(stamp=N(sec=0,nanosec=0)),transform=N(translation=N(x=pose[0],y=pose[1])))
             now=time.monotonic()
             m=N(c=c,route=route,index=4,progress=len(route[4][1])-1,progress_fraction=0.,
-                state='RUNNING',segment_result=None,resume_at=now,last_check=now,
+                state='RUNNING',variant='figure8',segment_result=None,resume_at=now,last_check=now,
                 navigator_active=True,ready_since=now,costmap=None,costmap_at=0.,abort_at=None,
                 tf=N(lookup_transform=lambda *args:transform),get_clock=lambda:N(now=lambda:N(nanoseconds=0)),
                 enabled=lambda value:None,goal_handle=None,publish_status=lambda:None)
@@ -89,7 +287,7 @@ class MissionTests(unittest.TestCase):
         self.assertGreater(np.linalg.norm(np.asarray(entered[-1])-np.asarray(segments(C)[0][1][-1])),.1)
         m = N(index=0,variant='figure8',bypassing=True,start_from_here=False,route=route,c=C,history=[],
             get_clock=lambda:N(now=lambda:N(nanoseconds=0)),make_path=lambda points:RosPath(),
-            path_pub=Mock(),client=Mock(),accepted=lambda future:None)
+            path_pub=Mock(),client=Mock(),accepted=lambda future,**kw:None)
         m.client.send_goal_async.return_value = completed(None)
         Mission.next_segment(m)
         self.assertEqual(m.route[-1][1],list(reversed(entered)))
@@ -269,6 +467,7 @@ class MissionTests(unittest.TestCase):
     def test_start_away_from_parking_is_rejected(self):
         m = N(
             start_permitted=True,
+            variant='figure8',
             state="IDLE",
             navigator_active=True,
             pose=[3.5, 2.5],
@@ -297,7 +496,7 @@ class MissionTests(unittest.TestCase):
             last_pose=now,ready_since=now-3,tf_age=0.,variant='figure8',c=C,run=0,
             static_map=grid,bypass_pub=Mock(),enabled=gate.append,
             get_clock=lambda:N(now=lambda:N(nanoseconds=0,to_msg=lambda:Time())),
-            path_pub=N(publish=paths.append),accepted=lambda f:None,
+            path_pub=N(publish=paths.append),accepted=lambda f,**kw:None,
             client=N(server_is_ready=lambda:True,send_goal_async=lambda g:completed(None)))
         m.make_path = lambda points: Mission.make_path(m, points)
         m.next_segment = lambda: Mission.next_segment(m)
@@ -352,7 +551,7 @@ class MissionTests(unittest.TestCase):
         )
         m = N(
             state="CANCELLING",
-            result=lambda f: None,
+            result=lambda f,**kw: None,
             fault=lambda reason: events.append(reason),
         )
         Mission.accepted(m, completed(handle))
@@ -366,7 +565,7 @@ class MissionTests(unittest.TestCase):
             get_clock=lambda: N(now=lambda: N(nanoseconds=0)),
             fault=lambda reason: self.fail(reason),
         )
-        m.result = lambda f: Mission.result(m, f)
+        m.result = lambda f,**kw: Mission.result(m, f,**kw)
         Mission.accepted(m, completed(handle))
         self.assertEqual(m.state, "CANCELLED")
         self.assertIsNone(m.goal_handle)

@@ -1,6 +1,7 @@
 """Ordered FollowPath mission; crossing revisits cannot select later segments."""
 
 import json, math, time
+from functools import partial
 from pathlib import Path
 import rclpy
 from intramural_base.runtime import run
@@ -15,7 +16,7 @@ from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import String, Bool
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformListener
-from intramural_mission.route import segments, clearance, primitives, projected_progress, line
+from intramural_mission.route import segments, clearance, primitives, projected_progress, line, controller_segment, smooth_route
 from intramural_mission.hazards import first_blocked
 from intramural_mission.bypass import plan, entry_path
 
@@ -29,9 +30,9 @@ class Mission(Node):
         self.start_permitted = self.get_parameter("start_permitted").value
         self.declare_parameter("variant", "figure8")
         self.variant = self.get_parameter("variant").value
-        if self.variant not in ("figure8", "primitives"):
+        if self.variant not in ("figure8", "primitives", "return"):
             raise ValueError(self.variant)
-        self.route = (
+        self.route = [("RETURN", self.c['return_path'])] if self.variant == 'return' else (
             primitives(self.c) if self.variant == "primitives" else segments(self.c)
         )
         self.state = "IDLE"
@@ -40,6 +41,8 @@ class Mission(Node):
         self.progress = 0
         self.progress_fraction = 0.0
         self.segment_result = None
+        self.continuous_goal = False
+        self.smoothed = False
         self.goal_handle = None
         self.goal_pending = False
         self.pose = None
@@ -71,6 +74,7 @@ class Mission(Node):
         self.ready_since = None
         self.static_map = None
         self.start_from_here = False
+        self.recovery_clearance = self.c.get('minimum_clearance', .05)
         self.tf = Buffer(node=self)
         self.listener = TransformListener(self.tf, self)
         self.client = ActionClient(self, FollowPath, "follow_path")
@@ -127,7 +131,9 @@ class Mission(Node):
         origin_yaw = math.atan2(2 * (q.w * q.z + q.x * q.y),
                                 1 - 2 * (q.y * q.y + q.z * q.z))
         self.grid_transform = (t.transform.translation.x, t.transform.translation.y, yaw)
-        arguments = (self.route[self.index][1], self.progress, self.pose,
+        points = (controller_segment(self.route,self.index,allow_corners=self.c.get('continuous_corners',False))[0]
+                  if self.c.get('continuous_segments',False) else self.route[self.index][1])
+        arguments = (points, self.progress, self.pose,
             grid.data, grid.info.width, grid.info.height, grid.info.resolution,
             (grid.info.origin.position.x, grid.info.origin.position.y, origin_yaw),
             self.grid_transform)
@@ -162,12 +168,14 @@ class Mission(Node):
         self.resume_at = time.monotonic()
         self.enabled(True)
         goal = FollowPath.Goal()
-        goal.path = self.make_path(self.route[self.index][1][self.progress:])
+        points,self.continuous_goal = (controller_segment(self.route,self.index,allow_corners=self.c.get('continuous_corners',False))
+            if self.c.get('continuous_segments',False) else (self.route[self.index][1],False))
+        goal.path = self.make_path(points[self.progress:])
         goal.controller_id = "FollowPath"
         goal.goal_checker_id = "general_goal_checker"
         self.path_pub.publish(goal.path)
         self.goal_pending = True
-        self.client.send_goal_async(goal).add_done_callback(self.accepted)
+        self.client.send_goal_async(goal).add_done_callback(partial(self.accepted,segment=self.index))
 
     def try_bypass(self):
         if not self.c.get("allow_bypass", True):
@@ -225,10 +233,21 @@ class Mission(Node):
         ):
             response.message = "Localization or controller not ready"
             return response
-        if not from_here and math.dist(self.pose, self.c["parking"]) > self.c["parking_tolerance"]:
+        if self.variant == 'return' and math.dist(self.pose,self.c['return_path'][0]) > .15:
+            response.message = "Vehicle has moved away from recorded return path"
+            return response
+        if self.c.get('pole_clearance_from_map', False) and (
+            self.static_map is None or self.costmap is None or time.monotonic()-self.costmap_at > .7
+        ):
+            response.message = "Measured map or local costmap not ready"
+            return response
+        if not from_here and self.variant != 'return' and math.dist(self.pose, self.c["parking"]) > self.c["parking_tolerance"]:
             response.message = "Robot is outside parking tolerance"
             return response
-        route = primitives(self.c) if self.variant == 'primitives' else segments(self.c)
+        route = ([("RETURN",self.c['return_path'])] if self.variant == 'return'
+                 else primitives(self.c) if self.variant == 'primitives' else segments(self.c,smooth=False))
+        if self.variant == 'return':
+            self.recovery_clearance = min(self.c.get('minimum_clearance',.05),min(clearance(self.c,self.pose))-.01)
         if from_here:
             if self.variant != 'figure8':
                 response.message = "Start here requires the figure8 mission"
@@ -238,6 +257,27 @@ class Mission(Node):
                 response.message = "No known free path from current pose to entry; check map and localization"
                 return response
             route[0] = ('ENTER', path)
+        self.smoothed=False
+        if self.variant == 'figure8' and self.c.get('smooth_transitions',False):
+            candidate=smooth_route(route,self.c)
+            # A corner curve can leave the checked A* corridor; validate its full footprint once.
+            g=self.static_map
+            if g is not None and g.header.frame_id=='map':
+                q=g.info.origin.orientation
+                yaw=math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
+                points=[p for _,path in candidate for p in path]
+                co,si=math.cos(yaw),math.sin(yaw)
+                margin=self.c['robot_radius']+g.info.resolution/math.sqrt(2)+self.c['path_spacing']/2
+                inside=all(margin<=co*(x-g.info.origin.position.x)+si*(y-g.info.origin.position.y)<=g.info.width*g.info.resolution-margin
+                    and margin<=-si*(x-g.info.origin.position.x)+co*(y-g.info.origin.position.y)<=g.info.height*g.info.resolution-margin for x,y in points)
+                blocked=first_blocked(points,0,points[0],[100 if v<0 else v for v in g.data],
+                    g.info.width,g.info.height,g.info.resolution,
+                    (g.info.origin.position.x,g.info.origin.position.y,yaw),lookahead=math.inf,
+                    radius=self.c['robot_radius']+g.info.resolution/math.sqrt(2)+self.c['path_spacing']/2,
+                    threshold=100)
+                if inside and blocked is None:
+                    route=candidate
+                    self.smoothed=True
         self.run += 1
         self.history = []
         self.reason = ""
@@ -349,14 +389,19 @@ class Mission(Node):
             }
         )
         goal = FollowPath.Goal()
+        points,self.continuous_goal = (controller_segment(self.route,self.index,allow_corners=self.c.get('continuous_corners',False))
+            if self.c.get('continuous_segments',False) else (points,False))
         goal.path = self.make_path(points)
         goal.controller_id = "FollowPath"
         goal.goal_checker_id = "general_goal_checker"
         self.path_pub.publish(goal.path)
         self.goal_pending = True
-        self.client.send_goal_async(goal).add_done_callback(self.accepted)
+        self.goal_handle = None
+        self.client.send_goal_async(goal).add_done_callback(partial(self.accepted,segment=self.index))
 
-    def accepted(self, future):
+    def accepted(self, future, segment=None):
+        if segment is not None and segment != self.index:
+            return
         self.goal_pending = False
         try:
             self.goal_handle = future.result()
@@ -367,11 +412,13 @@ class Mission(Node):
             self.goal_handle = None
             self.fault("Controller rejected segment")
             return
-        self.goal_handle.get_result_async().add_done_callback(self.result)
+        self.goal_handle.get_result_async().add_done_callback(partial(self.result,segment=segment))
         if self.state != "RUNNING" and self.goal_handle is not None:
             self.goal_handle.cancel_goal_async()
 
-    def result(self, future):
+    def result(self, future, segment=None):
+        if segment is not None and segment != self.index:
+            return
         self.goal_handle = None
         try:
             status = future.result().status
@@ -399,21 +446,23 @@ class Mission(Node):
         self.result_at = time.monotonic()
 
     def finish_segment(self):
-        if self.segment_result is None:
+        continuous = self.c.get('continuous_segments',False) and self.continuous_goal
+        if (self.segment_result is None and not continuous) or (continuous and self.goal_pending):
             return
         points = self.route[self.index][1]
         tolerance = self.c["parking_tolerance"] if self.route[self.index][0] == "RETURN" else self.c["checkpoint_tolerance"]
+        remaining_tolerance = min(tolerance,.05) if continuous and not self.c.get('continuous_corners',False) else tolerance
         # Metric path remainder preserves ordered progress without a conflicting percentage gate on short segments.
         remaining = sum(math.dist(a, b) * min(1.0, max(0.0, i + 1 - self.progress_fraction))
                         for i, (a, b) in enumerate(zip(points, points[1:])))
         if (
             self.pose is not None
             and math.dist(self.pose, points[-1]) <= tolerance
-            and remaining <= tolerance
+            and remaining <= remaining_tolerance
         ):
             self.segment_result = None
             self.next_segment()
-        elif time.monotonic() - self.result_at > 0.5:
+        elif self.segment_result is not None and time.monotonic() - self.result_at > 0.5:
             self.fault(
                 f"Segment {self.index}: completed action but remaining={remaining:.3f}m, tolerance={tolerance:.3f}m, pose={self.pose}"
             )
@@ -480,11 +529,16 @@ class Mission(Node):
                     key=lambda i: math.dist(points[i], self.pose),
                 )
                 error = math.dist(points[candidate], self.pose)
+                gaps = clearance(self.c, self.pose)
+                if self.c.get('pole_clearance_from_map', False):
+                    gaps = gaps[1:]  # Measured occupancy and raw scans already protect the full footprint.
                 if error > self.c["max_tracking_error"]:
                     self.fault(f"Path tracking error {error:.3f}")
-                elif min(clearance(self.c, self.pose)) < self.c.get("minimum_clearance", 0.05):
-                    self.fault("Pole or boundary clearance insufficient")
+                elif min(gaps) < (self.recovery_clearance if self.variant == 'return' else self.c.get("minimum_clearance", 0.05)):
+                    self.fault("Boundary clearance insufficient" if self.c.get('pole_clearance_from_map',False) else "Pole or boundary clearance insufficient")
                 else:
+                    if self.variant == 'return' and min(clearance(self.c,self.pose)) >= self.c.get('minimum_clearance',.05):
+                        self.recovery_clearance = self.c.get('minimum_clearance',.05)
                     self.progress = max(self.progress, candidate)
                     self.progress_fraction = max(
                         self.progress_fraction,
@@ -497,7 +551,8 @@ class Mission(Node):
         now = time.monotonic()
         if self.state in ('RUNNING', 'BLOCKED') and 0 <= self.index < len(self.route):
             future, travelled = [], 0.
-            horizon = max(1.2, .2*self.c['max_speed']+self.c['max_speed']**2/(2*self.c['max_acceleration'])+.02)
+            braking=min(self.c['max_acceleration'],self.c.get('braking_acceleration',self.c['max_acceleration']))
+            horizon = max(1.2, .2*self.c['max_speed']+self.c['max_speed']**2/(2*braking)+.02)
             for index in range(self.index, len(self.route)):
                 for p in self.route[index][1][self.progress if index == self.index else 0:]:
                     if future:
@@ -515,10 +570,14 @@ class Mission(Node):
         )
         report = {
             "state": self.state,
+            "variant": self.variant,
             "phase": self.phase,
             "segment": self.index,
             "progress": self.progress,
             "continuous_progress": self.progress_fraction,
+            "continuous_goal": self.continuous_goal,
+            "smoothed_transitions": getattr(self,'smoothed',False),
+            "pole_clearance_source": "map" if self.c.get('pole_clearance_from_map', False) else "ideal_geometry",
             "run": self.run,
             "pose": self.pose,
             "tf_age_sim_seconds": self.tf_age,

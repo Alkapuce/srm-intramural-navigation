@@ -14,10 +14,12 @@ SRM 导航调试（在执行本命令的机器上运行，不自动 SSH）
   srm-nav sensors [CONFIG_DIR]        启动雷达/Point-LIO，不打开底盘串口
   srm-nav standby [MAP_DIR]           启动最新地图的导航待机，运动和任务启动锁定
   srm-nav field [MAP_DIR]             从最新原图提取两桩、检查八字并生成新导航配置
+  srm-nav localize [MAP_DIR]          静止采样匹配旧图，更新下次导航的定位初值，不发车
   srm-nav drive [MAP_DIR] [DEVICE]    启用最新已确认场地的导航与串口，任务仍需手动 start
   srm-nav check-standby [MAP_DIR]     检查已启动的地图待机，不打开串口
   srm-nav start|cancel|reset          显式开始、取消或复位任务
   srm-nav start-here                 从当前位置规划接入完整八字，最终回原停车位
+  srm-nav return-home TRACE MAP_DIR   按记录轨迹倒序低速回位；替代 drive，仍需另执行 start
   srm-nav mission-status              查看一次任务就绪状态
   srm-nav standby-down               正常关闭待机生命周期，然后在启动终端 Ctrl-C
   srm-nav bag-info [BAG_DIR]          查看最新已收尾的 bag
@@ -94,6 +96,18 @@ case "$command" in
   field)
     optional_arg "$@"; input="$(select_path map "${1:-}")"
     exec "$root/scripts/run.sh" python3 /work/scripts/internal/field_geometry.py --map-config "$input" ;;
+  localize)
+    optional_arg "$@"; input="$(select_path navigation "${1:-${INTRAMURAL_NAVIGATION_CONFIG:-}}")"
+    mkdir -p "$root/cache/runtime"
+    exec 9>"$root/cache/runtime/vehicle-navigation.lock"
+    flock -n 9 || { echo '先退出当前导航，再重新定位；传感器保持运行。' >&2; exit 75; }
+    exec "$root/scripts/run.sh" python3 /work/scripts/internal/relocalize.py --map-config "$input" ;;
+  return-home)
+    [[ $# == 2 ]] || { usage >&2; exit 2; }
+    trace="$(runtime_path "$1")"; config="$(runtime_path "$2")"
+    output="$root/cache/recovery-$(date +%Y%m%d-%H%M%S-%N)"
+    "$root/scripts/run.sh" python3 /work/scripts/internal/prepare-return.py --trace "$trace" --navigation-config "$config" --output "/work/cache/${output##*/}"
+    exec "$root/scripts/srm-nav" drive "$output" ;;
   drive)
     [[ $# -le 2 ]] || { usage >&2; exit 2; }
     config="$(select_path navigation "${1:-${INTRAMURAL_NAVIGATION_CONFIG:-}}")"

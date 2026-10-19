@@ -1,0 +1,33 @@
+{
+  "name": "18.554-second field baseline",
+  "date": "2026-10-16",
+  "duration_seconds": 18.553850889,
+  "phases": 10,
+  "blocked_count": 0,
+  "bypass_count": 0,
+  "parking_error_from_localization_m": 0.103865,
+  "physical_speed_independently_measured": false,
+  "implementation_provenance": "Recovered seven files from the retained deployment payload sent before the successful run; surrounding unchanged files checked against the contemporaneous simulation source manifest.",
+  "exact_full_vehicle_source_snapshot_available": false,
+  "field_parameters": {
+    "max_speed": 1.5,
+    "max_acceleration": 0.6,
+    "lateral_acceleration": 0.5,
+    "braking_acceleration": 0.2,
+    "lookahead_dist": 0.18,
+    "translation_kp": 4.0,
+    "parking_tolerance": 0.12,
+    "continuous_segments": true,
+    "continuous_corners": true,
+    "smooth_transitions": true
+  },
+  "deployed_source_sha256": {
+    "nav_ws/src/intramural_mission/intramural_mission/route.py": "0e196d3ccd79f07bda969872b9ef3be78944279a6b8c220daa9bbac9e1090233",
+    "nav_ws/src/intramural_mission/intramural_mission/mission.py": "2560100971f1f4d1e2473ec6a55f2b5392b11a46427727235fce6e435f83cea6",
+    "nav_ws/src/intramural_mission/intramural_mission/bypass.py": "6721318627152b074441fef30903131e1f27bf0a5ade2fa3956614ea559911e1",
+    "nav_ws/src/intramural_mission/intramural_mission/adapter.py": "d25f9c5547698dae0f78ac7b2be0f0d7985bd907fd7de7272e7ee39b9b91b043",
+    "nav_ws/src/intramural_mission/intramural_mission/proximity.py": "078ac01152c9b806a0f7edbab9e19eb753018ff10b5f2223c2cc4ebbc486c046",
+    "scripts/internal/field_geometry.py": "c94eb9f19e7f100b4a926c6bed63b7d1c9d9cf191dd163203eb997785e17fc7a",
+    "launch/vehicle-navigation.launch.py": "4a3f8f88ecde1faa650b7de205a69ea231fab5b73c425cf4b4df8d02f8b53606"
+  }
+}
