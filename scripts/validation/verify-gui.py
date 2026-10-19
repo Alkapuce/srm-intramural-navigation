@@ -161,6 +161,12 @@ def verify(name, command, pattern):
                 'identify', '-format', '%k', str(out / f'{name}.png')], text=True))
             if colors < 64:
                 raise RuntimeError(f'{name}: screenshot is blank or lacks rendered content')
+            if name == 'gazebo':
+                scene_colors = int(subprocess.check_output([
+                    'convert', str(out / f'{name}.png'), '-gravity', 'center',
+                    '-crop', '60%x50%+0+0', '+repage', '-format', '%k', 'info:'], text=True))
+                if scene_colors < 64:
+                    raise RuntimeError('gazebo: window appeared but the central scene is blank')
         finally:
             if proc.poll() is None:
                 proc.send_signal(signal.SIGINT)

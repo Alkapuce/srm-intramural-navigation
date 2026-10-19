@@ -116,6 +116,18 @@ try:
         node.destroy_client(cli)
     if not all(clocks.values()):
         raise RuntimeError("Simulation clocks mismatch")
+    # DDS endpoint discovery can precede its ROS node-name metadata.
+    deadline = time.monotonic() + 5
+    expected_nodes = {(name, ns) for name in required}
+    while time.monotonic() < deadline:
+        nodes = set(node.get_node_names_and_namespaces())
+        if expected_nodes <= nodes:
+            break
+        rclpy.spin_once(node, timeout_sec=0.05)
+    if not expected_nodes <= nodes:
+        raise RuntimeError(
+            "Incomplete actual node graph: " + str(expected_nodes - nodes)
+        )
     final_publishers = [
         p.node_name for p in node.get_publishers_info_by_topic(ns + "/cmd_vel")
     ]
@@ -137,17 +149,6 @@ try:
         name not in ("arena_verifier",) for name in truth_readers
     ):
         raise RuntimeError("Sensor navigation reads truth: " + str(truth_readers))
-    deadline = time.monotonic() + 5
-    expected_nodes = {(name, ns) for name in required}
-    while time.monotonic() < deadline:
-        nodes = set(node.get_node_names_and_namespaces())
-        if expected_nodes <= nodes:
-            break
-        rclpy.spin_once(node, timeout_sec=0.05)
-    if not expected_nodes <= nodes:
-        raise RuntimeError(
-            "Incomplete actual node graph: " + str(expected_nodes - nodes)
-        )
     deadline = time.monotonic() + 10
     while True:
         terrain_readers = [(p.node_namespace, p.node_name)

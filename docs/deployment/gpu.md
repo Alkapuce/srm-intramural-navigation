@@ -23,7 +23,13 @@ scripts/simulator.sh
 scripts/verify-gui.sh --output /work/artifacts/stage1/gui-gpu-repeat
 ```
 
-GPU 模式默认选择 NVIDIA；GUI 启动入口先检查硬件加速，检查失败时明确报错。需要软件模式时单次覆盖：
+GPU 模式默认选择 NVIDIA；GUI 启动入口先检查硬件加速，检查失败时明确报错。
+
+WSLg 正在运行、但 SSH 或 agent 会话没有继承 `DISPLAY` 时，`run.sh` 根据实际存在的 WSLg X0 socket 补为 `:0`；已显式设置的显示地址保持原值。图形入口先打印正在检查的显示地址，`glxinfo` 在 20 秒超时后中止检查，失败时停止启动并明确报错。
+
+WSL 硬件模式的 Gazebo GUI 单独设置 `QT_OPENGL_NO_SANITY_CHECK=1` 和 `QSG_RENDER_LOOP=threaded`，规避已记录的 Qt / GLX / Mesa 上下文启动崩溃；早期使用过的 `basic` 配置不再采用。该设置不传给 Gazebo 服务端或 ROS 节点，也不代表系统驱动已修复。
+
+需要软件模式时单次覆盖：
 
 ```bash
 INTRAMURAL_SOFTWARE_RENDERING=1 scripts/simulator.sh

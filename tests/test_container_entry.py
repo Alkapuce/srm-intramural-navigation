@@ -29,7 +29,7 @@ class ContainerEntryTest(unittest.TestCase):
         self.env["INTRAMURAL_SERIAL_DEVICE"] = "/dev/null"
         result = subprocess.run(["bash", str(self.root / "scripts/run.sh"), "true"],
                                 env=self.env, text=True, capture_output=True, check=True)
-        args = json.loads(result.stdout.strip().splitlines()[-1])
+        args = json.loads(result.stdout.splitlines()[-1])
         self.assertIn("ROS_DOMAIN_ID=91", args)
         self.assertIn("IGN_PARTITION=personal_nuc", args)
         self.assertIn("/dev/null:/dev/intramural-base", args)
@@ -48,6 +48,22 @@ class ContainerEntryTest(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(result.stdout, "")
 
+    def test_display_recovery_preserves_explicit_display(self):
+        for display in (None, ':37'):
+            with self.subTest(display=display):
+                env = self.env.copy()
+                env.pop('DISPLAY', None)
+                if display is not None:
+                    env['DISPLAY'] = display
+                result = subprocess.run(['bash', str(self.root / 'scripts/run.sh'), 'true'],
+                                        env=env, text=True, capture_output=True, check=True)
+                args = json.loads(result.stdout.splitlines()[-1])
+                if display is not None:
+                    self.assertIn('DISPLAY=:37', args)
+                elif Path('/mnt/wslg/.X11-unix/X0').is_socket():
+                    self.assertIn('DISPLAY=:0', args)
+                else:
+                    self.assertFalse(any(arg.startswith('DISPLAY=') for arg in args))
 
     def test_navigation_entry_forwards_personal_vehicle_configuration(self):
         env = {**self.env, "INTRAMURAL_NAVIGATION_CONFIG": "/work/cache/field-map",
@@ -55,7 +71,7 @@ class ContainerEntryTest(unittest.TestCase):
         result = subprocess.run(["bash", str(self.root / "scripts/vehicle-navigation.sh"),
                                  "enable_motion:=true", "serial_device:=/dev/null"],
                                 env=env, text=True, capture_output=True, check=True)
-        args = json.loads(result.stdout.strip().splitlines()[-1])
+        args = json.loads(result.stdout.splitlines()[-1])
         self.assertIn("navigation_config:=/work/cache/field-map", args)
         self.assertIn("vehicle_config:=/work/cache/personal-vehicle", args)
         self.assertIn("enable_motion:=true", args)

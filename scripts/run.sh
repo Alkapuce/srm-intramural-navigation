@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/internal/env.sh"
+# SSH / agent sessions may omit DISPLAY even while WSLg is running.
+if [[ -z "${DISPLAY:-}" && -S /mnt/wslg/.X11-unix/X0 ]]; then
+  export DISPLAY=:0
+fi
 domain="${INTRAMURAL_ROS_DOMAIN_ID:-71}"
 [[ "$domain" =~ ^[0-9]{1,3}$ ]] && (( 10#$domain <= 232 )) || { echo 'ROS domain must be an integer in 0..232' >&2; exit 2; }
 domain=$((10#$domain))
