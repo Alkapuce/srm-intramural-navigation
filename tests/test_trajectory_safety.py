@@ -24,6 +24,47 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TrajectorySafetyTests(unittest.TestCase):
+    def test_odometry_coasting_still_blocks_after_zero_command_and_off_route_turn(self):
+        from nav_msgs.msg import Odometry
+        from geometry_msgs.msg import Twist
+        c=json.loads((ROOT/'config/arena.json').read_text())
+        c.update(navigation_engine='trajectory',raw_collision_follow_path=True,
+                 lidar_pose=[0.]*6,max_speed=2.,response_delay=.2,response_tau=.15,
+                 raw_collision_min_points=3)
+        with tempfile.TemporaryDirectory(dir=ROOT/'cache') as folder:
+            config=Path(folder)/'arena.json';config.write_text(json.dumps(c))
+            rclpy.init(domain_id=86,args=['--ros-args','-p',f'arena_config:={config}','-p','localization:=sensors'])
+            guard=Adapter();peer=rclpy.create_node('coasting_odometry_fixture')
+            pub=peer.create_publisher(Odometry,'odometry',10)
+            try:
+                for x,offset in ((0.,.2),(.08,.1)):
+                    m=Odometry();m.header.frame_id='odom';m.child_frame_id='base_footprint'
+                    now=guard.get_clock().now().nanoseconds/1e9
+                    stamp=now-offset;m.header.stamp.sec=int(stamp);m.header.stamp.nanosec=int((stamp-int(stamp))*1e9)
+                    m.pose.pose.position.x=x;m.pose.pose.orientation.z=np.sin(np.pi/4);m.pose.pose.orientation.w=np.cos(np.pi/4)
+                    deadline=time.monotonic()+2
+                    while guard.previous_odometry is None or guard.previous_odometry[0]<stamp-1e-8:
+                        self.assertLess(time.monotonic(),deadline)
+                        pub.publish(m);rclpy.spin_once(guard,timeout_sec=.005)
+                self.assertLess(guard.body_velocity[1],-.5)
+                context=dict(phase='ENTER',state='RUNNING',run_id='coast',route_id='route')
+                guard.receive_mission_status(String(data=json.dumps(context)))
+                stamp=guard.get_clock().now().nanoseconds/1e9
+                guard.receive_trajectory(String(data=json.dumps(dict(run_id='coast',route_id='route',stamp=stamp,
+                    pose=[0.,0.,0.],pose_stamp=stamp,points=[[0.,0.],[1.,0.],[2.,0.]]))))
+                cloud=PointCloud2(height=1,width=3,point_step=12,row_step=36)
+                cloud.header.stamp=guard.get_clock().now().to_msg()
+                cloud.fields=[PointField(name=k,offset=4*i,datatype=7,count=1) for i,k in enumerate('xyz')]
+                cloud.data=array('B',np.array([[0.,-.48,.3],[.01,-.48,.3],[-.01,-.48,.3]],dtype='<f4').tobytes())
+                guard.lidar(cloud);guard.touch('imu');guard.touch('command');guard.enabled=True
+                guard.controller_command(Twist())
+                guard.tick()
+                self.assertTrue(guard.hazard)
+                self.assertEqual(guard.output,[0.,0.])
+                self.assertLess(guard.body_velocity[1],-.5,'Zero command must not erase physical momentum')
+            finally:
+                peer.destroy_node();guard.destroy_node();rclpy.shutdown()
+
     def test_planning_waits_for_new_localization_before_enabling_motion(self):
         c=json.loads((ROOT/'config/arena.json').read_text())
         c.update(optimize_route=False)

@@ -20,6 +20,7 @@ from intramural_base.runtime import run
 from intramural_mission.planning import compile_route, GridMap
 from intramural_mission.trajectory import OmniTracker
 from intramural_mission.hazards import first_blocked
+from intramural_mission.safety import executable_path, response_horizon
 
 
 class TrajectoryMission(Node):
@@ -296,10 +297,12 @@ class TrajectoryMission(Node):
         if self.state == "BLOCKED":
             reach = max(reach, self.held_horizon)
         self.held_horizon = reach
+        swept = np.asarray(executable_path(np.asarray(self.future())-self.pose,
+                                           self.tracker.velocity,response_horizon(self.c))) + self.pose
         return (
             self.raw_hazard
             or first_blocked(
-                self.future(),
+                swept,
                 0,
                 self.pose,
                 grid.data,
@@ -364,6 +367,10 @@ class TrajectoryMission(Node):
             elif now - self.cancel_at > 2.0:
                 self.stop("FAULT", "STOP_UNCONFIRMED")
         if self.state in ("RUNNING", "BLOCKED"):
+            if self.state == 'BLOCKED' and abs(self.pose_age) < .25:
+                self.tracker.progress.project(self.pose,self.c['max_speed']*(dt+max(0.,self.pose_age))+.12,
+                                              self.c['max_tracking_error'])
+                self.update_phase()
             if not self.ready():
                 self.input_failure=dict(tf_age=self.pose_age,costmap_age=now-self.costmap_at,
                     guard_age=now-self.guard_at,guard=self.guard)

@@ -4,6 +4,15 @@ import math
 import numpy as np
 
 
+def response_horizon(limits):
+    """Bound coasting displacement with delay plus the first-order stopping tail."""
+    models = [(limits.get('response_delay', .2), limits.get('response_tau', .15))]
+    models += list(limits.get('response_models', [])) + list(limits.get('response_stress_models', []))
+    if any(len(m) != 2 or not all(math.isfinite(v) and v >= 0 for v in m) for m in models):
+        raise ValueError('Finite nonnegative delay/tau pairs required')
+    return max(delay + tau for delay, tau in models)
+
+
 def executable_path(path, velocity, delay):
     """Keep current momentum before joining the ordered reference; do not teleport onto it."""
     points = np.asarray(path, dtype=float)

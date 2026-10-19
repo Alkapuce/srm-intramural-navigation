@@ -16,7 +16,7 @@ from std_msgs.msg import Bool, String
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster, Buffer, TransformListener, TransformException
 from intramural_mission.proximity import obstacle_near, obstacle_on_path, lidar_to_body
 from intramural_mission.route import curve_speed_limit
-from intramural_mission.safety import executable_path
+from intramural_mission.safety import executable_path, response_horizon
 
 
 class Adapter(Node):
@@ -33,6 +33,9 @@ class Adapter(Node):
         self.cmd = Twist()
         self.last = {}
         self.output = [0.0, 0.0]
+        self.body_velocity = np.zeros(2)
+        self.previous_odometry = None
+        self.velocity_stamp = 0.
         self.last_tick = time.monotonic()
         self.raw_near_points = np.empty((0, 2), dtype=np.float32)
         self.last_motion_direction = (0.0, 0.0)
@@ -63,7 +66,7 @@ class Adapter(Node):
         self.create_subscription(Bool, 'mission/bypass', self.bypass,
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.create_subscription(
-            Odometry, "odometry", lambda m: self.touch("odom"), qos_profile_sensor_data
+            Odometry, "odometry", self.odometry, qos_profile_sensor_data
         )
         self.last_truth = None
         self.create_subscription(
@@ -96,6 +99,28 @@ class Adapter(Node):
 
     def touch(self, key):
         self.last[key] = time.monotonic()
+
+    def odometry(self, msg):
+        stamp = msg.header.stamp.sec + msg.header.stamp.nanosec/1e9
+        p, q = msg.pose.pose.position, msg.pose.pose.orientation
+        position = np.array([p.x, p.y])
+        if (not np.isfinite([*position,q.x,q.y,q.z,q.w,stamp]).all()
+                or abs(self.get_clock().now().nanoseconds/1e9-stamp) > .5):
+            return
+        previous = self.previous_odometry
+        if previous is not None and stamp <= previous[0]:
+            return
+        self.previous_odometry = (stamp, position)
+        if previous is not None:
+            dt = stamp-previous[0]
+            velocity = (position-previous[1])/dt
+            if np.linalg.norm(velocity) > 2*self.c['max_speed']:
+                return
+            yaw = math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
+            co, si = math.cos(yaw), math.sin(yaw)
+            self.body_velocity = np.array([co*velocity[0]+si*velocity[1],-si*velocity[0]+co*velocity[1]])
+        self.velocity_stamp = stamp
+        self.touch('odom')
 
     def receive_mission_status(self,msg):
         status=json.loads(msg.data)
@@ -306,7 +331,10 @@ class Adapter(Node):
         if not any(target):scheduled=[0.,0.]
         if math.hypot(*scheduled) > .05:
             self.last_motion_direction = tuple(scheduled)
-        speed = max(math.hypot(*scheduled), math.hypot(*self.output))
+        observed_velocity = getattr(self, 'body_velocity', self.output)
+        if math.hypot(*observed_velocity) > .05:
+            self.last_motion_direction = tuple(observed_velocity)
+        speed = max(math.hypot(*scheduled), math.hypot(*self.output), math.hypot(*observed_velocity))
         if self.c.get('navigation_engine')=='trajectory':
             if getattr(self,'mission_state','')=='BLOCKED':speed=max(speed,getattr(self,'held_speed',0.))
             else:self.held_speed=speed
@@ -322,7 +350,7 @@ class Adapter(Node):
         if self.c.get('raw_collision_follow_path', False):
             if path is not None:
                 if self.c.get('navigation_engine')=='trajectory':
-                    path=executable_path(path,self.output,self.c.get('response_delay',.2))
+                    path=executable_path(path,observed_velocity,response_horizon(self.c))
                 self.hazard = obstacle_on_path(self.raw_near_points, path,
                     reach=stop_radius-radial+self.c.get('minimum_clearance', 0.), radius=self.c['robot_radius'], min_points=min_points)
                 self.guard_mode = 'ordered_path'
@@ -370,6 +398,7 @@ class Adapter(Node):
                         "path_problem": getattr(self, "path_problem", ''),
                         "path_speed_limit": speed_limit,
                         "command": values[:2], "output": self.output,
+                        "velocity_observed_body": list(observed_velocity),
                         "input_ages": {k: now-self.last.get(k, 0.) for k in ('command','odom','lidar','imu')},
                         "nearest_raw_points": (self.raw_near_points[np.argsort(np.sum(self.raw_near_points**2,axis=1))[:6]].tolist()
                                                if self.hazard else []),

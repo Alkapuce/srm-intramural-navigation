@@ -52,16 +52,20 @@ def obstacle_on_path(points, path, reach, radius, min_points=1):
         return True
     if len(route) < 2:
         return False
-    delta = np.diff(route, axis=0)
-    length2 = np.sum(delta*delta, axis=1)
-    fraction = np.clip(-np.sum(route[:-1]*delta, axis=1)/np.maximum(length2, 1e-12), 0., 1.)
-    projections = route[:-1] + fraction[:, None]*delta
-    # A long braking horizon can revisit the crossing; never project onto that later visit.
-    distance=np.linalg.norm(projections,axis=1)
-    index=0
-    while index+1<len(distance) and distance[index+1]<=distance[index]+1e-9:
-        index+=1
-    future = np.vstack(([0., 0.], projections[index], route[index+1:]))
+    if np.linalg.norm(route[0]) < 1e-7:
+        # An executable coast prefix is already ordered; projecting again can discard it.
+        future = route
+    else:
+        delta = np.diff(route, axis=0)
+        length2 = np.sum(delta*delta, axis=1)
+        fraction = np.clip(-np.sum(route[:-1]*delta, axis=1)/np.maximum(length2, 1e-12), 0., 1.)
+        projections = route[:-1] + fraction[:, None]*delta
+        # A long braking horizon can revisit the crossing; never project onto that later visit.
+        distance=np.linalg.norm(projections,axis=1)
+        index=0
+        while index+1<len(distance) and distance[index+1]<=distance[index]+1e-9:
+            index+=1
+        future = np.vstack(([0., 0.], projections[index], route[index+1:]))
     travelled = 0.
     for a, b in zip(future, future[1:]):
         length = np.linalg.norm(b-a)
