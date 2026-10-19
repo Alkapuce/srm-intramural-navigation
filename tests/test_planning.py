@@ -15,6 +15,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlanningTests(unittest.TestCase):
+    def test_frozen_route_entry_avoids_full_bases_when_only_thin_poles_are_mapped(self):
+        c=json.loads((ROOT/'config/arena.json').read_text())
+        c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['safe'])
+        c.update(lower_pole=[0.,0.],upper_pole=[0.,1.2],loop_radius=.6,
+                 parking=[-1.4,-.35],entry_angle=math.pi,pole_clearance_from_map=True,
+                 bounds=[-3.,3.,-3.,4.],optimized_route=dict(shape=None,entry_angle=math.pi,transition_scale=1.25))
+        g=OccupancyGrid();g.header.frame_id='map';g.info.width=240;g.info.height=280
+        g.info.resolution=.025;g.info.origin.position.x=g.info.origin.position.y=-3.
+        g.info.origin.orientation.w=1.
+        yy,xx=np.mgrid[:280,:240];pixels=np.zeros((280,240),dtype=np.int8)
+        for x,y in (c['lower_pole'],c['upper_pole']):
+            pixels[np.hypot(-3+(xx+.5)*.025-x,-3+(yy+.5)*.025-y)<.03]=100
+        g.data=pixels.ravel().tolist()
+        plan,route,_=compile_route(c,g,[.39,.76])
+        self.assertEqual(len(plan.gates),10)
+        self.assertEqual(plan.points[0],(.39,.76))
+        self.assertEqual(plan.points[-1],tuple(c['parking']))
+        self.assertGreater(min(plan.clearance),0)
+
     def test_default_candidate_tracks_known_faster_plants_without_retuning(self):
         c=json.loads((ROOT/'config/arena.json').read_text())
         c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['candidate'])

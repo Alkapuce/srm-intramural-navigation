@@ -12,7 +12,7 @@ def winding(points, pole):
     return round(sum(math.remainder(b-a, 2*math.pi) for a, b in zip(angles, angles[1:])) / (2*math.pi))
 
 
-def entry_path(c, start, goal, grid):
+def entry_path(c, start, goal, grid, clearance=None):
     """Connect a localized start to the first gate on the known static map."""
     if grid is None or grid.header.frame_id != "map":
         return None
@@ -43,6 +43,8 @@ def entry_path(c, start, goal, grid):
     yy, xx = np.mgrid[:height, :width]
     x, y = (xx+.5)*res, (yy+.5)*res
     wx, wy = origin.position.x+co*x-so*y, origin.position.y+so*x+co*y
+    if clearance is not None:
+        free &= clearance(np.column_stack((wx.ravel(), wy.ravel()))).reshape(height, width) > c['path_spacing']/2
     xmin, xmax, ymin, ymax = c['bounds']
     margin = c['robot_radius'] + c.get('minimum_clearance', .05)
     free &= np.minimum.reduce((wx-xmin, xmax-wx, wy-ymin, ymax-wy)) >= margin

@@ -101,7 +101,8 @@ class GridMap:
         for waypoints in waypoint_sets:
             points = [start]
             for waypoint in waypoints:
-                leg = entry_path(self.c, points[-1], waypoint, self.grid)
+                # A* and the continuous checker must agree on the complete pole bases.
+                leg = entry_path(self.c, points[-1], waypoint, self.grid, self.clearance)
                 if leg is None:
                     break
                 points.extend(self.shortcut(leg)[1:])
@@ -222,9 +223,10 @@ def compile_route(c, grid, start=None):
         evaluated += 1
         config = dict(c,entry_angle=angle)
         raw,geometry = (None,None) if shape is None else spline_route(config,shape,angle)
+        scales = ((1.25,.9,.7,.6,.35) if start is not None else
+                  (scale,) if scale is not None else None if shape is None else (1.25,.7))
         try:
-            plan,route,report = _compile(config,measured,start,raw,geometry,
-                (scale,) if scale is not None else None if shape is None else (1.25,.7))
+            plan,route,report = _compile(config,measured,start,raw,geometry,scales)
         except ValueError:
             return
         report["optimized_route"] = dict(shape=shape,entry_angle=angle,transition_scale=report["transition_scale"])
