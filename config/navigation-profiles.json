@@ -13,7 +13,7 @@
     "navigation_engine": "trajectory", "optimize_route": true, "max_speed": 1.2,
     "max_acceleration": 2.5, "lateral_acceleration": 1.4,
     "max_jerk": 7.0, "response_delay": 0.2, "tracking_prediction_delay": 0.09, "execution_clearance": 0.03,
-    "braking_acceleration": 0.2, "normal_gain": 2.5,
+    "braking_acceleration": 0.2, "terminal_deceleration": 1.0, "normal_gain": 2.5,
     "tangent_gain": 1.0, "velocity_gain": 0.1,
     "parking_tolerance": 0.08, "finish_distance": 0.05,
     "smooth_transitions": true,

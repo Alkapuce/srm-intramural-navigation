@@ -28,7 +28,7 @@ class RoutePlan:
         ):
             if not math.isfinite(limits[key]) or limits[key] <= 0:
                 raise ValueError("Positive finite motion limits required")
-        for key in ("max_jerk", "parking_tolerance", "finish_distance"):
+        for key in ("max_jerk", "parking_tolerance", "finish_distance", "terminal_deceleration"):
             if key in limits and (not math.isfinite(limits[key]) or limits[key] <= 0):
                 raise ValueError("Positive finite trajectory constraints required")
         for key in ("response_delay", "response_tau", "tracking_prediction_delay", "normal_gain", "tangent_gain", "velocity_gain"):
@@ -71,8 +71,11 @@ class RoutePlan:
         cap = np.minimum(
             cap, np.cbrt(limits.get("max_jerk", 6.0) / np.maximum(curvature_rate, 1e-9))
         )
-        braking = limits["braking_acceleration"]
-        delay = limits.get("response_delay", 0.2) + 0.3
+        # Planned parking uses commanded deceleration; emergency stopping stays independent.
+        braking = min(limits.get("terminal_deceleration", limits["braking_acceleration"]), limits["max_acceleration"])
+        delay = (limits.get("tracking_prediction_delay", limits.get("response_delay", 0.2))
+                 + limits.get("pose_update_period", 0.1) if "terminal_deceleration" in limits
+                 else limits.get("response_delay", 0.2) + 0.3)
         cap = np.minimum(
             cap,
             np.sqrt((braking * delay) ** 2 + 2 * braking * (s[-1] - s))

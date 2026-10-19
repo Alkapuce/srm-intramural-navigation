@@ -81,6 +81,21 @@ def rollout(c, delay=0.2, tau=0.15, gain=1.0, noise=0.0, seed=0, plan=None):
 
 
 class TrajectoryTests(unittest.TestCase):
+    def test_planned_parking_does_not_inherit_emergency_braking_distance(self):
+        c = dict(BASE, **PROFILES["candidate"])
+        route = [("RETURN", [[x, 0.] for x in np.linspace(0., 6., 121)])]
+        old = dict(c)
+        del old["terminal_deceleration"]
+        before, after = RoutePlan.build(route, old), RoutePlan.build(route, c)
+        self.assertGreater(after.sample(4.5)[2], before.sample(4.5)[2] * 1.5)
+        self.assertAlmostEqual(after.sample(4.5)[2], c["max_speed"])
+        self.assertEqual(after.speed[-1], 0.)
+        self.assertLessEqual(max(abs(np.diff(np.square(after.speed)) / (2*np.diff(after.s)))), c["max_acceleration"]+1e-7)
+        self.assertEqual(c["braking_acceleration"], .2)
+        for bad in (0., -1., float("nan")):
+            with self.assertRaises(ValueError):
+                RoutePlan.build(route, dict(c, terminal_deceleration=bad))
+
     def test_profile_and_order_do_not_stop_at_ordinary_phase_boundaries(self):
         c = dict(BASE, **PROFILES["safe"])
         plan = RoutePlan.build(segments(c), c)
