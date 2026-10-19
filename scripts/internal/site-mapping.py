@@ -163,6 +163,8 @@ def main():
     p.add_argument("--vehicle-config", type=path, default=path(os.environ.get("INTRAMURAL_VEHICLE_CONFIG", str(ROOT / "cache/vehicle-current"))))
     p.add_argument("--output", type=path, help="新的 artifacts/ 或 cache/ 子目录；默认自动按时间命名")
     p.add_argument("--arena-config", type=path, help="已测量的比赛场地几何；不提供时保持实验几何")
+    p.add_argument("--profile",choices=["safe","candidate"],default="safe")
+    p.add_argument("--response-model",type=path,help="合格的源时间响应模型；不修改原车辆配置")
     args = p.parse_args()
     if args.bag:
         try:
@@ -277,7 +279,7 @@ def main():
             start("record", [str(ROOT / "scripts/site-mapping.sh"), str(bag)])
             started = time.monotonic()
             finish = f"{args.duration:g} 秒后自动收尾" if args.duration else "完成后按 Enter 收尾"
-            print(f"录制中，{finish}。收尾前回到起始位置和朝向并停车；Ctrl-C 取消。", flush=True)
+            print(f"录制中，{finish}。完成覆盖后停到本次发车位；将自动定位并记录该车位，无需手放回原点。Ctrl-C 取消。", flush=True)
             while True:
                 check()
                 monitor.spin()
@@ -302,16 +304,19 @@ def main():
             command += ["--arena-config", str(args.arena_config)]
         run("export-map", command)
         run("map-quality", [sys.executable, str(ROOT / "scripts/validation/verify-map-quality.py"), "--map-config", str(out / "map"), "--output", str(out / "map-quality.json")])
-        detection_code = run("field-detection", [sys.executable, str(ROOT / "scripts/internal/field_geometry.py"),
-            "--map-config", str(out / "map"), "--output", str(out / "navigation")], allow_failure=True)
-        result["field_geometry_detected"] = detection_code == 0
-        if detection_code == 0:
-            result["navigation_config"] = str(out / "navigation")
         sensors("sensors-reload")
         monitor.close(); monitor = None
         os.environ["INTRAMURAL_NAVIGATION_CONFIG"] = str(out / "map")
         start("navigation", [str(ROOT / "scripts/vehicle-navigation.sh")])
         run("reload-check", [sys.executable, str(ROOT / "scripts/validation/verify-vehicle-standby.py"), "--output", str(out / "reload-check"), "--map-config", str(out / "map")], 150)
+        command = [sys.executable,str(ROOT/"scripts/internal/field_geometry.py"),"--map-config",str(out/"map"),
+                   "--output",str(out/"navigation"),"--parking-here","--profile",args.profile]
+        if args.response_model:
+            command += ["--response-model",str(args.response_model)]
+        detection_code = run("field-detection",command,allow_failure=True)
+        result["field_geometry_detected"] = detection_code == 0
+        if detection_code == 0:
+            result["navigation_config"] = str(out/"navigation")
         result.update(status="complete", localization_reload_verified=True,
                       map_quality=json.loads((out / "map-quality.json").read_text()), map_config=str(out / "map"))
         exit_code = 0

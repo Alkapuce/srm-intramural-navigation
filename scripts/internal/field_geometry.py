@@ -16,6 +16,35 @@ from intramural_mission.proximity import lidar_to_body
 from intramural_mission.route import segments
 from intramural_mission.planning import compile_route
 from types import SimpleNamespace as N
+from dataclasses import asdict
+from response_fit import model_overrides
+
+
+def current_parking():
+    import time
+    import rclpy
+    from tf2_ros import Buffer, TransformListener
+    rclpy.init()
+    node = rclpy.create_node('field_start_position')
+    buffer = Buffer(node=node)
+    listener = TransformListener(buffer,node)
+    deadline = time.monotonic()+8
+    try:
+        while time.monotonic()<deadline:
+            rclpy.spin_once(node,timeout_sec=.05)
+            try:
+                pose = buffer.lookup_transform('map','base_footprint',rclpy.time.Time())
+            except Exception:
+                continue
+            stamp = pose.header.stamp.sec+pose.header.stamp.nanosec/1e9
+            age = node.get_clock().now().nanoseconds/1e9-stamp
+            xy = [pose.transform.translation.x,pose.transform.translation.y]
+            if abs(age)<.25 and all(math.isfinite(v) for v in xy):
+                return xy,dict(source='localized_current_vehicle',frame='map',stamp=stamp,age=age)
+        raise RuntimeError('No fresh map -> base_footprint; start localized standby before --parking-here')
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 
 def detect_poles(points, plane):
@@ -52,7 +81,34 @@ def detect_poles(points, plane):
     return candidates
 
 
-def check_route(config, grid, metadata):
+def route_preview(plan, config, grid, metadata, output):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.collections import LineCollection
+    from matplotlib.patches import Circle
+    p=np.asarray(plan.points)
+    fig=plt.figure(figsize=(11,7));layout=fig.add_gridspec(2,2)
+    ax=fig.add_subplot(layout[:,0]);speed=fig.add_subplot(layout[0,1]);curvature=fig.add_subplot(layout[1,1])
+    x,y,_=metadata['origin'];res=metadata['resolution']
+    ax.imshow(grid,cmap='gray',vmin=0,vmax=254,extent=[x,x+grid.shape[1]*res,y,y+grid.shape[0]*res],origin='upper')
+    collection=LineCollection(np.stack((p[:-1],p[1:]),axis=1),cmap='viridis',linewidths=2.5)
+    collection.set_array(np.asarray(plan.speed[:-1]));collection.set_clim(0,config['max_speed']);ax.add_collection(collection)
+    fig.colorbar(collection,ax=ax,label='Reference speed (1:1 command scale)')
+    for key in ('lower_pole','upper_pole'):
+        ax.add_patch(Circle(config[key],config['pole_radius'],color='orange',alpha=.8))
+    ax.plot(*config['parking'],'rx',markersize=10,label='start / return');ax.legend()
+    ax.set(xlim=(p[:,0].min()-.7,p[:,0].max()+.7),ylim=(p[:,1].min()-.7,p[:,1].max()+.7),
+           xlabel='map x (m)',ylabel='map y (m)',title='Ordered full route',aspect='equal')
+    speed.plot(plan.s,plan.speed);speed.set(xlabel='Arc length (m)',ylabel='Reference speed',title='Continuous speed profile')
+    curvature.plot(plan.s,np.abs(plan.curvature));curvature.set(xlabel='Arc length (m)',ylabel='|curvature| (1/m)',title='Route curvature')
+    for _,i in plan.gates[:-1]:
+        speed.axvline(plan.s[i],color='gray',alpha=.2);curvature.axvline(plan.s[i],color='gray',alpha=.2)
+    speed.grid(alpha=.2);curvature.grid(alpha=.2)
+    fig.tight_layout();fig.savefig(output,dpi=150);plt.close(fig)
+
+
+def check_route(config, grid, metadata, plan_path=None):
     if config.get('navigation_engine')=='trajectory':
         yaw=metadata['origin'][2];res=float(metadata['resolution'])
         msg=N(header=N(frame_id='map'),info=N(resolution=res,width=grid.shape[1],height=grid.shape[0],
@@ -61,6 +117,9 @@ def check_route(config, grid, metadata):
             data=np.where(grid[::-1]==254,0,np.where(grid[::-1]==205,-1,100)).ravel().tolist())
         try:
             plan,route,report=compile_route(config,msg)
+            if plan_path:
+                plan_path.write_text(json.dumps(asdict(plan),indent=2)+'\n')
+                route_preview(plan,config,grid,metadata,plan_path.with_suffix('.png'))
             needed=config['robot_radius']+res/math.sqrt(2)+config['path_spacing']/2+config.get('minimum_clearance',.02)
             return dict(passed=True,minimum_obstacle_distance_m=report['minimum_clearance']+needed,
                 required_obstacle_distance_m=needed,blocked_samples=0,examples=[],route_id=plan.route_id,compiler=report)
@@ -90,11 +149,21 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--map-config', required=True)
     parser.add_argument('--output')
-    parser.add_argument('--parking', nargs=2, type=float, default=[0.,0.], help='Confirmed mapping-start parking location in map frame')
+    parking = parser.add_mutually_exclusive_group()
+    parking.add_argument('--parking', nargs=2, type=float, help='Starting/return position in map coordinates; default mapping origin')
+    parking.add_argument('--parking-here',action='store_true',help='Capture current localized vehicle position as start and return position')
     parser.add_argument('--profile',choices=['safe','candidate','gold-reference'],default='safe')
+    parser.add_argument('--response-model',type=Path)
     args = parser.parse_args()
     profiles=json.loads((Path(__file__).resolve().parents[2]/'config/navigation-profiles.json').read_text())
-    profile=profiles[args.profile]
+    profile=profiles[args.profile].copy()
+    if args.response_model:
+        args.response_model = args.response_model if args.response_model.is_absolute() else root/args.response_model
+        profile.update(model_overrides(args.response_model))
+    parking_source = dict(source='explicit_coordinates' if args.parking else 'mapping_origin',frame='map')
+    if args.parking_here:
+        args.parking,parking_source = current_parking()
+    args.parking = args.parking or [0.,0.]
     source = Path(args.map_config).resolve()
     output=Path(args.output) if args.output else root/'artifacts/navigation'/datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     out=(output if output.is_absolute()else root/output).resolve()
@@ -116,7 +185,7 @@ def main():
     candidates = detect_poles(cloud,plane)
     report = dict(source_map=str(source), source_pcd_sha256=hashlib.sha256(raw).hexdigest(),
         candidates=candidates, detector_scope='Isolated thin vertical objects, observed height span >=0.5m; geometric identity, no semantic classifier',
-        parking=args.parking, passed=False, physical_motion_commanded=False)
+        parking=args.parking,parking_source=parking_source, passed=False, physical_motion_commanded=False)
     if len(candidates) != 2:
         report['error'] = f'Expected exactly two unambiguous candidates, found {len(candidates)}; inspect candidates instead of auto-selecting'
     else:
@@ -127,7 +196,7 @@ def main():
         grid = np.asarray(Image.open(source/metadata['image']))
         if grid.ndim != 2 or not set(np.unique(grid)) <= {0,205,254}:
             raise ValueError('Unexpected occupancy encoding')
-        config.update(lower_pole=lower, upper_pole=upper, parking=args.parking,
+        config.update(lower_pole=lower, upper_pole=upper, parking=args.parking,mission_variant='figure8',
             loop_radius=math.dist(lower,upper)/2, pole_radius=max(config['pole_radius'],*(p['radius_bound_m'] for p in poles)),
             continuous_corners=True,
             bypass_speed=.2, allow_bypass=False, minimum_clearance=.02,
@@ -143,7 +212,7 @@ def main():
         if config['loop_radius'] <= config['robot_radius']+config['pole_radius']+.05:
             report['error']='Pole spacing cannot accommodate the complete vehicle envelope'
         else:
-            for angle in (0.,math.pi):
+            for angle in ((0.,) if profile.get('optimize_route') else (0.,math.pi)):
                 config.update(profile)
                 config['navigation_profile']=args.profile
                 config['entry_angle']=angle
@@ -153,8 +222,16 @@ def main():
             if not choices:
                 report['error']='Neither complete figure-eight route is clear in observed space'
             else:
-                chosen=max(choices,key=lambda v:v['minimum_obstacle_distance_m'])
+                chosen=(min(choices,key=lambda v:v['compiler'].get('execution_prediction',{}).get('duration',v['compiler']['expected_duration']))
+                        if profile.get('navigation_engine')=='trajectory' else max(choices,key=lambda v:v['minimum_obstacle_distance_m']))
                 config['entry_angle']=chosen['entry_angle']
+                if 'optimized_route' in chosen.get('compiler',{}):
+                    config['optimized_route']=chosen['compiler']['optimized_route']
+                    config['entry_angle']=config['optimized_route']['entry_angle']
+                final = check_route(config,grid,metadata,out/'route-plan.json')
+                if not final['passed']:
+                    raise ValueError('Selected route could not be reproduced from its frozen parameters')
+                (out/'route-analysis.json').write_text(json.dumps(dict(search=chosen,compiled=final,parking_source=parking_source),indent=2)+'\n')
                 for name in ('prior.pcd','map.pgm','map.yaml','occupancy.json'):
                     shutil.copy2(source/name,out/name)
                 (out/'arena.json').write_text(json.dumps(config,indent=2)+'\n')
@@ -178,6 +255,10 @@ def main():
                 (out/'nav.yaml').write_text(yaml.safe_dump(params,sort_keys=False))
                 manifest=json.loads((source/'manifest.json').read_text())
                 manifest['navigation_profile']=args.profile
+                manifest['parking_source']=parking_source
+                manifest['route_plan_id']=final.get('route_id')
+                if args.response_model:
+                    manifest['response_model_sha256']=hashlib.sha256(args.response_model.read_bytes()).hexdigest()
                 manifest['profile_sha256']=hashlib.sha256(json.dumps(profile,sort_keys=True).encode()).hexdigest()
                 manifest['physical_validation']='pending' if args.profile!='gold-reference' else 'reference_configuration_only'
                 manifest.update(field_geometry_source='automatic geometric pole extraction from source point cloud',
@@ -187,7 +268,7 @@ def main():
                     purpose='Field figure-eight candidate; explicit drive and mission start still required')
                 manifest['files_sha256']={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in out.iterdir() if p.is_file()}
                 (out/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
-                report.update(passed=True,lower_pole=lower,upper_pole=upper,route_check=chosen,navigation_config=str(out))
+                report.update(passed=True,lower_pole=lower,upper_pole=upper,route_check=final,route_search=chosen,navigation_config=str(out))
         report['route_attempts']=attempts
     (out/'field-detection.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report,indent=2),flush=True)

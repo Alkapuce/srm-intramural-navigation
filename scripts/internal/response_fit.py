@@ -1,8 +1,20 @@
 """Position-domain identification, with independent held-out validation."""
 
 import numpy as np
+import json
+import math
 from scipy.optimize import least_squares
 from scipy.signal import lfilter
+
+
+def model_overrides(file):
+    model = json.loads(file.read_text())
+    if not model.get("eligible_for_model") or model.get("clock") != "source":
+        raise ValueError("Use an eligible source-clock response model")
+    values = {k:float(model[k]) for k in ("response_delay","response_tau")}
+    if any(not math.isfinite(v) or v < 0 for v in values.values()):
+        raise ValueError("Invalid response model")
+    return values
 
 
 def fit_response(commands, observations):

@@ -15,15 +15,17 @@ from intramural_mission.planning import compile_route
 parser = argparse.ArgumentParser()
 parser.add_argument("--map-dir", required=True)
 parser.add_argument("--output", required=True)
-parser.add_argument("--profile", choices=["safe", "candidate"], default="safe")
+parser.add_argument("--profile", choices=["safe", "candidate"])
 parser.add_argument("--start", type=float, nargs=2, action="append", default=[])
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 folder = Path(args.map_dir)
 c = json.loads((folder / "arena.json").read_text())
-c.update(
-    json.loads((root / "config/navigation-profiles.json").read_text())[args.profile]
-)
+profile = args.profile or c.get("navigation_profile", "safe")
+if args.profile or c.get("navigation_engine") != "trajectory":
+    if args.profile and args.profile != c.get("navigation_profile"):
+        c.pop("optimized_route",None)
+    c.update(json.loads((root / "config/navigation-profiles.json").read_text())[profile])
 metadata = yaml.safe_load((folder / "map.yaml").read_text())
 pixels = np.asarray(Image.open(folder / metadata["image"]))
 g = OccupancyGrid()
@@ -62,7 +64,7 @@ for i, start in enumerate([None] + args.start):
     except ValueError as exc:
         results.append(dict(start=start, passed=False, reason=str(exc)))
 report = dict(
-    profile=args.profile, results=results, passed=all(r["passed"] for r in results)
+    profile=profile, results=results, passed=all(r["passed"] for r in results)
 )
 (out / "results.json").write_text(json.dumps(report, indent=2) + "\n")
 print(json.dumps(report))

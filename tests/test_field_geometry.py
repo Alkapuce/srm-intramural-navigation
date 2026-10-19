@@ -6,6 +6,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import threading
+import time
 
 import numpy as np
 from PIL import Image
@@ -15,7 +17,7 @@ from intramural_mission.bypass import winding
 
 
 class FieldGeometryTest(unittest.TestCase):
-    def run_field(self, ambiguous=False, blocked=False, short=False):
+    def run_field(self, ambiguous=False, blocked=False, short=False, parking=None, response=False):
         root=Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(dir=root/'cache') as temp:
             source=Path(temp)/'map';source.mkdir();out=Path(temp)/'configured'
@@ -36,19 +38,28 @@ class FieldGeometryTest(unittest.TestCase):
             (source/'nav.yaml').write_text(yaml.safe_dump({
                 'small_gicp_relocalization':{'ros__parameters':{}},'map_server':{'ros__parameters':{}},
                 'controller_server':{'ros__parameters':{'FollowPath':{},'general_goal_checker':{}}},'velocity_smoother':{'ros__parameters':{}}}))
-            result=subprocess.run([sys.executable,str(root/'scripts/internal/field_geometry.py'),
-                '--map-config',str(source),'--output',str(out)],capture_output=True,text=True,timeout=20)
+            command=[sys.executable,str(root/'scripts/internal/field_geometry.py'),
+                '--map-config',str(source),'--output',str(out)]
+            if parking is not None:command += ['--parking-here']
+            if response:
+                model=Path(temp)/'response.json'
+                model.write_text(json.dumps(dict(eligible_for_model=True,clock='source',response_delay=.09,response_tau=.08)))
+                command += ['--response-model',str(model)]
+            result=subprocess.run(command,capture_output=True,text=True,timeout=25)
             report=json.loads((out/'field-detection.json').read_text())
             self.assertEqual(result.returncode,0 if report['passed'] else 1,result.stderr)
             self.assertEqual((source/'prior.pcd').read_bytes().split(b'DATA binary\n',1)[1],raw)
             if report['passed']:
                 actual=json.loads((out/'arena.json').read_text())
-                route=segments(actual);points=[p for _,path in route for p in path]
+                frozen=json.loads((out/'route-plan.json').read_text())
+                route=[];previous=0
+                for name,index in frozen['gates']:
+                    route.append((name,frozen['points'][previous:index+1]));previous=index
+                points=frozen['points']
                 self.assertEqual([winding(points,actual[k]) for k in ('lower_pole','upper_pole')],[1,-1])
                 self.assertEqual(route[0][1][0],actual['parking'])
-                nominal=segments(dict(actual,smooth_transitions=False))
-                length=math.dist(nominal[0][1][0],nominal[0][1][-1])
-                stem=[p for p in nominal[0][1] if math.dist(p,actual['parking'])<.15*length]
+                length=math.dist(route[0][1][0],route[0][1][-1])
+                stem=[p for p in route[0][1] if math.dist(p,actual['parking'])<.1*length]
                 self.assertTrue(stem)
                 for p in stem:
                     self.assertLess(min(math.dist(p,q)for q in route[0][1]),1e-8)
@@ -58,6 +69,18 @@ class FieldGeometryTest(unittest.TestCase):
                 self.assertTrue(np.allclose(actual['lower_pole'],poles[0],atol=.01))
                 self.assertTrue(np.allclose(actual['upper_pole'],poles[1],atol=.01))
                 manifest=json.loads((out/'manifest.json').read_text())
+                self.assertEqual(manifest['route_plan_id'],frozen['route_id'])
+                if response:
+                    self.assertEqual(actual['response_delay'],.09)
+                    self.assertEqual(actual['response_tau'],.08)
+                    self.assertIn('response_model_sha256',manifest)
+                if parking is not None:
+                    np.testing.assert_allclose(actual['parking'],parking)
+                    self.assertEqual(manifest['parking_source']['source'],'localized_current_vehicle')
+                replay=subprocess.run([sys.executable,str(root/'scripts/validation/verify-map-trajectory.py'),
+                    '--map-dir',str(out),'--output',str(out/'reload')],capture_output=True,text=True,timeout=8)
+                self.assertEqual(replay.returncode,0,replay.stderr)
+                self.assertEqual(json.loads((out/'reload/results.json').read_text())['results'][0]['route_id'],frozen['route_id'])
                 self.assertTrue(manifest['field_geometry_verified'])
                 self.assertFalse(manifest['motion_permitted'])
                 self.assertFalse(manifest['start_permitted'])
@@ -100,6 +123,27 @@ class FieldGeometryTest(unittest.TestCase):
 
     def test_short_clutter_is_not_a_pole(self):
         self.assertFalse(self.run_field(short=True)['passed'])
+
+    def test_current_localized_start_is_frozen_with_the_complete_route(self):
+        import rclpy
+        from rclpy.context import Context
+        from geometry_msgs.msg import TransformStamped
+        from tf2_ros import TransformBroadcaster
+        context=Context();rclpy.init(context=context)
+        node=rclpy.create_node('field_parking_fixture',context=context)
+        broadcaster=TransformBroadcaster(node)
+        stop=threading.Event()
+        def publish():
+            while not stop.is_set():
+                msg=TransformStamped();msg.header.frame_id='map';msg.child_frame_id='base_footprint'
+                msg.header.stamp=node.get_clock().now().to_msg()
+                msg.transform.translation.x=-.6;msg.transform.translation.y=.2;msg.transform.rotation.w=1.
+                broadcaster.sendTransform(msg);time.sleep(.025)
+        worker=threading.Thread(target=publish);worker.start()
+        try:
+            self.assertTrue(self.run_field(parking=[-.6,.2],response=True)['passed'])
+        finally:
+            stop.set();worker.join();node.destroy_node();context.shutdown()
 
 
 if __name__=='__main__':unittest.main()
