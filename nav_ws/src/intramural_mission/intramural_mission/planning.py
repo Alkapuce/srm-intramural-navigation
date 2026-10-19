@@ -216,6 +216,9 @@ def compile_route(c, grid, start=None):
     if not c.get("optimize_route") or c.get("mission_variant", "figure8") != "figure8":
         return _compile(c,measured,start)
     from intramural_mission.route_optimization import spline_route, shapes, refine
+    family = c.get("route_family", "joint")
+    if family not in ("circles", "joint"):
+        raise ValueError("route_family must be circles or joint")
     started = time.monotonic()
     results, evaluated = [], 0
     def evaluate(shape, angle, scale=None):
@@ -238,7 +241,7 @@ def compile_route(c, grid, start=None):
         for angle in (0.,math.pi):
             evaluate(None,angle)
         baseline = min((x[2]["expected_duration"] for x in results),default=None)
-        for shape in shapes(c):
+        for shape in (shapes(c) if family == "joint" else ()):
             for angle in (0.,math.pi):
                 evaluate(shape,angle)
         if results:
@@ -271,7 +274,7 @@ def compile_route(c, grid, start=None):
             raise ValueError('No route fits the configured response models and complete vehicle envelope')
     else:
         plan,route,report = results[0]
-    report.update(optimization="bounded joint geometry/speed search",candidates_evaluated=evaluated,
+    report.update(optimization="bounded joint geometry/speed search",route_family=family,candidates_evaluated=evaluated,
                   planning_seconds=time.monotonic()-started)
     if not fixed:
         report["fixed_circle_duration"]=baseline

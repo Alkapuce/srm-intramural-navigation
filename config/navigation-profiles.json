@@ -10,6 +10,7 @@
     "response_models": [[0.09168461485123885, 0.08902560958962843], [0.08984127804154006, 0.029510894483599153], [0.07683024285400192, 0.05243267286377716]]
   },
   "candidate": {
+    "route_family": "circles",
     "navigation_engine": "trajectory", "optimize_route": true, "max_speed": 2.0,
     "max_acceleration": 3.5, "lateral_acceleration": 2.5,
     "max_jerk": 13.0, "response_delay": 0.2, "tracking_prediction_delay": 0.09, "execution_clearance": 0.03,

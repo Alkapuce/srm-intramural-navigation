@@ -15,6 +15,36 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlanningTests(unittest.TestCase):
+    def test_fast_circles_regenerate_for_changed_pole_spacing_and_orientation(self):
+        for distance, angle in ((1.4, .4), (1.8, -1.1)):
+            with self.subTest(distance=distance, angle=angle):
+                c=json.loads((ROOT/'config/arena.json').read_text())
+                c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['candidate'])
+                c.pop('optimized_route',None)
+                lower=[.3,-.2]
+                upper=[lower[0]+distance*math.cos(angle),lower[1]+distance*math.sin(angle)]
+                rotation=angle-math.pi/2
+                parking=[lower[0]-1.4*math.cos(rotation)+.35*math.sin(rotation),
+                         lower[1]-1.4*math.sin(rotation)-.35*math.cos(rotation)]
+                c.update(lower_pole=lower,upper_pole=upper,loop_radius=distance/2,
+                         parking=parking,bounds=[-4.,6.,-4.,6.])
+                g=OccupancyGrid();g.header.frame_id='map';g.info.width=g.info.height=200
+                g.info.resolution=.05;g.info.origin.position.x=g.info.origin.position.y=-4.
+                g.info.origin.orientation.w=1.
+                yy,xx=np.mgrid[:200,:200];pixels=np.zeros((200,200),dtype=np.int8)
+                for x,y in (lower,upper):
+                    pixels[np.hypot(-4+(xx+.5)*.05-x,-4+(yy+.5)*.05-y)<c['pole_radius']]=100
+                g.data=pixels.ravel().tolist()
+                plan,_,report=compile_route(c,g)
+                self.assertIsNone(report['optimized_route']['shape'])
+                self.assertEqual(report['route_family'],'circles')
+                self.assertEqual(report['candidates_evaluated'],2)
+                self.assertEqual(len(plan.gates),10)
+                self.assertEqual(plan.points[-1],tuple(c['parking']))
+                self.assertTrue(report['execution_prediction']['passed'])
+                self.assertEqual(len(report['response_predictions']),len(c['response_models']))
+                self.assertTrue(all(p['passed'] for p in report['response_predictions']))
+
     def test_fast_tracking_prediction_matches_recorded_response_on_tight_loops(self):
         c=json.loads((ROOT/'config/arena.json').read_text())
         c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['candidate'])
