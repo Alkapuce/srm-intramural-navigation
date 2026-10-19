@@ -31,7 +31,7 @@ class RoutePlan:
         for key in ("max_jerk", "parking_tolerance", "finish_distance"):
             if key in limits and (not math.isfinite(limits[key]) or limits[key] <= 0):
                 raise ValueError("Positive finite trajectory constraints required")
-        for key in ("response_delay", "normal_gain", "tangent_gain", "velocity_gain"):
+        for key in ("response_delay", "response_tau", "normal_gain", "tangent_gain", "velocity_gain"):
             if key in limits and (not math.isfinite(limits[key]) or limits[key] < 0):
                 raise ValueError("Nonnegative finite response parameters required")
         if limits["lateral_acceleration"] > limits["max_acceleration"]:

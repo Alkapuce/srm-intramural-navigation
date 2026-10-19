@@ -63,7 +63,7 @@ def segments(c, smooth=True):
     return smooth_route(result,c) if smooth else result
 
 
-def smooth_route(route,c,scale=1.25):
+def smooth_route(route,c,scale=1.25,geometry=None):
     """Spread each entry/exit turn with curvature-continuous quintic transitions."""
     if not c.get('smooth_transitions',False):
         return route
@@ -86,7 +86,12 @@ def smooth_route(route,c,scale=1.25):
         a,b=left[i],right[j]
         incoming=[x-y for x,y in zip(a,left[i-1])]
         outgoing=[y-x for x,y in zip(b,right[j+1])]
-        if index==0:
+        if geometry is not None:
+            curve_point=b if index==0 else a
+            direction,curvature=geometry(curve_point)
+            if index==0:outgoing=direction
+            else:incoming=direction
+        elif index==0:
             outgoing=[-(b[1]-c['lower_pole'][1]),b[0]-c['lower_pole'][0]]
         else:
             incoming=[-(a[1]-c['lower_pole'][1]),a[0]-c['lower_pole'][0]]
@@ -96,6 +101,8 @@ def smooth_route(route,c,scale=1.25):
         u=[v/na for v in incoming];v=[w/nb for w in outgoing]
         length=math.dist(a,b)
         ka,kb=(0.,1/c['loop_radius']) if index==0 else (1/c['loop_radius'],0.)
+        if geometry is not None:
+            ka,kb=(0.,curvature) if index==0 else (curvature,0.)
         control=[a,[a[k]+length*u[k]/5 for k in range(2)],
             [a[k]+2*length*u[k]/5+length*length*ka*[-u[1],u[0]][k]/20 for k in range(2)],
             [b[k]-2*length*v[k]/5+length*length*kb*[-v[1],v[0]][k]/20 for k in range(2)],

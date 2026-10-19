@@ -1,6 +1,6 @@
 {
   "safe": {
-    "navigation_engine": "trajectory", "max_speed": 0.65,
+    "navigation_engine": "trajectory", "optimize_route": true, "max_speed": 0.65,
     "max_acceleration": 1.2, "lateral_acceleration": 0.65,
     "max_jerk": 5.0, "response_delay": 0.2,
     "braking_acceleration": 0.2, "normal_gain": 1.5,
@@ -9,7 +9,7 @@
     "smooth_transitions": true
   },
   "candidate": {
-    "navigation_engine": "trajectory", "max_speed": 1.2,
+    "navigation_engine": "trajectory", "optimize_route": true, "max_speed": 1.2,
     "max_acceleration": 2.5, "lateral_acceleration": 1.4,
     "max_jerk": 7.0, "response_delay": 0.2,
     "braking_acceleration": 0.2, "normal_gain": 2.5,

@@ -2,6 +2,7 @@
 
 import hashlib
 import math
+import time
 import numpy as np
 from scipy.ndimage import distance_transform_edt
 from scipy.interpolate import CubicSpline
@@ -59,7 +60,14 @@ class GridMap:
             + self.res / math.sqrt(2)
             + self.c.get("minimum_clearance", 0.02)
         )
-        return distance - margin
+        result = distance - margin
+        if self.c.get("mission_variant", "figure8") == "figure8":
+            world = np.asarray(points)
+            for key in ("lower_pole", "upper_pole"):
+                result = np.minimum(result, np.linalg.norm(world-self.c[key], axis=1)
+                                    - self.c["robot_radius"]-self.c["pole_radius"]
+                                    - self.c.get("minimum_clearance", .02))
+        return result
 
     def shortcut(self, path):
         result = [path[0]]
@@ -125,9 +133,8 @@ class GridMap:
                 yield path.tolist()
 
 
-def compile_route(c, grid, start=None):
-    measured = GridMap(grid, c)
-    route = (
+def _compile(c, measured, start=None, route=None, geometry=None, scales=None):
+    route = route or (
         primitives(c)
         if c.get("mission_variant") == "primitives"
         else segments(c, smooth=False)
@@ -135,7 +142,8 @@ def compile_route(c, grid, start=None):
     if c.get("mission_variant") == "return":
         route = [("RETURN", c["return_path"])]
     routes = [route]
-    if start is not None:
+    if start is not None or (geometry is not None and min(measured.clearance(route[0][1])) <= 0):
+        start = c["parking"] if start is None else start
         gate = route[0][1][-1]
         a, b = route[1][1][:2]
         t = np.asarray(b) - a
@@ -150,15 +158,17 @@ def compile_route(c, grid, start=None):
         )
         if not routes:
             raise ValueError("No observed smooth tangent approach from current pose")
+        if geometry is not None and math.dist(start,c["parking"]) < 1e-6:
+            routes = [raw[:-1]+[("RETURN",list(reversed(raw[0][1])))] for raw in routes]
     candidates = []
     for raw in routes:
-        for scale in (
+        for scale in (scales or (
             (1.25, 0.9, 0.6, 0.35)
             if c.get("smooth_transitions")
             and c.get("mission_variant", "figure8") == "figure8"
             else (None,)
-        ):
-            candidate = smooth_route(raw, c, scale) if scale is not None else raw
+        )):
+            candidate = smooth_route(raw, c, scale, geometry) if scale is not None else raw
             try:
                 plan = RoutePlan.build(
                     candidate,
@@ -179,13 +189,13 @@ def compile_route(c, grid, start=None):
                 ]:
                     continue
             duration = sum(
-                (b - a) / max(0.05, (x + y) / 2)
+                2*(b - a) / max(1e-9, x + y)
                 for a, b, x, y in zip(plan.s, plan.s[1:], plan.speed, plan.speed[1:])
             )
             candidates.append((duration, plan, candidate, scale))
     if not candidates:
         raise ValueError("No smooth ordered route fits the observed free space")
-    _, plan, route, scale = min(candidates, key=lambda v: v[0])
+    duration, plan, route, scale = min(candidates, key=lambda v: v[0])
     return (
         plan,
         route,
@@ -194,5 +204,59 @@ def compile_route(c, grid, start=None):
             transition_scale=scale,
             minimum_clearance=min(plan.clearance),
             curvature_peak=max(map(abs, plan.curvature)),
+            expected_duration=duration,
         ),
     )
+
+
+def compile_route(c, grid, start=None):
+    measured = GridMap(grid, c)
+    if not c.get("optimize_route") or c.get("mission_variant", "figure8") != "figure8":
+        return _compile(c,measured,start)
+    from intramural_mission.route_optimization import spline_route, shapes, refine
+    started = time.monotonic()
+    results, evaluated = [], 0
+    def evaluate(shape, angle, scale=None):
+        nonlocal evaluated
+        evaluated += 1
+        config = dict(c,entry_angle=angle)
+        raw,geometry = (None,None) if shape is None else spline_route(config,shape,angle)
+        try:
+            plan,route,report = _compile(config,measured,start,raw,geometry,
+                (scale,) if scale is not None else None if shape is None else (1.25,.7))
+        except ValueError:
+            return
+        report["optimized_route"] = dict(shape=shape,entry_angle=angle,transition_scale=report["transition_scale"])
+        results.append((plan,route,report))
+    fixed = c.get("optimized_route")
+    if fixed:
+        evaluate(fixed["shape"],fixed["entry_angle"],fixed["transition_scale"])
+    else:
+        for angle in (0.,math.pi):
+            evaluate(None,angle)
+        baseline = min((x[2]["expected_duration"] for x in results),default=None)
+        for shape in shapes(c):
+            for angle in (0.,math.pi):
+                evaluate(shape,angle)
+        if results:
+            best = min(results,key=lambda x:x[2]["expected_duration"])[2]["optimized_route"]
+            if best["shape"] is not None:
+                for shape in refine(best["shape"],c):
+                    evaluate(shape,best["entry_angle"])
+    if not results:
+        raise ValueError("No ordered route fits the map and complete pole/vehicle envelopes")
+    if not fixed:
+        from intramural_mission.response import predict_execution
+        for plan,_,report in results:
+            report["execution_prediction"] = predict_execution(plan,c,measured)
+        feasible = [x for x in results if x[2]["execution_prediction"]["passed"]]
+        if not feasible:
+            raise ValueError("No geometrically valid route can be tracked with the configured response model")
+        plan,route,report = min(feasible,key=lambda x:x[2]["execution_prediction"]["duration"])
+    else:
+        plan,route,report = results[0]
+    report.update(optimization="bounded joint geometry/speed search",candidates_evaluated=evaluated,
+                  planning_seconds=time.monotonic()-started)
+    if not fixed:
+        report["fixed_circle_duration"]=baseline
+    return plan,route,report

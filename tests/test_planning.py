@@ -50,6 +50,12 @@ class PlanningTests(unittest.TestCase):
             tracker = OmniTracker(plan, c)
             _, state = tracker.step(plan.points[0], 0.0, 0.025)
             self.assertFalse(state["done"])
+            self.assertTrue(report["execution_prediction"]["passed"])
+            frozen = dict(c,optimized_route=report["optimized_route"])
+            reloaded,_,cached = compile_route(frozen,g,start)
+            np.testing.assert_allclose(reloaded.points,plan.points,atol=1e-10)
+            np.testing.assert_allclose(reloaded.speed,plan.speed,atol=1e-10)
+            self.assertEqual(cached["candidates_evaluated"],1)
         # Neither a fresh heartbeat nor a valid start pose makes an unknown map traversable.
         g.data = [-1] * len(g.data)
         with self.assertRaises(ValueError):

@@ -22,32 +22,11 @@ from ament_index_python.packages import get_package_prefix
 from intramural_base.transport import CommandPolicy
 from intramural_mission.planning import GridMap, compile_route
 from intramural_mission.trajectory import OmniTracker
+from intramural_mission.response import Plant
 
 ROOT = Path(__file__).resolve().parents[2]
 DT = .025
 SCENARIOS = {"nominal": (.2, .15), "delayed": (.4, .3)}
-
-
-class Plant:
-    """Assumed pure delay + first-order body velocity; never opens a device."""
-
-    def __init__(self, pose, delay, tau, dt=DT):
-        if not all(math.isfinite(v) for v in (delay, tau, dt)) or min(delay, tau) < 0 or dt <= 0:
-            raise ValueError("Invalid simulated response")
-        self.pose = np.array(pose, dtype=float)
-        self.velocity = np.zeros(2)
-        self.dt, self.tau = dt, tau
-        self.queue = deque(np.zeros(2) for _ in range(round(delay / dt)))
-
-    def step(self, command):
-        u = np.asarray(command, dtype=float)
-        if u.shape != (2,) or not np.isfinite(u).all():
-            raise ValueError("Finite planar command required")
-        self.queue.append(u.copy())
-        applied = self.queue.popleft()
-        alpha = 1. if self.tau == 0 else 1 - math.exp(-self.dt / self.tau)
-        self.velocity += alpha * (applied - self.velocity)
-        self.pose += self.velocity * self.dt
 
 
 class Worker:
@@ -267,6 +246,8 @@ def main():
                ROOT / "config/navigation-profiles.json", ROOT / "docker/sources.lock.json",
                ROOT / "nav_ws/src/intramural_mission/intramural_mission/trajectory.py",
                ROOT / "nav_ws/src/intramural_mission/intramural_mission/planning.py",
+               ROOT / "nav_ws/src/intramural_mission/intramural_mission/route_optimization.py",
+               ROOT / "nav_ws/src/intramural_mission/intramural_mission/response.py",
                ROOT / "nav_ws/src/intramural_base/intramural_base/transport.py"]
     pb = ROOT / "nav_ws/src/pb2025_sentry_nav/pb_omni_pid_pursuit_controller"
     sources += list(pb.rglob("*.cpp")) + list(pb.rglob("*.hpp"))
