@@ -1,0 +1,487 @@
+{
+  "scope": "Offline only; no new vehicle acceptance. Standard generated arena has 3 m pole spacing.",
+  "source_commit": "c9e1102562c15d9d96f3ca648ec6c5a9e6c37ac6",
+  "source_sha256": {
+    "config/navigation-profiles.json": "de032e239c0ba93713c00d3cf084cf224fc809e5cba4b4b3599ef15ba521f497",
+    "nav_ws/src/intramural_mission/intramural_mission/planning.py": "cbe48aaf71745257de1ae722a34490e84cd3bf4ac79263bd787304ed6e1debaf",
+    "nav_ws/src/intramural_mission/intramural_mission/response.py": "e41401e762e6813da43662dc29c84331cd990a377d7607fc9a8187b2149dcaa1",
+    "nav_ws/src/intramural_base/intramural_base/runtime.py": "d51cabb0627132f1d9feca8d7fe88e57d497c886a1f2ab2a4c523d0e873b4732",
+    "scripts/run.sh": "1ab38b4bca3eb5e2d5abd20aebf35396549dfe2e8336ac0ecd5ff9dfaabead8a"
+  },
+  "model_mismatch": {
+    "scope": "fixed controller and route per design/profile; plant response varies independently; 10Hz pose/40Hz control; no raw LiDAR guard",
+    "known_recorded_models": {
+      "passed": 12,
+      "total": 12
+    },
+    "outside_recorded_range_failures": 6,
+    "results": [
+      {
+        "design": "default",
+        "profile": "safe",
+        "controller_delay": 0.2,
+        "controller_tau": 0.15,
+        "plant": "model-2.json",
+        "plant_delay": 0.09168461485123885,
+        "plant_tau": 0.08902560958962843,
+        "route_id": "06dfdf6c0ef33ba7a9dd",
+        "passed": true,
+        "duration": 16.425,
+        "parking_error": 0.042436099082216974,
+        "minimum_clearance": 0.023497071660040437,
+        "max_tracking_error": 0.049865019873555565,
+        "winding": [
+          0.9990939784702387,
+          -1.0037539182700292
+        ],
+        "pose_update_period": 0.1
+      },
+      {
+        "design": "default",
+        "profile": "safe",
+        "controller_delay": 0.2,
+        "controller_tau": 0.15,
+        "plant": "model-4.json",
+        "plant_delay": 0.08984127804154006,
+        "plant_tau": 0.029510894483599153,
+        "route_id": "06dfdf6c0ef33ba7a9dd",
+        "passed": true,
+        "duration": 16.325,
+        "parking_error": 0.04286635576523773,
+        "minimum_clearance": 0.002785751990757191,
+        "max_tracking_error": 0.07273978229024883,
+        "winding": [
+          0.9990814488897769,
+          -1.0037939011827344
+        ],
+        "pose_update_period": 0.1
+      },
+      {
+        "design": "default",
+        "profile": "safe",
+        "controller_delay": 0.2,
+        "controller_tau": 0.15,
+        "plant": "model-6.json",
+        "plant_delay": 0.07683024285400192,
+        "plant_tau": 0.05243267286377716,
+        "route_id": "06dfdf6c0ef33ba7a9dd",
+        "passed": true,
+        "duration": 16.325,
+        "parking_error": 0.04291416290334571,
+        "minimum_clearance": 0.0023494551828512795,
+        "max_tracking_error": 0.07259177599968576,
+        "winding": [
+          0.9990804614302449,
+          -1.0037981597163785
+        ],
+        "pose_update_period": 0.1
+      },
+      {
+        "design": "default",
+        "profile": "safe",
+        "controller_delay": 0.2,
+        "controller_tau": 0.15,
+        "plant": "default-assumption",
+        "plant_delay": 0.2,
+        "plant_tau": 0.15,
+        "route_id": "06dfdf6c0ef33ba7a9dd",
+        "passed": true,
+        "duration": 16.925,
+        "parking_error": 0.03227202225595804,
+        "minimum_clearance": 0.047542354570685105,
+        "max_tracking_error": 0.026874548965390405,
+        "winding": [
+          0.9993326315660965,
+          -1.0028376918045736
+        ],
+        "pose_update_period": 0.1
+      },
+      {
+        "design": "default",
+        "profile": "safe",
+        "controller_delay": 0.2,
+        "controller_tau": 0.15,
+        "plant": "high-delay-stress",
+        "plant_delay": 0.4,
+        "plant_tau": 0.3,
+        "route_id": "06dfdf6c0ef33ba7a9dd",
+        "passed": false,
+        "reason": "predicted_clearance",
+        "minimum_clearance": -0.008912155850353997
+      },
+      {
+        "design": "default",
+        "profile": "candidate",
+        "controller_delay": 0.2,
+        "controller_tau": 0.15,
+        "plant": "model-2.json",
+        "plant_delay": 0.09168461485123885,
+        "plant_tau": 0.08902560958962843,
+        "route_id": "21388ff163eb306e31cc",
+        "passed": true,
+        "duration": 12.725000000000001,
+        "parking_error": 0.04144456749962186,
+        "minimum_clearance": 0.03393611113237276,
+        "max_tracking_error": 0.09562369447837414,
+        "winding": [
+          0.9985893838676956,
+          -1.0038825662369881
+        ],
+        "pose_update_period": 0.1
+      },
+      {
+        "design": "default",
+        "profile": "candidate",
+        "controller_delay": 0.2,
+        "controller_tau": 0.15,
+        "plant": "model-4.json",
+        "plant_delay": 0.08984127804154006,
+        "plant_tau": 0.029510894483599153,
+        "route_id": "21388ff163eb306e31cc",
+        "passed": true,
+        "duration": 12.725000000000001,
+        "parking_error": 0.0441151400067152,
+        "minimum_clearance": 0.017043383521124212,
+        "max_tracking_error": 0.12446985304090237,
+        "winding": [
+          0.9984944503653949,
+          -1.0041360128708166
+        ],
+        "pose_update_period": 0.1
+      },
+      {
+        "design": "default",
+        "profile": "candidate",
+        "controller_delay": 0.2,
+        "controller_tau": 0.15,
+        "plant": "model-6.json",
+        "plant_delay": 0.07683024285400192,
+        "plant_tau": 0.05243267286377716,
+        "route_id": "21388ff163eb306e31cc",
+        "passed": true,
+        "duration": 12.725000000000001,
+        "parking_error": 0.04425863024760837,
+        "minimum_clearance": 0.016092656743073298,
+        "max_tracking_error": 0.12376549770208567,
+        "winding": [
+          0.9984893745671994,
+          -1.0041496272338448
+        ],
+        "pose_update_period": 0.1
+      },
+      {
+        "design": "default",
+        "profile": "candidate",
+        "controller_delay": 0.2,
+        "controller_tau": 0.15,
+        "plant": "default-assumption",
+        "plant_delay": 0.2,
+        "plant_tau": 0.15,
+        "route_id": "21388ff163eb306e31cc",
+        "passed": true,
+        "duration": 13.025,
+        "parking_error": 0.03192974402392252,
+        "minimum_clearance": 0.04005201529214707,
+        "max_tracking_error": 0.05713822117198147,
+        "winding": [
+          0.9989305574170334,
+          -1.0029801202051023
+        ],
+        "pose_update_period": 0.1
+      },
+      {
+        "design": "default",
+        "profile": "candidate",
+        "controller_delay": 0.2,
+        "controller_tau": 0.15,
+        "plant": "high-delay-stress",
+        "plant_delay": 0.4,
+        "plant_tau": 0.3,
+        "route_id": "21388ff163eb306e31cc",
+        "passed": false,
+        "reason": "predicted_clearance",
+        "minimum_clearance": -0.014283064569793735
+      },
+      {
+        "design": "fitted",
+        "profile": "safe",
+        "controller_delay": 0.09168461485123885,
+        "controller_tau": 0.08902560958962843,
+        "plant": "model-2.json",
+        "plant_delay": 0.09168461485123885,
+        "plant_tau": 0.08902560958962843,
+        "route_id": "e2ad1ec0e01de668d558",
+        "passed": true,
+        "duration": 16.224999999999998,
+        "parking_error": 0.042093180518680315,
+        "minimum_clearance": 0.042152783640004174,
+        "max_tracking_error": 0.017037642669564132,
+        "winding": [
+          0.9991313901887805,
+          -1.0037094623034075
+        ],
+        "pose_update_period": 0.1
+      },
+      {
+        "design": "fitted",
+        "profile": "safe",
+        "controller_delay": 0.09168461485123885,
+        "controller_tau": 0.08902560958962843,
+        "plant": "model-4.json",
+        "plant_delay": 0.08984127804154006,
+        "plant_tau": 0.029510894483599153,
+        "route_id": "e2ad1ec0e01de668d558",
+        "passed": true,
+        "duration": 16.125,
+        "parking_error": 0.04192023363313406,
+        "minimum_clearance": 0.03616259400182452,
+        "max_tracking_error": 0.011597804608328788,
+        "winding": [
+          0.9991188858340713,
+          -1.0037014582909376
+        ],
+        "pose_update_period": 0.1
+      },
+      {
+        "design": "fitted",
+        "profile": "safe",
+        "controller_delay": 0.09168461485123885,
+        "controller_tau": 0.08902560958962843,
+        "plant": "model-6.json",
+        "plant_delay": 0.07683024285400192,
+        "plant_tau": 0.05243267286377716,
+        "route_id": "e2ad1ec0e01de668d558",
+        "passed": true,
+        "duration": 16.125,
+        "parking_error": 0.04183633108149129,
+        "minimum_clearance": 0.03500256043041981,
+        "max_tracking_error": 0.012282448152347757,
+        "winding": [
+          0.9991205624689241,
+          -1.0036940134470054
+        ],
+        "pose_update_period": 0.1
+      },
+      {
+        "design": "fitted",
+        "profile": "safe",
+        "controller_delay": 0.09168461485123885,
+        "controller_tau": 0.08902560958962843,
+        "plant": "default-assumption",
+        "plant_delay": 0.2,
+        "plant_tau": 0.15,
+        "route_id": "e2ad1ec0e01de668d558",
+        "passed": false,
+        "reason": "predicted_clearance",
+        "minimum_clearance": -0.009945142434358845
+      },
+      {
+        "design": "fitted",
+        "profile": "safe",
+        "controller_delay": 0.09168461485123885,
+        "controller_tau": 0.08902560958962843,
+        "plant": "high-delay-stress",
+        "plant_delay": 0.4,
+        "plant_tau": 0.3,
+        "route_id": "e2ad1ec0e01de668d558",
+        "passed": false,
+        "reason": "predicted_clearance",
+        "minimum_clearance": -0.009741240456936983
+      },
+      {
+        "design": "fitted",
+        "profile": "candidate",
+        "controller_delay": 0.09168461485123885,
+        "controller_tau": 0.08902560958962843,
+        "plant": "model-2.json",
+        "plant_delay": 0.09168461485123885,
+        "plant_tau": 0.08902560958962843,
+        "route_id": "4baca255062f7d8f626f",
+        "passed": true,
+        "duration": 11.925,
+        "parking_error": 0.04098528975655597,
+        "minimum_clearance": 0.036852695171536484,
+        "max_tracking_error": 0.029375558806666594,
+        "winding": [
+          0.999158922512522,
+          -1.0036086739895662
+        ],
+        "pose_update_period": 0.1
+      },
+      {
+        "design": "fitted",
+        "profile": "candidate",
+        "controller_delay": 0.09168461485123885,
+        "controller_tau": 0.08902560958962843,
+        "plant": "model-4.json",
+        "plant_delay": 0.08984127804154006,
+        "plant_tau": 0.029510894483599153,
+        "route_id": "4baca255062f7d8f626f",
+        "passed": true,
+        "duration": 11.825000000000001,
+        "parking_error": 0.04327913573356746,
+        "minimum_clearance": 0.02376518695138734,
+        "max_tracking_error": 0.026516422900603805,
+        "winding": [
+          0.999106896752588,
+          -1.0038151107337205
+        ],
+        "pose_update_period": 0.1
+      },
+      {
+        "design": "fitted",
+        "profile": "candidate",
+        "controller_delay": 0.09168461485123885,
+        "controller_tau": 0.08902560958962843,
+        "plant": "model-6.json",
+        "plant_delay": 0.07683024285400192,
+        "plant_tau": 0.05243267286377716,
+        "route_id": "4baca255062f7d8f626f",
+        "passed": true,
+        "duration": 11.825000000000001,
+        "parking_error": 0.04341399886461555,
+        "minimum_clearance": 0.022814926217132537,
+        "max_tracking_error": 0.026334820812904874,
+        "winding": [
+          0.9991039720398371,
+          -1.0038271928909808
+        ],
+        "pose_update_period": 0.1
+      },
+      {
+        "design": "fitted",
+        "profile": "candidate",
+        "controller_delay": 0.09168461485123885,
+        "controller_tau": 0.08902560958962843,
+        "plant": "default-assumption",
+        "plant_delay": 0.2,
+        "plant_tau": 0.15,
+        "route_id": "4baca255062f7d8f626f",
+        "passed": false,
+        "reason": "predicted_clearance",
+        "minimum_clearance": -0.006111142563488891
+      },
+      {
+        "design": "fitted",
+        "profile": "candidate",
+        "controller_delay": 0.09168461485123885,
+        "controller_tau": 0.08902560958962843,
+        "plant": "high-delay-stress",
+        "plant_delay": 0.4,
+        "plant_tau": 0.3,
+        "route_id": "4baca255062f7d8f626f",
+        "passed": false,
+        "reason": "predicted_clearance",
+        "minimum_clearance": -0.01967183199147644
+      }
+    ]
+  },
+  "sensors_serial_sim": {
+    "transport": "19-byte serial bridge -> PTY -> MCU without timeout -> Gazebo",
+    "localization": "Point-LIO + small_gicp; ground truth only for independent validation",
+    "lap": {
+      "run": 1,
+      "duration_sim_seconds": 31.195,
+      "parking_error_m": 0.038294692960985525,
+      "min_pole_clearance_m": 0.05254606469259765,
+      "min_boundary_clearance_m": 0.9084627005586965,
+      "maximum_absolute_yaw_rad": 5.249693755121658e-18,
+      "phases": [
+        "ENTER",
+        "LOWER",
+        "LOWER",
+        "LOWER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "LOWER_EXIT",
+        "RETURN"
+      ],
+      "samples": 1660,
+      "lower_winding_rad": 6.284515964692959,
+      "upper_winding_rad": -6.278522722031445,
+      "max_reference_deviation_m": 0.07926566244240156
+    },
+    "cancel": {
+      "state": "CANCELLED",
+      "actual_motion_before_cancel": true,
+      "zero_command_and_stationary": true,
+      "reset": "IDLE"
+    },
+    "command_stats": {
+      "maximum_speed_mps": 0.6500000000000001,
+      "maximum_absolute_wz": 0.0,
+      "nonfinite": 0
+    },
+    "shutdown": {
+      "exit_code": 0,
+      "child_failures": false,
+      "forced_termination": false,
+      "gui": false,
+      "transport": "serial-sim"
+    }
+  },
+  "obstacle_resume": [
+    {
+      "scenario": "entry",
+      "target": [
+        1.9431148567963648,
+        0.3231940057547629
+      ],
+      "blocked_segment": 0,
+      "blocked_hold_wall_seconds": 1.5,
+      "moving_pose_at_insertion": [
+        0.18880176944556398,
+        0.0684558721804924
+      ],
+      "insertion_distance_m": 1.772711461334642,
+      "blocked_pose": [
+        0.3554947803717711,
+        0.12332786584146026
+      ],
+      "obstacle_standoff_m": 1.6001512368992739,
+      "parking_error_m": 0.0375575208106532,
+      "min_static_clearance_m": 0.05315720729046797,
+      "history": [
+        "ENTER",
+        "LOWER",
+        "LOWER",
+        "LOWER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "UPPER",
+        "LOWER_EXIT",
+        "RETURN"
+      ],
+      "elapsed_sim_seconds": 35.715,
+      "samples": 1846,
+      "persistent": false,
+      "bypass_count": 0,
+      "min_dynamic_clearance_m": null
+    }
+  ],
+  "regression": {
+    "initial_full_suite": {
+      "total": 147,
+      "passed": 146,
+      "failed": 1,
+      "reason": "Obsolete test asserted launch action positions; all functional motion-gate checks passed."
+    },
+    "correction": "Removed launch-layout assertion; production behavior unchanged.",
+    "affected_suite_rerun": {
+      "total": 5,
+      "passed": 5
+    },
+    "planning_tests": 3,
+    "field_geometry_tests": 5,
+    "runtime_tests": 2
+  },
+  "limits": [
+    "Recorded response models do not establish all speeds, battery states or floors.",
+    "Six out-of-envelope response cases remain failed and are retained.",
+    "Simulation durations are not comparable to the 18.554 s real-vehicle record.",
+    "No new live vehicle run or NUC deployment."
+  ]
+}
