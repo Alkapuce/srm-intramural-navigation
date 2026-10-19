@@ -106,10 +106,13 @@ class Adapter(Node):
     def receive_trajectory(self,msg):
         d=json.loads(msg.data)
         points=np.asarray(d['points'],dtype=float)
+        pose=np.asarray(d.get('pose'),dtype=float)
         self.collision_context=(d['run_id'],d['route_id'])
-        if points.ndim!=2 or points.shape[1]!=2 or not np.isfinite(points).all() or not math.isfinite(d['stamp']):
+        if (points.ndim!=2 or points.shape[1]!=2 or not np.isfinite(points).all() or not math.isfinite(d['stamp'])
+                or pose.shape!=(3,) or not np.isfinite(pose).all() or not math.isfinite(d['pose_stamp'])):
             self.collision_path=None
             return
+        self.collision_pose, self.collision_pose_stamp = pose, d['pose_stamp']
         from geometry_msgs.msg import PoseStamped
         path=RosPath();path.header.frame_id='map';path.header.stamp.sec=int(d['stamp'])
         path.header.stamp.nanosec=int((d['stamp']-int(d['stamp']))*1e9)
@@ -121,12 +124,24 @@ class Adapter(Node):
         self.collision_path = msg
 
     def body_path(self):
+        self.path_problem = ''
         if self.collision_path is None or len(self.collision_path.poses) < 2:
+            self.path_problem = 'NO_PATH'
             return None
         if self.c.get('navigation_engine')=='trajectory':
-            if getattr(self,'collision_context',None)!=getattr(self,'mission_context',None):return None
+            if getattr(self,'collision_context',None)!=getattr(self,'mission_context',None):
+                self.path_problem = 'CONTEXT_MISMATCH'
+                return None
+            now=self.get_clock().now().nanoseconds/1e9
             stamp=self.collision_path.header.stamp.sec+self.collision_path.header.stamp.nanosec/1e9
-            if abs(self.get_clock().now().nanoseconds/1e9-stamp)>.3:return None
+            if abs(now-stamp)>.3 or abs(now-self.collision_pose_stamp)>.25:
+                self.path_problem = 'PATH_OR_POSE_STALE'
+                return None
+            # Match the controller's observed pose instead of a second, independently received TF.
+            x,y,yaw=self.collision_pose
+            co,si=math.cos(yaw),math.sin(yaw)
+            return [[co*(p.pose.position.x-x)+si*(p.pose.position.y-y),
+                     -si*(p.pose.position.x-x)+co*(p.pose.position.y-y)] for p in self.collision_path.poses]
         try:
             t = self.path_tf.lookup_transform('base_footprint', self.collision_path.header.frame_id, rclpy.time.Time())
         except TransformException:
@@ -352,6 +367,7 @@ class Adapter(Node):
                         "raw_lidar_hazard": self.hazard,
                         "raw_hazard_unconfirmed": getattr(self, "pending_raw_stamp", None) is not None and not self.hazard,
                         "collision_check": self.guard_mode,
+                        "path_problem": getattr(self, "path_problem", ''),
                         "path_speed_limit": speed_limit,
                         "command": values[:2], "output": self.output,
                         "input_ages": {k: now-self.last.get(k, 0.) for k in ('command','odom','lidar','imu')},

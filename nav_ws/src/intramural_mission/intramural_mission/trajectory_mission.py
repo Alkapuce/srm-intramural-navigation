@@ -267,6 +267,8 @@ class TrajectoryMission(Node):
                             run_id=self.run_id,
                             route_id=self.plan.route_id,
                             stamp=self.get_clock().now().nanoseconds / 1e9,
+                            pose=self.pose + [self.yaw] if self.pose is not None else None,
+                            pose_stamp=self.pose_stamp,
                             points=future,
                         )
                     )
