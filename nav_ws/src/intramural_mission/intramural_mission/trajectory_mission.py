@@ -144,7 +144,7 @@ class TrajectoryMission(Node):
             return response
         try:
             self.plan, self.route, self.report = compile_route(
-                self.c, self.static_map, self.pose if from_here else None
+                self.c, self.static_map, self.pose
             )
             self.measured = GridMap(self.static_map, self.c)
         except ValueError as exc:
@@ -195,6 +195,7 @@ class TrajectoryMission(Node):
             route_id=self.plan.route_id,
             map_id=self.report["map_id"],
             config=self.c,
+            execution_plan=self.report,
             sources_sha256=self.source_hashes,
             dependency_lock_sha256=hashlib.sha256(
                 (root / "docker/sources.lock.json").read_bytes()

@@ -81,6 +81,17 @@ def rollout(c, delay=0.2, tau=0.15, gain=1.0, noise=0.0, seed=0, plan=None):
 
 
 class TrajectoryTests(unittest.TestCase):
+    def test_response_scaling_slows_curves_without_lowering_straight_cruise(self):
+        c=dict(BASE,**PROFILES['candidate'])
+        straight=[('RETURN',[[x,0.] for x in np.linspace(0.,12.,241)])]
+        plan=RoutePlan.build(straight,dict(c,route_speed_scale=.35))
+        self.assertAlmostEqual(max(plan.speed),c['max_speed'])
+        full=RoutePlan.build(segments(c),c)
+        scaled=RoutePlan.build(segments(c),dict(c,route_speed_scale=.35))
+        curves=np.abs(full.curvature)>.5
+        self.assertLess(max(np.array(scaled.speed)[curves]),max(np.array(full.speed)[curves])*.6)
+        self.assertTrue(all(scaled.speed[i]>0 for _,i in scaled.gates[:-1]))
+
     def test_planned_parking_does_not_inherit_emergency_braking_distance(self):
         c = dict(BASE, **PROFILES["candidate"])
         route = [("RETURN", [[x, 0.] for x in np.linspace(0., 6., 121)])]
@@ -124,6 +135,17 @@ class TrajectoryTests(unittest.TestCase):
         self.assertEqual(result["phase"], 9)
         self.assertLessEqual(result["max_command"], c["max_speed"] + 1e-7)
         self.assertLess(result["parking_error"], 0.12, result)
+
+    def test_gain_error_delay_and_position_noise_preserve_ordered_completion(self):
+        c=dict(BASE,**PROFILES['safe'],route_speed_scale=.5)
+        for delay,tau,gain in ((.2,.2,.85),(.3,.2,1.15)):
+            with self.subTest(delay=delay,gain=gain):
+                result,_=rollout(c,delay=delay,tau=tau,gain=gain,noise=.003)
+                self.assertTrue(result['done'],result)
+                self.assertEqual(result['winding'],[1,-1])
+                self.assertEqual(result['phase'],9)
+                self.assertGreater(result['minimum_pole_clearance'],0.)
+                self.assertLess(result['parking_error'],c['parking_tolerance'])
 
     def test_duplicate_geometry_and_finite_inputs(self):
         c = dict(BASE, **PROFILES["safe"])

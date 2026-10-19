@@ -5,6 +5,7 @@ import math
 import numpy as np
 from intramural_base.transport import CommandPolicy
 from intramural_mission.trajectory import OmniTracker
+from intramural_mission.safety import response_horizon
 
 
 class Plant:
@@ -38,6 +39,8 @@ def predict_execution(plan, c, measured, plant_response=None):
     policy = CommandPolicy([[1,0],[0,1]],c["max_speed"],c["max_acceleration"],c["max_speed"])
     policy.enabled,policy.last_tick = True,-plant.dt
     minimum, maximum, finished = math.inf,0.,None
+    stopping_clearance = math.inf
+    coast_horizon = response_horizon(c)
     turns = np.zeros(2)
     observed,source_stamp = plant.pose.copy(),0.
     pose_period = c.get("pose_update_period",.1)
@@ -60,9 +63,13 @@ def predict_execution(plan, c, measured, plant_response=None):
             a,b = previous-c[key],plant.pose-c[key]
             turns[i] += math.atan2(a[0]*b[1]-a[1]*b[0],np.dot(a,b))
         gap = float(measured.clearance([plant.pose])[0])
+        coast = plant.velocity*coast_horizon
+        sweep = plant.pose + np.linspace(0.,1.,max(2,math.ceil(np.linalg.norm(coast)/(.5*measured.res))))[:,None]*coast
+        stopping_clearance = min(stopping_clearance,float(min(measured.clearance(sweep))))
         minimum,maximum = min(minimum,gap),max(maximum,detail["error"])
-        if gap <= 0 or detail["error"] > c["max_tracking_error"]:
-            return dict(passed=False,reason="predicted_clearance" if gap <= 0 else "predicted_tracking",minimum_clearance=minimum)
+        if gap <= 0 or stopping_clearance <= 0 or detail["error"] > c["max_tracking_error"]:
+            return dict(passed=False,reason="predicted_clearance" if gap <= 0 else "predicted_stopping_clearance" if stopping_clearance <= 0 else "predicted_tracking",
+                        minimum_clearance=minimum,minimum_stopping_clearance=stopping_clearance)
         if finished is None and detail["done"]:finished = t+plant.dt
         if finished is not None and t-finished >= delay+5*tau:
             parking = float(np.linalg.norm(plant.pose-c["parking"]))
@@ -71,5 +78,6 @@ def predict_execution(plan, c, measured, plant_response=None):
                       and np.max(np.abs(winding-reference_turns)) < .15)
             return dict(passed=bool(passed),duration=finished,parking_error=parking,
                         minimum_clearance=minimum,max_tracking_error=maximum,winding=winding.tolist(),pose_update_period=pose_period,
+                        minimum_stopping_clearance=stopping_clearance,
                         response_delay=float(delay),response_tau=float(tau))
     return dict(passed=False,reason="predicted_timeout",minimum_clearance=minimum)

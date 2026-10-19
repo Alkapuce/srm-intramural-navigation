@@ -16,7 +16,8 @@ class GridMap:
         if grid.header.frame_id != "map":
             raise ValueError("Static grid must be in map frame")
         self.grid, self.c = grid, c
-        self.res = grid.info.resolution
+        # OccupancyGrid serializes resolution as float32; YAML and live maps must share an identity.
+        self.res = round(float(grid.info.resolution),8)
         if self.res <= 0 or grid.info.width * grid.info.height != len(grid.data):
             raise ValueError("Invalid map dimensions")
         self.free = (
@@ -134,7 +135,7 @@ class GridMap:
                 yield path.tolist()
 
 
-def _compile(c, measured, start=None, route=None, geometry=None, scales=None):
+def _compile_candidates(c, measured, start=None, route=None, geometry=None, scales=None):
     route = route or (
         primitives(c)
         if c.get("mission_variant") == "primitives"
@@ -161,7 +162,7 @@ def _compile(c, measured, start=None, route=None, geometry=None, scales=None):
             raise ValueError("No observed smooth tangent approach from current pose")
         if geometry is not None and math.dist(start,c["parking"]) < 1e-6:
             routes = [raw[:-1]+[("RETURN",list(reversed(raw[0][1])))] for raw in routes]
-    candidates = []
+    candidates, seen = [], set()
     for raw in routes:
         for scale in (scales or (
             (1.25, 0.9, 0.6, 0.35)
@@ -170,6 +171,10 @@ def _compile(c, measured, start=None, route=None, geometry=None, scales=None):
             else (None,)
         )):
             candidate = smooth_route(raw, c, scale, geometry) if scale is not None else raw
+            identity = (tuple((phase,len(points)) for phase,points in candidate),
+                        np.round(np.vstack([points for _,points in candidate]),9).tobytes())
+            if identity in seen:continue
+            seen.add(identity)
             try:
                 plan = RoutePlan.build(
                     candidate,
@@ -197,46 +202,42 @@ def _compile(c, measured, start=None, route=None, geometry=None, scales=None):
             candidates.append((duration, plan, candidate, scale))
     if not candidates:
         raise ValueError("No smooth ordered route fits the observed free space")
-    duration, plan, route, scale = min(candidates, key=lambda v: v[0])
-    return (
-        plan,
-        route,
-        dict(
+    return [(plan, route, dict(
             map_id=measured.map_id,
             transition_scale=scale,
             minimum_clearance=min(plan.clearance),
             curvature_peak=max(map(abs, plan.curvature)),
             expected_duration=duration,
-        ),
-    )
+        )) for duration,plan,route,scale in candidates]
 
 
 def compile_route(c, grid, start=None):
     measured = GridMap(grid, c)
     if not c.get("optimize_route") or c.get("mission_variant", "figure8") != "figure8":
-        return _compile(c,measured,start)
+        return min(_compile_candidates(c,measured,start),key=lambda row:row[2]['expected_duration'])
     from intramural_mission.route_optimization import spline_route, shapes, refine
     family = c.get("route_family", "joint")
     if family not in ("circles", "joint"):
         raise ValueError("route_family must be circles or joint")
     started = time.monotonic()
     results, evaluated = [], 0
-    def evaluate(shape, angle, scale=None):
+    def evaluate(shape, angle, scale=None, speed_scale=1.):
         nonlocal evaluated
-        evaluated += 1
-        config = dict(c,entry_angle=angle)
+        config = dict(c,entry_angle=angle,route_speed_scale=speed_scale)
         raw,geometry = (None,None) if shape is None else spline_route(config,shape,angle)
-        scales = ((1.25,.9,.7,.6,.35) if start is not None else
-                  (scale,) if scale is not None else None if shape is None else (1.25,.7))
+        scales = ((1.25,.9,.7,.6,.35) if start is not None or scale is None else (scale,))
         try:
-            plan,route,report = _compile(config,measured,start,raw,geometry,scales)
+            candidates = _compile_candidates(config,measured,start,raw,geometry,scales)
         except ValueError:
+            evaluated += 1
             return
-        report["optimized_route"] = dict(shape=shape,entry_angle=angle,transition_scale=report["transition_scale"])
-        results.append((plan,route,report))
+        evaluated += len(candidates)
+        for plan,route,report in candidates:
+            report["optimized_route"] = dict(shape=shape,entry_angle=angle,transition_scale=report["transition_scale"],speed_scale=speed_scale)
+            results.append((plan,route,report))
     fixed = c.get("optimized_route")
     if fixed:
-        evaluate(fixed["shape"],fixed["entry_angle"],fixed["transition_scale"])
+        evaluate(fixed["shape"],fixed["entry_angle"],fixed["transition_scale"],fixed.get('speed_scale',1.))
     else:
         for angle in (0.,math.pi):
             evaluate(None,angle)
@@ -251,29 +252,41 @@ def compile_route(c, grid, start=None):
                     evaluate(shape,best["entry_angle"])
     if not results:
         raise ValueError("No ordered route fits the map and complete pole/vehicle envelopes")
-    if not fixed:
-        from intramural_mission.response import predict_execution
-        reserve = c.get('execution_clearance', 0.)
-        def fits(prediction):
-            return prediction['passed'] and prediction['minimum_clearance'] >= reserve
-        for plan,_,report in results:
-            report["execution_prediction"] = predict_execution(plan,c,measured)
-        feasible = [x for x in results if fits(x[2]["execution_prediction"])]
-        if not feasible:
-            raise ValueError("No geometrically valid route can be tracked with the configured response model")
-        for plan,route,report in sorted(feasible,key=lambda x:x[2]['execution_prediction']['duration']):
+    from intramural_mission.response import predict_execution
+    reserve = c.get('execution_clearance', 0.)
+    def fits(prediction):
+        return (prediction['passed'] and prediction['minimum_clearance'] >= reserve
+                and prediction.get('minimum_stopping_clearance',math.inf) >= reserve)
+    selected = None
+    for speed_scale in (1.,.75,.5,.35,.25):
+        variants = []
+        for original,route,original_report in results:
+            actual_scale = original_report['optimized_route'].get('speed_scale',1.)*speed_scale
+            plan = original if speed_scale == 1. else RoutePlan.build(
+                route,dict(c,route_speed_scale=actual_scale),
+                lambda p:measured.clearance(p)-c['path_spacing']/2,measured.map_id)
+            report = dict(original_report,optimized_route=dict(original_report['optimized_route'],speed_scale=actual_scale))
+            report['expected_duration'] = sum(2*(b-a)/max(1e-9,x+y)
+                for a,b,x,y in zip(plan.s,plan.s[1:],plan.speed,plan.speed[1:]))
+            variants.append((plan,route,report))
+        for plan,route,report in sorted(variants,key=lambda x:(
+                fixed is not None and x[2]['transition_scale'] != fixed['transition_scale'],
+                x[2]['expected_duration'])):
+            report['execution_prediction'] = predict_execution(plan,c,measured)
+            if not fits(report['execution_prediction']):continue
             predictions=[]
-            for delay,tau in c.get('response_models',[]):
+            for delay,tau in list(c.get('response_models',[]))+list(c.get('response_stress_models',[])):
                 prediction=predict_execution(plan,c,measured,plant_response=(delay,tau))
                 predictions.append(dict(delay=delay,tau=tau,**prediction))
                 if not fits(prediction):break
             if all(fits(p) for p in predictions):
                 report['response_predictions']=predictions
+                selected = (plan,route,report)
                 break
-        else:
-            raise ValueError('No route fits the configured response models and complete vehicle envelope')
-    else:
-        plan,route,report = results[0]
+        if selected is not None:break
+    if selected is None:
+        raise ValueError('No route fits the configured response models and complete vehicle envelope')
+    plan,route,report = selected
     report.update(optimization="bounded joint geometry/speed search",route_family=family,candidates_evaluated=evaluated,
                   planning_seconds=time.monotonic()-started)
     if not fixed:

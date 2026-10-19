@@ -60,16 +60,19 @@ class RoutePlan:
             / (ds[:-1] * ds[1:] * np.linalg.norm(a + b, axis=1)).clip(1e-12)
         )
         curvature[[0, -1]] = curvature[[1, -2]]
+        speed_scale = limits.get('route_speed_scale', 1.)
+        if not math.isfinite(speed_scale) or not 0 < speed_scale <= 1:
+            raise ValueError('Route speed scale must be in (0, 1]')
         cap = np.full(len(p), limits["max_speed"], dtype=float)
         cap = np.minimum(
             cap,
-            np.sqrt(
+            speed_scale * np.sqrt(
                 limits["lateral_acceleration"] / np.maximum(np.abs(curvature), 1e-9)
             ),
         )
         curvature_rate = np.abs(np.gradient(curvature, s)) + curvature**2
         cap = np.minimum(
-            cap, np.cbrt(limits.get("max_jerk", 6.0) / np.maximum(curvature_rate, 1e-9))
+            cap, speed_scale * np.cbrt(limits.get("max_jerk", 6.0) / np.maximum(curvature_rate, 1e-9))
         )
         # Planned parking uses commanded deceleration; emergency stopping stays independent.
         braking = min(limits.get("terminal_deceleration", limits["braking_acceleration"]), limits["max_acceleration"])
@@ -176,6 +179,8 @@ class OmniTracker:
         self.previous_stamp = None
         self.elapsed = 0.0
         self.velocity = np.zeros(2)
+        models = limits.get('response_models', [])
+        self.response_tau = limits.get('response_tau', float(np.median(models,axis=0)[1]) if models else .15)
 
     def stop(self):
         self.command[:] = 0.0
@@ -191,7 +196,7 @@ class OmniTracker:
             observed_dt = stamp - self.previous_stamp
             observed = (p - self.previous_pose) / observed_dt
             if np.linalg.norm(observed) < 2 * self.limits["max_speed"]:
-                self.velocity += min(1.0, observed_dt / 0.15) * (
+                self.velocity += min(1.0, observed_dt / 0.05) * (
                     observed - self.velocity
                 )
         if self.previous_stamp is None or stamp > self.previous_stamp:
@@ -211,9 +216,11 @@ class OmniTracker:
         remaining = self.plan.s[-1] - s
         delay = self.limits.get("tracking_prediction_delay", self.limits.get("response_delay", 0.2)) + max(0.0, pose_age)
         predicted = p + self.velocity * delay
-        ahead = min(
-            self.plan.s[-1], s + max(0.06, np.linalg.norm(self.velocity) * delay)
-        )
+        lookahead = max(.02, np.linalg.norm(self.velocity)*delay)
+        lo = max(0,int(np.searchsorted(self.plan.s,s))-1)
+        hi = min(len(self.plan.s),int(np.searchsorted(self.plan.s,s+lookahead))+1)
+        curvature = max(map(abs,self.plan.curvature[lo:hi]),default=0.)
+        ahead = min(self.plan.s[-1],s+min(lookahead,.5/max(curvature,1e-9)))
         target, tangent, reference = self.plan.sample(ahead)
         offset = target - predicted
         along = float(np.dot(offset, tangent))
@@ -226,6 +233,11 @@ class OmniTracker:
             reference * tangent - self.velocity
         )
         desired = reference * tangent + feedback
+        # Invert the fitted velocity lag for the reference acceleration, before bounded correction.
+        _, next_tangent, next_reference = self.plan.sample(ahead + max(.05,reference)*.05)
+        feedforward_acceleration = (next_reference*next_tangent-reference*tangent)/.05
+        feedforward_acceleration *= min(1., self.limits['max_acceleration']/max(1e-9,np.linalg.norm(feedforward_acceleration)))
+        desired += self.response_tau * feedforward_acceleration
         cap = self.limits["max_speed"]
         if error > 0.08:
             cap *= max(0.25, 1 - (error - 0.08) / 0.25)
@@ -264,6 +276,7 @@ class OmniTracker:
             speed_reference=reference,
             velocity_observed=self.velocity.tolist(),
             feedforward=(reference * tangent).tolist(),
+            feedforward_acceleration=feedforward_acceleration.tolist(),
             feedback=feedback.tolist(),
             command_map=command.tolist(),
         )

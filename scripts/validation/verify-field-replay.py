@@ -27,6 +27,10 @@ def main():
     parser.add_argument('--sessions', nargs='+', default=[f'full-flow-20261020-{i:02}' for i in range(1,5)])
     args = parser.parse_args()
     output = args.output.resolve()
+    if any(not name or Path(name).name != name or name in ('.','..') for name in args.sessions):
+        parser.error('Session names must be single directory names')
+    if output.is_relative_to(args.archive.resolve()):
+        parser.error('Replay output must not modify the input archive')
     if output.exists() or not any(output.is_relative_to(ROOT/d) and output != ROOT/d for d in ('artifacts','cache')):
         parser.error('Choose a new project artifacts/ or cache/ directory')
     output.mkdir(parents=True)
