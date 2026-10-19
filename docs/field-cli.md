@@ -55,6 +55,27 @@ srm-map
 | `navigation/route-analysis.json` | 起点来源、候选搜索与最终路线检查 |
 | `reload-check/`、`result.json` | 重载定位结果、阶段记录和进程收尾结果 |
 
+建图结束会直接列出地图与路线文件的完整位置，并在终端画出**路线附近的地图、起点、两桩和参考速度曲线**。`S` 是起点/返回点，`L/U` 是下桩/上桩，`*` 是路线，`#` 是障碍，`?` 是未知；彩色终端用蓝到红表示低到高的参考速度。高清图仍保存在 `navigation/route-plan.png`，字符缩略图不用于净空计算。
+
+稍后可随时重看，不需要启动 ROS、雷达或底盘：
+
+```bash
+# 选择最新地图或导航产物；若最新地图尚无路线，则只显示地图
+srm-nav preview
+
+# 可传本次建图总目录、map/ 或 navigation/
+srm-nav preview artifacts/mapping/本次
+srm-nav preview artifacts/mapping/本次/navigation --width 100
+
+# 在项目根目录保存纯文本记录；管道输出默认也没有颜色控制符
+srm-nav preview --no-color > artifacts/preview.txt
+
+# 建图完成只打印保存位置，跳过自动字符图
+srm-map --no-preview
+```
+
+终端自动适应宽度，`--width` 可指定 30–160 列；普通 SSH 无需图形显示或专用终端图像协议。各处理阶段显示中文名称、日志文件和实际耗时，完整机器可读状态保存在 `result.json`。若缩略预览读取失败，提示原因并保留建图结果，不自动发车。
+
 自动识桩依据细高物体的几何形状与高度连续性；只有恰好两个无歧义候选，且完整八字位于已观测的可通行区域，才生成可供 `drive` 使用的配置。仍应核对识别结果与现场两桩、停车点一致。它没有识别任意场景中“比赛桩”语义的能力。
 
 `status=complete` 表示建图与重载流程结束；若 `field_geometry_detected=false`，地图仍保留，但没有可直接发车的两桩配置。阅读 `navigation/field-detection.json` 与 `field-detection.log`，补扫缺失区域或排除候选歧义，不要把未知区填白。

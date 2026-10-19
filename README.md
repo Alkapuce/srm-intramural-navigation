@@ -144,4 +144,6 @@ scripts/candidate.sh serial-sim
 
 在 NUC 仓库根目录执行 `scripts/install-cli.sh` 注册个人全局命令。`srm-map` 覆盖场地后停在本次起始位置，按 Enter 自动校验、导图、重定位并记录当前车位，随后识别两桩，联合生成平滑的整圈路线与速度曲线；支持 `--duration` 定时和 `--bag` 复用。生成配置后，分别运行 `srm-nav sensors` 与 `srm-nav drive`，再用第三终端 `start` 或 `start-here` 发车。默认选择最新有效图，也可传入路径固定版本。操作见[现场手册](docs/field-cli.md)，几何与速度联合搜索、执行模型及结果见[整圈轨迹导航](docs/architecture/trajectory-navigation.md)。
 
+建图结束会显示保存位置，以及终端中的地图、规划路线和速度曲线缩略图；`srm-nav preview` 可随时只读重看，支持普通 SSH。高清图位于导航目录的 `route-plan.png`，需要简洁输出时使用 `srm-map --no-preview`。
+
 分步建图与锁定待机的 TF 接线见[实车导航待机](docs/vehicle/navigation-standby.md)；默认待机不打开串口，显式 `drive` 才启用已确认配置的底盘通信。正式场地需现场重新建图、确认桩位和配准；本次 1:1 速度初值尚未做定量测速。模拟下位机刻意没有超时停车，断链后可能继续执行末帧；上位机看门狗不能替代下位机或硬件停机机制。
