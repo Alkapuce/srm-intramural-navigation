@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MissionConsoleTests(unittest.TestCase):
-    def scenario(self, outcome, interrupt=False, busy=False):
+    def scenario(self, outcome, interrupt=False, busy=False, planning_delay=0., status_delay=0.):
         rclpy.init(domain_id=97)
         node=rclpy.create_node('external_mission_service')
         pub=node.create_publisher(String, '/intramural_robot/mission/status',
@@ -33,6 +33,7 @@ class MissionConsoleTests(unittest.TestCase):
             counts['start']+=1
             if busy:
                 res.message='Mission already running';return res
+            time.sleep(planning_delay)
             began[0]=time.monotonic()
             status.update(state='RUNNING',phase='ENTER',segment=0,run=2,run_id='console-test',
                           elapsed_sim_seconds=0.,history=[dict(sim_time=1792421431.328,segment=0)])
@@ -42,6 +43,7 @@ class MissionConsoleTests(unittest.TestCase):
         def publish():
             if began[0] is not None and status['state']=='RUNNING':
                 elapsed=time.monotonic()-began[0]
+                if elapsed < status_delay:return
                 status.update(elapsed_sim_seconds=elapsed,pose=[elapsed*.2,0.],tracking=dict(error=.012))
                 if elapsed>.6 and not interrupt:
                     status.update(state=outcome,phase='RETURN',segment=9,
@@ -87,6 +89,16 @@ class MissionConsoleTests(unittest.TestCase):
         code,out,counts=self.scenario('DONE',interrupt=True)
         self.assertEqual(code,130,out);self.assertEqual(counts['cancel'],1,out)
         self.assertIn('Ctrl-C',out);self.assertIn('Cancellation latched',out)
+
+    def test_planning_gap_is_not_a_running_status_failure(self):
+        code,out,counts=self.scenario('DONE',planning_delay=2.5,status_delay=.15)
+        self.assertEqual(code,0,out)
+        self.assertEqual(counts,dict(start=1,reset=1,cancel=0))
+
+    def test_missing_status_after_start_still_requests_cancellation(self):
+        code,out,counts=self.scenario('DONE',status_delay=2.5)
+        self.assertEqual(code,2,out)
+        self.assertEqual(counts['cancel'],1,out)
 
     def test_saved_result_stops_at_first_terminal_status(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'cache') as temp:

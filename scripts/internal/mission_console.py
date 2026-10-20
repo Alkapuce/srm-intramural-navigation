@@ -130,6 +130,8 @@ def start(operation):
             call('reset')
         print('开始任务，正在规划接入…', flush=True)
         print(call(operation.replace('-', '_')), flush=True)
+        # Planning pauses status publication; start its watchdog after service acceptance.
+        received = time.monotonic()
         print('持续显示进度；Ctrl-C 取消任务。', flush=True)
         shown, printed = None, 0.
         while True:
