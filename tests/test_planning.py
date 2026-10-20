@@ -9,12 +9,32 @@ from nav_msgs.msg import OccupancyGrid
 from intramural_mission.planning import compile_route, GridMap
 from intramural_mission.response import predict_execution
 from intramural_mission.route import segments
-from intramural_mission.trajectory import OmniTracker
+from intramural_mission.trajectory import OmniTracker, RoutePlan
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlanningTests(unittest.TestCase):
+    def test_prediction_rejects_the_required_reserve_before_finishing_a_failed_candidate(self):
+        c=json.loads((ROOT/'config/arena.json').read_text())
+        c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['safe'])
+        c.update(mission_variant='return',parking=[2.,0.],lower_pole=[-5.,-5.],upper_pole=[-5.,5.])
+        g=OccupancyGrid();g.header.frame_id='map';g.info.width=100;g.info.height=40
+        g.info.resolution=.05;g.info.origin.position.x=g.info.origin.position.y=-1.
+        g.info.origin.orientation.w=1.;g.data=[0]*4000
+        measured=GridMap(g,c)
+        plan=RoutePlan.build([('RETURN',[[x,0.] for x in np.linspace(0.,2.,41)])],c)
+        complete=predict_execution(plan,c,measured)
+        self.assertTrue(complete['passed'],complete)
+        self.assertLess(complete['minimum_clearance'],.7)
+        rejected=predict_execution(plan,c,measured,required_clearance=.7)
+        self.assertFalse(rejected['passed'])
+        self.assertEqual(rejected['reason'],'predicted_execution_clearance')
+        self.assertNotIn('duration',rejected)
+        for bad in (-.1,float('nan')):
+            with self.assertRaises(ValueError):
+                predict_execution(plan,c,measured,required_clearance=bad)
+
     def test_serialized_map_resolution_has_the_same_geometry_and_identity(self):
         import copy
         g=OccupancyGrid();g.header.frame_id='map';g.info.width=g.info.height=20

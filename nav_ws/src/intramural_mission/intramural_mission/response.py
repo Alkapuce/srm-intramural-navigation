@@ -27,8 +27,10 @@ class Plant:
         self.pose += self.velocity*self.dt
 
 
-def predict_execution(plan, c, measured, plant_response=None):
+def predict_execution(plan, c, measured, plant_response=None, required_clearance=0.):
     """Score executable model time, including response and the final zero-command tail."""
+    if not math.isfinite(required_clearance) or required_clearance < 0:
+        raise ValueError('Finite nonnegative execution clearance required')
     if plant_response is None:
         models = c.get("response_models")
         # Recorded response predicts normal driving; collision latency is a separate bound.
@@ -62,13 +64,14 @@ def predict_execution(plan, c, measured, plant_response=None):
         for i,key in enumerate(("lower_pole","upper_pole")):
             a,b = previous-c[key],plant.pose-c[key]
             turns[i] += math.atan2(a[0]*b[1]-a[1]*b[0],np.dot(a,b))
-        gap = float(measured.clearance([plant.pose])[0])
         coast = plant.velocity*coast_horizon
         sweep = plant.pose + np.linspace(0.,1.,max(2,math.ceil(np.linalg.norm(coast)/(.5*measured.res))))[:,None]*coast
-        stopping_clearance = min(stopping_clearance,float(min(measured.clearance(sweep))))
+        clearances = measured.clearance(sweep)
+        gap = float(clearances[0])
+        stopping_clearance = min(stopping_clearance,float(min(clearances)))
         minimum,maximum = min(minimum,gap),max(maximum,detail["error"])
-        if gap <= 0 or stopping_clearance <= 0 or detail["error"] > c["max_tracking_error"]:
-            return dict(passed=False,reason="predicted_clearance" if gap <= 0 else "predicted_stopping_clearance" if stopping_clearance <= 0 else "predicted_tracking",
+        if gap <= 0 or stopping_clearance <= 0 or detail["error"] > c["max_tracking_error"] or min(gap,stopping_clearance) < required_clearance:
+            return dict(passed=False,reason="predicted_clearance" if gap <= 0 else "predicted_stopping_clearance" if stopping_clearance <= 0 else "predicted_tracking" if detail['error'] > c['max_tracking_error'] else "predicted_execution_clearance",
                         minimum_clearance=minimum,minimum_stopping_clearance=stopping_clearance)
         if finished is None and detail["done"]:finished = t+plant.dt
         if finished is not None and t-finished >= delay+5*tau:

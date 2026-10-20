@@ -1,6 +1,7 @@
 """Immutable ordered route, arc-length projection and vector-acceleration profile."""
 
 from dataclasses import dataclass
+from functools import cached_property
 import hashlib
 import json
 import math
@@ -17,6 +18,10 @@ class RoutePlan:
     speed: tuple
     gates: tuple
     clearance: tuple
+
+    @cached_property
+    def _arrays(self):
+        return tuple(np.asarray(v) for v in (self.points,self.s,self.tangent,self.speed))
 
     @classmethod
     def build(cls, route, limits, clearance=None, map_id=""):
@@ -125,15 +130,16 @@ class RoutePlan:
         )
 
     def sample(self, s):
+        points, lengths, tangents, speeds = self._arrays
         s = float(np.clip(s, 0, self.s[-1]))
         i = min(
-            len(self.s) - 2, max(0, int(np.searchsorted(self.s, s, side="right") - 1))
+            len(lengths) - 2, max(0, int(np.searchsorted(lengths, s, side="right") - 1))
         )
-        f = (s - self.s[i]) / (self.s[i + 1] - self.s[i])
-        p = (1 - f) * np.array(self.points[i]) + f * np.array(self.points[i + 1])
-        t = (1 - f) * np.array(self.tangent[i]) + f * np.array(self.tangent[i + 1])
+        f = (s - lengths[i]) / (lengths[i + 1] - lengths[i])
+        p = (1 - f) * points[i] + f * points[i + 1]
+        t = (1 - f) * tangents[i] + f * tangents[i + 1]
         t /= max(1e-9, np.linalg.norm(t))
-        return p, t, float(np.interp(s, self.s, self.speed))
+        return p, t, float(np.interp(s, lengths, speeds))
 
 
 class Progress:
@@ -141,31 +147,30 @@ class Progress:
 
     def __init__(self, plan):
         self.plan, self.s, self.phase = plan, 0.0, 0
+        self.points,self.lengths = plan._arrays[:2]
 
     def project(self, pose, travel, max_distance=None):
         p = np.asarray(pose)
-        ss = np.asarray(self.plan.s)
-        points = np.asarray(self.plan.points)
+        ss,points = self.lengths,self.points
         lo = max(0, int(np.searchsorted(ss, self.s, side="right") - 2))
         hi = min(len(ss) - 1, int(np.searchsorted(ss, self.s + travel, side="right")))
-        best = None
-        for i in range(lo, max(lo + 1, hi)):
-            a, b = points[i : i + 2]
-            v = b - a
-            f = float(np.clip(np.dot(p - a, v) / np.dot(v, v), 0, 1))
-            distance = float(np.linalg.norm(p - a - f * v))
-            candidate = ss[i] + f * (ss[i + 1] - ss[i])
-            if best is None or distance < best[0]:
-                best = (distance, candidate)
-        if max_distance is not None and best[0] > max_distance:
-            return best[0]
-        self.s = max(self.s, float(best[1]))
+        end = max(lo + 1, hi)
+        a = points[lo:end]
+        v = points[lo+1:end+1] - a
+        f = np.clip(np.sum((p-a)*v,axis=1)/np.sum(v*v,axis=1),0.,1.)
+        distances = np.linalg.norm(p-a-f[:,None]*v,axis=1)
+        nearest = int(np.argmin(distances))
+        distance = float(distances[nearest])
+        if max_distance is not None and distance > max_distance:
+            return distance
+        i = lo + nearest
+        self.s = max(self.s, float(ss[i]+f[nearest]*(ss[i+1]-ss[i])))
         while (
             self.phase + 1 < len(self.plan.gates)
             and self.s >= self.plan.s[self.plan.gates[self.phase][1]] - 1e-6
         ):
             self.phase += 1
-        return best[0]
+        return distance
 
 
 class OmniTracker:
