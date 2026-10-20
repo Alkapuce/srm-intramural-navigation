@@ -174,7 +174,7 @@ def main():
     parking = parser.add_mutually_exclusive_group()
     parking.add_argument('--parking', nargs=2, type=float, help='Starting/return position in map coordinates; default mapping origin')
     parking.add_argument('--parking-here',action='store_true',help='Capture current localized vehicle position as start and return position')
-    parser.add_argument('--profile',choices=['safe','candidate','gold-reference'],default='safe')
+    parser.add_argument('--profile',choices=['safe','candidate','gold-reference'],default='candidate')
     parser.add_argument('--response-model',type=Path)
     args = parser.parse_args()
     profiles=json.loads((Path(__file__).resolve().parents[2]/'config/navigation-profiles.json').read_text())
@@ -280,6 +280,8 @@ def main():
                 manifest['navigation_profile']=args.profile
                 manifest['parking_source']=parking_source
                 manifest['route_plan_id']=final.get('route_id')
+                mission_source=root/'nav_ws/src/intramural_mission/intramural_mission'
+                manifest['route_sources_sha256']={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in mission_source.glob('*.py')}
                 if args.response_model:
                     manifest['response_model_sha256']=hashlib.sha256(args.response_model.read_bytes()).hexdigest()
                 manifest['profile_sha256']=hashlib.sha256(json.dumps(profile,sort_keys=True).encode()).hexdigest()

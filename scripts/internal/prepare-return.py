@@ -62,6 +62,7 @@ def main():
     (out/'arena.json').write_text(json.dumps(c,indent=2)+'\n')
     (out/'nav.yaml').write_text(yaml.safe_dump(params,sort_keys=False))
     manifest=json.loads((source/'manifest.json').read_text())
+    manifest.pop('route_sources_sha256',None)
     manifest.update(motion_permitted=False,start_permitted=False,recovery_trace=str(Path(args.trace).resolve()))
     manifest['files_sha256']={name:hashlib.sha256((out/name).read_bytes()).hexdigest() for name in manifest['files_sha256']}
     (out/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')

@@ -6,9 +6,14 @@ import numpy as np
 
 def response_horizon(limits):
     """Bound coasting displacement with delay plus the first-order stopping tail."""
-    models = [(limits.get('response_delay', .2), limits.get('response_tau', .15))]
-    models += list(limits.get('response_models', [])) + list(limits.get('response_stress_models', []))
-    if any(len(m) != 2 or not all(math.isfinite(v) and v >= 0 for v in m) for m in models):
+    recorded = list(limits.get('response_models', []))
+    stress = list(limits.get('response_stress_models', []))
+    if any(len(m) != 2 or not all(math.isfinite(v) and v >= 0 for v in m) for m in recorded+stress):
+        raise ValueError('Finite nonnegative delay/tau pairs required')
+    tau = limits.get('response_tau', float(np.median([m[1] for m in recorded])) if recorded else .15)
+    models = [(limits.get('response_delay', .2), tau)] + recorded
+    if limits.get('require_stress_models', True):models += stress
+    if any(not all(math.isfinite(v) and v >= 0 for v in m) for m in models):
         raise ValueError('Finite nonnegative delay/tau pairs required')
     return max(delay + tau for delay, tau in models)
 

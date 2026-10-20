@@ -165,7 +165,7 @@ def main():
     p.add_argument("--vehicle-config", type=path, default=path(os.environ.get("INTRAMURAL_VEHICLE_CONFIG", str(ROOT / "cache/vehicle-current"))))
     p.add_argument("--output", type=path, help="新的 artifacts/ 或 cache/ 子目录；默认自动按时间命名")
     p.add_argument("--arena-config", type=path, help="已测量的比赛场地几何；不提供时保持实验几何")
-    p.add_argument("--profile",choices=["safe","candidate"],default="safe")
+    p.add_argument("--profile",choices=["safe","candidate"],default="candidate")
     p.add_argument("--response-model",type=path,help="合格的源时间响应模型；不修改原车辆配置")
     args = p.parse_args()
     if args.bag:

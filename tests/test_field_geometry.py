@@ -40,7 +40,7 @@ class FieldGeometryTest(unittest.TestCase):
                 'small_gicp_relocalization':{'ros__parameters':{}},'map_server':{'ros__parameters':{}},
                 'controller_server':{'ros__parameters':{'FollowPath':{},'general_goal_checker':{}}},'velocity_smoother':{'ros__parameters':{}}}))
             command=[sys.executable,str(root/'scripts/internal/field_geometry.py'),
-                '--map-config',str(source),'--output',str(out)]
+                '--map-config',str(source),'--output',str(out),'--profile','safe']
             if parking is not None:command += ['--parking-here']
             if response:
                 model=Path(temp)/'response.json'

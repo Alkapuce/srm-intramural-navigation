@@ -278,11 +278,13 @@ def compile_route(c, grid, start=None):
         for plan,route,report in sorted(variants,key=lambda x:(
                 fixed is not None and x[2]['transition_scale'] != fixed['transition_scale'],
                 x[2]['expected_duration'])):
-            report['execution_prediction'] = predict_execution(plan,c,measured)
+            report['execution_prediction'] = predict_execution(plan,c,measured,required_clearance=reserve)
             if not fits(report['execution_prediction']):continue
             predictions=[]
-            for delay,tau in list(c.get('response_models',[]))+list(c.get('response_stress_models',[])):
-                prediction=predict_execution(plan,c,measured,plant_response=(delay,tau))
+            required = list(c.get('response_models',[]))
+            if c.get('require_stress_models',True):required += list(c.get('response_stress_models',[]))
+            for delay,tau in required:
+                prediction=predict_execution(plan,c,measured,plant_response=(delay,tau),required_clearance=reserve)
                 predictions.append(dict(delay=delay,tau=tau,**prediction))
                 if not fits(prediction):break
             if all(fits(p) for p in predictions):
@@ -293,6 +295,9 @@ def compile_route(c, grid, start=None):
     if selected is None:
         raise ValueError('No route fits the configured response models and complete vehicle envelope')
     plan,route,report = selected
+    if not c.get('require_stress_models',True):
+        report['stress_predictions']=[dict(delay=delay,tau=tau,**predict_execution(plan,c,measured,(delay,tau)))
+                                      for delay,tau in c.get('response_stress_models',[])]
     report.update(optimization="bounded joint geometry/speed search",route_family=family,candidates_evaluated=evaluated,
                   planning_seconds=time.monotonic()-started)
     if not fixed:

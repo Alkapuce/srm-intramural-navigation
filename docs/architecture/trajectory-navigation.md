@@ -46,7 +46,7 @@ flowchart LR
 
 这是**有限候选族内、给定地图与响应模型下的联合优化**，没有证明任意场地的全局最快路线。它允许更短但更急的路线输给稍长、可高速通过的路线，也保留固定圆弧作为对照。
 
-`safe`、`candidate` 使用 `response_models` 中三份旧日志辨识结果，并单列 `response_stress_models` 的 `(0.2,0.2)`、`(0.3,0.2)` 秒延迟／惯性压力假设；后两组不是实测参数。保持控制器不变，改变预测底盘响应，检查整圈、发零尾段和速度方向上的滑行净空。先比较完整速度包络；全都不可执行时，逐级收紧曲率／曲率变化处的包络后重算加减速，直线最高限速保持不变。在当前级别按参考速度曲线预计用时排序，依次闭环验证，选择首个通过全部模型的候选，不宣称跨所有速度尺度的全局最快。三份记录模型来自[旧日志响应辨识](../vehicle/response-measurement.md)，仍不能代表任意地面和电量。
+规划依据 `response_models` 的三份旧日志辨识结果检查执行与滑行净空。默认 candidate 的 `require_stress_models=false`，两组额外延迟／惯性压力假设仅写入 `stress_predictions`，不作为正常巡航的硬约束；显式 safe 仍要求压力模型通过。实际运动和滑行前缀、完整车体、原始雷达与输入失效保护保留。
 
 两档通过 `execution_clearance=0.03` 要求各响应模型的实际执行预测仍保留 3 cm 净空，净空已扣除车体、底座和原有静态余量。2026-10-19 首圈实车横向偏差约 9 cm，原路线在旧模型下只剩约 5 mm 预测净空，说明仅要求预测不碰撞不足以覆盖模型误差。该设置影响选路，运行时保护仍按原车体和静态余量判断，不扩大急停范围。
 
@@ -74,7 +74,7 @@ RoutePlan 保存点、弧长、切线、曲率、速度、静态净空和阶段 
 | candidate | 2.0 | 3.5 / 2.5 | 响应预测约束下的提速试验 |
 | gold-reference | 1.5 | 0.6 / 0.5 | 旧引擎参数对照 |
 
-指令沿用获准的 1:1 初值，尚不能当作独立量测的物理速度。两个新档位的响应延迟 0.2 s、制动能力 0.2 m/s² 均为软件假设。候选档在较大延迟、较慢底盘响应和紧弯组合下仍可能失去跟踪；下一次实车必须从 safe 开始，利用运行日志核对响应，再比较 candidate，不能仅根据仿真时间选择最高速度。`gold-reference` 不是逐字节恢复的历史实车代码。
+指令沿用获准的 1:1 初值，尚不能当作独立量测的物理速度。candidate 响应延迟初值为 0.1 s，滑行时间覆盖三份已有日志响应；额外压力范围单列评估。制动能力 0.2 m/s² 仍是软件假设，运行日志与实车表现用于继续更新模型。现场默认直接使用 candidate；`gold-reference` 不是逐字节恢复的历史实车代码。
 
 已提供[旧日志辨识与实车补测流水](../vehicle/response-measurement.md)，已有方向、通信、历史成绩及可辨识数据直接复用。独立[PB / MPPI 对照](controller-comparison.md)只运行离线模拟，不改变本节执行链。
 
@@ -100,10 +100,10 @@ RoutePlan 保存点、弧长、切线、曲率、速度、静态净空和阶段 
 
 ```bash
 # srm-map 已自动生成 navigation/ 时直接使用它；也可离线指定起点重新规划
-srm-nav field artifacts/mapping/本次/map --parking 0 0 --profile safe --output cache/navigation-safe
+srm-nav field artifacts/mapping/本次/map --parking 0 0 --profile candidate --output cache/navigation-candidate
 # 两终端保持运行
 srm-nav sensors
-srm-nav drive cache/navigation-safe
+srm-nav drive cache/navigation-candidate
 # 第三终端：核对定位与 ready 后发车
 srm-nav mission-status
 srm-nav start

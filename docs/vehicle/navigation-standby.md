@@ -45,7 +45,7 @@ srm-map --bag
 srm-map --vehicle-config cache/vehicle-01 --arena-config config/local/field.json
 ```
 
-默认输出到项目 `artifacts/mapping/<时间>/`，每次新建目录，不覆盖旧数据。`--output` 可指定项目 `cache/` 或 `artifacts/` 下的新目录；已有相对路径优先按执行目录解析；新建的 `artifacts/`、`cache/` 输出按项目根目录解析。主要产物为 `bag/`、`bag-quality.json`、`map/`、`map-quality.json`、`navigation/field-detection.json`、`reload-check/` 和 `result.json`。两桩无歧义且完整路线通行时，`navigation/` 还会生成独立导航配置、`route-plan.json`、`route-plan.png` 和 `route-analysis.json`；识别失败仍保留地图与报告。复用 bag 时原始数据保持原位置。档位与响应模型可分别通过 `--profile safe|candidate`、`--response-model` 选择，默认 safe。
+默认输出到项目 `artifacts/mapping/<时间>/`，每次新建目录，不覆盖旧数据。`--output` 可指定项目 `cache/` 或 `artifacts/` 下的新目录；已有相对路径优先按执行目录解析；新建的 `artifacts/`、`cache/` 输出按项目根目录解析。主要产物为 `bag/`、`bag-quality.json`、`map/`、`map-quality.json`、`navigation/field-detection.json`、`reload-check/` 和 `result.json`。两桩无歧义且完整路线通行时，`navigation/` 还会生成独立导航配置、`route-plan.json`、`route-plan.png` 和 `route-analysis.json`；识别失败仍保留地图与报告。复用 bag 时原始数据保持原位置。档位与响应模型可分别通过 `--profile safe|candidate`、`--response-model` 选择，默认 candidate。
 
 `result.json` 的 `status=complete` 表示导图、定位重载及路线生成均通过；识桩或规划失败则保留地图并报告失败。软件检查通过仍不等于实车验收完成。栅格通行性见 `map_quality.navigation_grid_has_clearance`；它将未知区域视为不可通行，并检查车体半径净空。即使有空闲区域，也仍须核对实际比赛路线、控制标定与停机行为。
 
@@ -167,7 +167,7 @@ scripts/run.sh python3 /work/scripts/validation/verify-mapping-bag.py \
 2. 在新场地运行 `srm-map`，覆盖两根桩、交叉区及出入通道，结束时停在规定的任务起点。程序重定位后记录当前位置，不要求比赛前提供地图。
 3. 查看 `navigation/route-plan.png` 和 `route-analysis.json`，核对两桩、起点、完整车体净空与路线顺序。两桩连线可任意朝向，桩距变化由生成器处理；不需要手工填成相同 x 或沿用仿真半径。
 4. 三终端分别执行 `srm-nav sensors`、`srm-nav drive`、`srm-nav mission-status`；就绪后由操作者执行 `srm-nav start`。其他已定位位置用 `start-here` 接入，返回目标仍是配置起点。
-5. 先使用默认 safe，核对整圈与停车，再比较 candidate，并单独测试挡路停车和移除恢复。已有实车数据不重复采集，新增日志用于覆盖尚未验证的响应范围。
+5. 使用默认 candidate，核对整圈与停车，并单独测试挡路停车和移除恢复。已有实车数据不重复采集，新增日志用于覆盖尚未验证的响应范围。
 
 新场地的选路与速度生成共用[整圈轨迹导航](../architecture/trajectory-navigation.md)实现。`allow_bypass=false` 时，障碍持续存在保持停车，移除后从原进度继续；仿真的持续障碍绕行策略不受影响。
 
