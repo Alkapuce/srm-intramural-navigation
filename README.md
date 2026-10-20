@@ -2,9 +2,9 @@
 
 基于公开项目 [pb2025_sentry_nav](https://github.com/SMBU-PolarBear-Robotics-Team/pb2025_sentry_nav)，实现从停车位出发、逆时针绕下桩、顺时针绕上桩、沿原路回位的自主导航。支持障碍停车、移除恢复、持续障碍绕行、输入失效保护和比赛串口协议。
 
-main 保留 18.554 秒现场行为对应的部署包实现：10 个有序分段、0 次障碍阻断，定位估计的回位误差约 10.4 cm。参数与部署源码指纹见[基线记录](docs/results/2026-10-16/baseline-18s554.json)；1.5 是协议指令上限，未作独立物理测速。现场复现从[命令手册](docs/field-cli.md)开始，实验过程见[调试日志](docs/debug-log.md)。
+当前 main 冻结 2026-10-20 的实车版本：**9.440 秒完成 10 个有序分段，0 次障碍阻断**。参数和源码指纹见[基线记录](docs/results/2026-10-20/baseline-9s440.json)，冻结标签为 `baseline/field-9s440`。这是单次现场记录，位置和速度来自车载定位；新场地会重新建图、识桩并规划，不能直接套用旧地图或成绩。18.554 秒旧版保留为历史标签 `baseline/field-18s554`。
 
-新的整圈轨迹引擎已完成模型、传感器串口模拟和障碍恢复验证，实车效果仍待现场测试；原实车结果属于此前执行链。新引擎说明见[整圈轨迹导航](docs/architecture/trajectory-navigation.md)。
+现场执行 `srm-map → srm-nav sensors → srm-nav drive → srm-nav start`；可在发车前执行 `srm-nav prepare`，将路线计算与发车分开。操作见[命令手册](docs/field-cli.md)，实现见[整圈轨迹导航](docs/architecture/trajectory-navigation.md)。
 
 控制后端可用[PB / MPPI 离线对照](docs/architecture/controller-comparison.md)在相同地图、路线和执行模型上比较；[底盘响应测量](docs/vehicle/response-measurement.md)提供旧实车日志复用、自动采样、拟合和后续实车测试命令。
 
@@ -144,6 +144,6 @@ scripts/candidate.sh serial-sim
 
 在 NUC 仓库根目录执行 `scripts/install-cli.sh` 注册个人全局命令。`srm-map` 覆盖场地后停在本次起始位置，按 Enter 自动校验、导图、重定位并记录当前车位，随后识别两桩，联合生成平滑的整圈路线与速度曲线；支持 `--duration` 定时和 `--bag` 复用。生成配置后，分别运行 `srm-nav sensors` 与 `srm-nav drive`，再用第三终端 `start` 或 `start-here` 发车。默认选择最新有效图，也可传入路径固定版本。操作见[现场手册](docs/field-cli.md)，几何与速度联合搜索、执行模型及结果见[整圈轨迹导航](docs/architecture/trajectory-navigation.md)。
 
-建图结束会显示保存位置，以及终端中的地图、规划路线和速度曲线缩略图；`srm-nav preview` 可随时只读重看，支持普通 SSH。高清图位于导航目录的 `route-plan.png`，需要简洁输出时使用 `srm-map --no-preview`。
+建图结束显示保存位置，并自动将地图、路线和速度曲线 PNG 导出到 `artifacts/.png/`；`srm-nav preview` 可随时只读重导。终端仅打印文件位置，不要求图形桌面。
 
 分步建图与锁定待机的 TF 接线见[实车导航待机](docs/vehicle/navigation-standby.md)；默认待机不打开串口，显式 `drive` 才启用已确认配置的底盘通信。正式场地需现场重新建图、确认桩位和配准；本次 1:1 速度初值尚未做定量测速。模拟下位机刻意没有超时停车，断链后可能继续执行末帧；上位机看门狗不能替代下位机或硬件停机机制。

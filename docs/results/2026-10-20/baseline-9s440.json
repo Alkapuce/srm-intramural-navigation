@@ -1,0 +1,77 @@
+{
+  "date": "2026-10-20",
+  "code_commit": "d5262669f103681919487dbf2d9e7a64d75a6f5b",
+  "run_id": "1575282ec6b249ccb64600425265f78f",
+  "result": "DONE",
+  "elapsed_seconds": 9.440145254135132,
+  "ordered_segments": 10,
+  "blocked_count": 0,
+  "profile": "candidate",
+  "profile_parameters": {
+    "route_family": "joint",
+    "require_stress_models": false,
+    "navigation_engine": "trajectory",
+    "optimize_route": true,
+    "max_speed": 2.0,
+    "max_acceleration": 3.5,
+    "lateral_acceleration": 3.0,
+    "max_jerk": 16.0,
+    "response_delay": 0.1,
+    "tracking_prediction_delay": 0.09,
+    "execution_clearance": 0.025,
+    "braking_acceleration": 0.2,
+    "terminal_deceleration": 2.5,
+    "normal_gain": 2.5,
+    "tangent_gain": 1.0,
+    "velocity_gain": 0.1,
+    "parking_tolerance": 0.08,
+    "finish_distance": 0.05,
+    "smooth_transitions": true,
+    "response_stress_models": [
+      [
+        0.2,
+        0.2
+      ],
+      [
+        0.3,
+        0.2
+      ]
+    ],
+    "response_models": [
+      [
+        0.09168461485123885,
+        0.08902560958962843
+      ],
+      [
+        0.08984127804154006,
+        0.029510894483599153
+      ],
+      [
+        0.07683024285400192,
+        0.05243267286377716
+      ]
+    ]
+  },
+  "selected_route_speed_scale": 0.7200000000000001,
+  "parking_window_seconds": 0.3001899719238281,
+  "parking_window_speed_mps": 0.035636791991588805,
+  "parking_window_error_m": 0.07677616129987859,
+  "sources_sha256": {
+    "lidar_adapter.py": "158fa9dc87d09bd3c0839a5d60bf179676589f93aa256d1f9f1ffd6971fa59de",
+    "mission.py": "0c763a7200bb735afb9fa652e443d944b4025055c433fa676b4cd5ad8c88e37e",
+    "bypass.py": "95eede92599e088a2c2261d2b8b959b8e66f9d9c42ed2a63b066665cdf5be74d",
+    "route_optimization.py": "c3c7ea1753880574de073124c39472d6cb34b9a28f9e81227c360a0b952304aa",
+    "route.py": "3532688f21f62a6f70611ecd7a9250cc7c581620ce59b93fdfd5abadbba8cc84",
+    "trajectory_mission.py": "abb98452d4cea8010619092dca24711a79a9653a322c3e8f699b478a81db57cb",
+    "response.py": "e08cbb6ed5f5ca88e37ca2ac371356881a7dd9c0d1cc25927d351fac7b3d22a8",
+    "trajectory.py": "c5dbd3e65701a6ae88a0e27fdee4101818bfbc6815ca549141ed55ed6bc49db2",
+    "livox_adapter.py": "ab7072389a041d760ae12f83bab8485c37fa41fb93b14a7ff1062e89a4b9d0df",
+    "__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "adapter.py": "5ab5a208e0043c3f56115c8c406858850508fb15b89962bd7c75e2dc1d35ba11",
+    "proximity.py": "8c6e94ad071fa3f24ac509fe16a8cccad5973215ee4cfe46ae989dc2db3ba13a",
+    "safety.py": "36f296a7624d189a3f23f4f55addd15c1bbdba076c40f03a33538cb904c59a3c",
+    "planning.py": "481c0a42f3c37214c06fffcb70fac908992964551bff3b46aa17db47c3651981",
+    "hazards.py": "89329959ad0da0daf67f8d981451a872c13a87c9e8c8702641b82024ef3d41eb"
+  },
+  "scope": "One measured-map vehicle run. Timing starts at mission acceptance; position and velocity are onboard localization estimates. New maps regenerate geometry and speed; this result does not certify arbitrary scenes or independent physical speed."
+}

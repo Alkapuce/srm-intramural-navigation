@@ -30,7 +30,7 @@ srm-nav status
 srm-map
 ```
 
-`srm-map` 默认使用 candidate：合速度上限 2.0、矢量加速度 3.5、横向加速度 3.0、末端减速度 2.0。按新桩位、间距、地图及停车点联合选择圆弧／样条、平滑接缝和速度曲线；响应检查不通过时降低弯道与曲率变化处的速度，保留直线巡航上限。结果冻结在 `optimized_route`。普通 `start` 复用当前图已验证的整圈路线，只检查版本、地图和当前位置接近起点的通道；`start-here` 才重新规划接入。三个已有实测响应是巡航约束，额外压力模型单独记录，不强制压低正常弯速；模型通过仍需实车验证。
+`srm-map` 默认使用 candidate：合速度上限 2.0、矢量加速度 3.5、横向加速度 3.0、jerk 16、末端减速度 2.5。按新桩位、间距、地图及停车点联合选择圆弧／样条、平滑接缝和速度曲线；响应检查不通过时降低弯道与曲率变化处的速度，保留直线巡航上限。结果冻结在 `optimized_route`。普通 `start` 复用当前图已验证的整圈路线，只检查版本、地图和当前位置接近起点的通道；`start-here` 才重新规划接入。三个已有实测响应是巡航约束，额外压力模型单独记录，不强制压低正常弯速；模型通过仍需实车验证。
 
 先保持静止，等终端出现“录制中”，再由操作者缓慢移动整车，覆盖两桩、两侧绕行区域及出入路线。可在电机禁用后手推；若使用遥控驾驶，需由现场人员控制，本命令本身不发送底盘速度。
 
@@ -96,7 +96,7 @@ srm-map --bag
 # 可选：指定已有个人配置，项目相对路径也可用
 srm-map --vehicle-config cache/vehicle-01
 
-# 新图默认 safe；已有响应模型时可附加，不改原车辆参数
+# 显式选择较慢的 safe；已有响应模型时可附加，不改原车辆参数
 srm-map --profile safe --response-model artifacts/response/本次/model-0.json
 
 # 对最新原图单独识桩与联合规划；默认停车点为建图原点，不连接设备
@@ -183,7 +183,7 @@ srm-nav start-here
 新生成配置默认使用整圈轨迹引擎：先根据本次实测地图生成切入、两瓣八字和返回轨迹，再一次规划全程速度。10 个分段只作为有序进度标签，普通交接不取消目标、不归零；切入路径与主路线一起检查净空、曲率与绕桩顺序。`start-here` 会重新规划当前已定位位置的切向接入，不能保证任意障碍布局都有可行路线。
 
 ```bash
-# 建图后默认使用 safe；显式生成提速候选，原图与旧配置均保留
+# 建图默认 candidate；也可独立重新识桩规划，保留原图与旧配置
 srm-nav field artifacts/mapping/本次/map --profile candidate --output cache/navigation-candidate
 srm-nav drive cache/navigation-candidate
 # 等 ready 后，在另一终端显式发车
@@ -193,6 +193,8 @@ srm-nav start-here
 `safe` 上限 0.65，`candidate` 上限 2.0；两个档位均会按曲率、矢量加速度和最终制动距离调速。个人车辆配置中的速度、加速度上限须覆盖选定档位；超出时入口会拒绝，请核对实际底盘条件后配置。`gold-reference` 只保留旧引擎参数作对照，不能当作逐字节恢复的 18.554 秒实车版本。详细设计和本机复现见[整圈轨迹导航](architecture/trajectory-navigation.md)。
 
 路线依次为 `ENTER → LOWER → UPPER → LOWER_EXIT → RETURN → DONE`，内部仍记录 10 个有序分段。新引擎 `segment` 是分段号，`continuous_progress` 是全程有序弧长（米），`progress` 是按采样间距换算的全程索引；`tracking` 中包含剩余长度、跟踪误差和前馈/反馈。交叉点不做全图最近点匹配。每次运行生成独立 `run_id`、`route_id`，源码哈希、配置和状态保存在 `artifacts/navigation-runs/<run_id>/`。
+
+末端进入预测可停车区域后保持零速，不因单帧位置或速度波动重新纠偏；使用至少 0.25 秒、不同源时间的定位窗口确认停稳。确认静止后若窗口平均位置仍超出停车容差，报告 `PARKING_OUTSIDE_TOLERANCE` 并保持零速；处理位置或定位问题后再复位。
 
 ## 停车、再运行与换电
 
