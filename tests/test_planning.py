@@ -15,6 +15,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlanningTests(unittest.TestCase):
+    def test_runtime_map_clearance_keeps_body_protection_without_route_pole_margin(self):
+        c=json.loads((ROOT/'config/arena.json').read_text())
+        c.update(lower_pole=[0.,0.],upper_pole=[0.,1.2],robot_radius=.29,
+                 pole_radius=.15,minimum_clearance=.02,mission_variant='figure8')
+        g=OccupancyGrid();g.header.frame_id='map';g.info.width=g.info.height=80
+        g.info.resolution=.05;g.info.origin.position.x=g.info.origin.position.y=-2.
+        g.info.origin.orientation.w=1.;pixels=np.zeros((80,80),dtype=np.int8)
+        pixels[40,40]=100;pixels[50,30]=-1;g.data=pixels.ravel().tolist()
+        measured=GridMap(g,c)
+        self.assertLess(measured.clearance([[.4336,0.]])[0],0.)
+        self.assertGreater(measured.clearance([[.4336,0.]],include_poles=False)[0],0.)
+        self.assertLess(measured.clearance([[.2,0.]],include_poles=False)[0],0.)
+        self.assertLess(measured.clearance([[-.475,.525]],include_poles=False)[0],0.)
+
     def test_prediction_rejects_the_required_reserve_before_finishing_a_failed_candidate(self):
         c=json.loads((ROOT/'config/arena.json').read_text())
         c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['safe'])

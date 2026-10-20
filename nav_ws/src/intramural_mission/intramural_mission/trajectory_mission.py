@@ -411,7 +411,8 @@ class TrajectoryMission(Node):
                 self.update_phase()
                 if self.detail["error"] > self.c["max_tracking_error"]:
                     self.stop("FAULT", "TRACKING_ERROR")
-                elif min(self.measured.clearance([self.pose])) <= 0:
+                elif min(self.measured.clearance([self.pose],
+                         include_poles=not self.c.get('pole_clearance_from_map', False))) <= 0:
                     self.stop("FAULT", "STATIC_FOOTPRINT_CLEARANCE")
                 elif self.detail["done"]:
                     self.command_pub.publish(Twist())
@@ -447,6 +448,7 @@ class TrajectoryMission(Node):
             ready=self.start_permitted and self.ready(),
             start_permitted=self.start_permitted,
             reason=self.reason,
+            static_clearance_source='map' if self.c.get('pole_clearance_from_map', False) else 'map_and_pole_geometry',
             input_failure=self.input_failure,
             guard=self.guard,
             history=self.history,

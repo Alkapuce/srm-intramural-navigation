@@ -38,7 +38,7 @@ class GridMap:
             + repr((self.res, self.origin.tolist(), self.yaw)).encode()
         ).hexdigest()
 
-    def clearance(self, points):
+    def clearance(self, points, include_poles=True):
         p = np.asarray(points) - self.origin
         x = (self.co * p[:, 0] + self.si * p[:, 1]) / self.res
         y = (-self.si * p[:, 0] + self.co * p[:, 1]) / self.res
@@ -62,7 +62,7 @@ class GridMap:
             + self.c.get("minimum_clearance", 0.02)
         )
         result = distance - margin
-        if self.c.get("mission_variant", "figure8") == "figure8":
+        if include_poles and self.c.get("mission_variant", "figure8") == "figure8":
             world = np.asarray(points)
             for key in ("lower_pole", "upper_pole"):
                 result = np.minimum(result, np.linalg.norm(world-self.c[key], axis=1)
