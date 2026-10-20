@@ -1,6 +1,7 @@
 """Immutable ordered route, arc-length projection and vector-acceleration profile."""
 
 from dataclasses import dataclass
+from collections import deque
 from functools import cached_property
 import hashlib
 import json
@@ -186,6 +187,7 @@ class OmniTracker:
         self.elapsed = 0.0
         self.velocity = np.zeros(2)
         self.correction = np.zeros(2)
+        self.parking_samples = None
         models = limits.get('response_models', [])
         self.response_tau = limits.get('response_tau', float(np.median(models,axis=0)[1]) if models else .15)
 
@@ -211,6 +213,10 @@ class OmniTracker:
         if self.previous_stamp is None or stamp > self.previous_stamp:
             self.previous_pose = p.copy()
             self.previous_stamp = stamp
+            if self.parking_samples is not None:
+                self.parking_samples.append((stamp, p.copy()))
+                while len(self.parking_samples) > 2 and stamp-self.parking_samples[1][0] >= .25:
+                    self.parking_samples.popleft()
 
     def step(self, pose, yaw, dt, pose_age=0.0, stamp=None):
         dt = min(max(float(dt), 0.005), 0.1)
@@ -266,7 +272,7 @@ class OmniTracker:
             1.0, self.limits["max_speed"] / max(1e-9, np.linalg.norm(command))
         )
         self.command = command
-        parking_brake = (
+        parking_brake = self.parking_samples is not None or (
             remaining < max(self.limits.get("finish_distance", 0.06),
                             self.limits.get("parking_tolerance", 0.08))
             and np.linalg.norm(p - np.asarray(self.plan.points[-1]))
@@ -277,9 +283,23 @@ class OmniTracker:
         )
         # Command zero when the stopping tail fits; do not creep until speed is already zero.
         if parking_brake:
+            if self.parking_samples is None:
+                self.parking_samples = deque([(self.previous_stamp, p.copy())])
             self.stop()
             command = self.command
-        done = parking_brake and np.linalg.norm(self.velocity) < 0.06
+        # Hold zero through pose jitter; only distinct source poses can establish rest.
+        parked, stationary, window, parking_speed = p, False, 0., None
+        if parking_brake and len(self.parking_samples) >= 3:
+            times = np.array([t for t, _ in self.parking_samples])
+            positions = np.array([xy for _, xy in self.parking_samples])
+            window = float(times[-1]-times[0])
+            if window >= .25:
+                parked = positions.mean(axis=0)
+                times -= times.mean()
+                parking_speed = float(np.linalg.norm(np.sum(times[:,None]*(positions-parked),axis=0)/np.sum(times**2)))
+                stationary = parking_speed < .06 and np.max(np.linalg.norm(positions-parked,axis=1)) < .02
+        parking_error = float(np.linalg.norm(parked-np.asarray(self.plan.points[-1])))
+        done = stationary and parking_error < self.limits.get('parking_tolerance', .08)
         co, si = math.cos(yaw), math.sin(yaw)
         body = np.array(
             [co * command[0] + si * command[1], -si * command[0] + co * command[1]]
@@ -291,6 +311,10 @@ class OmniTracker:
             error=error,
             done=bool(done),
             parking_brake=bool(parking_brake),
+            parking_window_seconds=window,
+            parking_speed=parking_speed,
+            parking_error=parking_error,
+            parking_problem='PARKING_OUTSIDE_TOLERANCE' if stationary and not done else '',
             speed_reference=reference,
             velocity_observed=self.velocity.tolist(),
             feedforward=(reference * tangent).tolist(),

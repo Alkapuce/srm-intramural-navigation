@@ -59,7 +59,6 @@ class TrajectoryMission(Node):
         self.clear_since = None
         self.started = 0.0
         self.finished = None
-        self.settled = None
         self.held_horizon = 0.0
         self.last_tick = time.monotonic()
         self.raw_hazard = False
@@ -204,7 +203,6 @@ class TrajectoryMission(Node):
         self.clear_since = None
         self.started = self.get_clock().now().nanoseconds / 1e9
         self.finished = None
-        self.settled = None
         try:
             self.record_run()
         except OSError as exc:
@@ -443,16 +441,11 @@ class TrajectoryMission(Node):
                 elif min(self.measured.clearance([self.pose],
                          include_poles=not self.c.get('pole_clearance_from_map', False))) <= 0:
                     self.stop("FAULT", "STATIC_FOOTPRINT_CLEARANCE")
+                elif self.detail.get('parking_problem'):
+                    self.stop('FAULT', self.detail['parking_problem'])
                 elif self.detail["done"]:
-                    self.command_pub.publish(Twist())
-                    self.settled = self.settled or now
-                    if (
-                        np.linalg.norm(self.tracker.velocity) < 0.06
-                        and now - self.settled > 0.15
-                    ):
-                        self.stop("DONE")
+                    self.stop("DONE")
                 else:
-                    self.settled = None
                     msg = Twist()
                     msg.linear.x, msg.linear.y = map(float, command)
                     self.command_pub.publish(msg)

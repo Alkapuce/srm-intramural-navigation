@@ -24,6 +24,37 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TrajectorySafetyTests(unittest.TestCase):
+    def test_parking_window_completes_without_restarting_correction(self):
+        from intramural_mission.planning import GridMap
+        c=json.loads((ROOT/'config/arena.json').read_text())
+        c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['candidate'])
+        c.update(parking=[2.,0.],lower_pole=[-5.,-5.],upper_pole=[-5.,5.],mission_variant='return')
+        with tempfile.TemporaryDirectory(dir=ROOT/'cache') as folder:
+            config=Path(folder)/'arena.json';config.write_text(json.dumps(c))
+            rclpy.init(domain_id=88,args=['--ros-args','-p',f'arena_config:={config}'])
+            node=TrajectoryMission();position=[1.93,0.]
+            def transform(*args):
+                t=TransformStamped();t.header.stamp=node.get_clock().now().to_msg();t.transform.rotation.w=1.
+                t.transform.translation.x,t.transform.translation.y=position
+                return t
+            node.tf=N(lookup_transform=transform)
+            grid=OccupancyGrid();grid.header.frame_id='map';grid.info.resolution=.05
+            grid.info.width=100;grid.info.height=40;grid.info.origin.position.x=grid.info.origin.position.y=-1.
+            grid.info.origin.orientation.w=1.;grid.data=[0]*4000
+            try:
+                node.plan=RoutePlan.build([('RETURN',[[float(x),0.] for x in np.linspace(0.,2.,81)])],c)
+                node.tracker=OmniTracker(node.plan,c);node.tracker.progress.s=1.93
+                node.measured=GridMap(grid,c);node.state='RUNNING';node.index=0
+                node.receive_map(grid)
+                for x in (1.93,1.91,1.93,1.94,1.92):
+                    position[0]=x;node.receive_costmap(grid)
+                    node.receive_guard(String(data='{"sensors_fresh":true}'));node.tick()
+                    np.testing.assert_array_equal(node.tracker.command,[0.,0.])
+                    time.sleep(.1)
+                self.assertEqual(node.state,'DONE',node.detail)
+            finally:
+                node.destroy_node();rclpy.shutdown()
+
     def test_prepare_stays_disabled_and_start_reuses_it_or_rejects_changed_pose(self):
         from std_msgs.msg import Bool
         c=json.loads((ROOT/'config/arena.json').read_text());c['optimize_route']=False

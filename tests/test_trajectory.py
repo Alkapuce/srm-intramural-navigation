@@ -81,6 +81,26 @@ def rollout(c, delay=0.2, tau=0.15, gain=1.0, noise=0.0, seed=0, plan=None):
 
 
 class TrajectoryTests(unittest.TestCase):
+    def test_parking_holds_zero_through_jitter_and_uses_distinct_pose_window(self):
+        c=dict(BASE,**PROFILES['candidate'],parking=[2.,0.],route_speed_scale=1.)
+        plan=RoutePlan.build([('RETURN',[[float(x),0.] for x in np.linspace(0.,2.,81)])],c)
+        for drifting in (False,True):
+            tracker=OmniTracker(plan,c);tracker.progress.s=1.93
+            tracker.step([1.93,0.],0.,.025,stamp=0.)
+            for _ in range(20):
+                command,detail=tracker.step([1.93,0.],0.,.025,stamp=0.)
+                self.assertFalse(detail['done'])
+            for index,x in enumerate(([1.91,1.93,1.94,1.92] if not drifting else [1.88,1.84,1.80,1.76]),1):
+                command,detail=tracker.step([x,0.],0.,.025,stamp=index*.1)
+                np.testing.assert_array_equal(command,[0.,0.])
+            self.assertEqual(detail['done'],not drifting)
+            if drifting:
+                for index in range(5,10):
+                    command,detail=tracker.step([1.76,0.],0.,.025,stamp=index*.1)
+                    np.testing.assert_array_equal(command,[0.,0.])
+                self.assertFalse(detail['done'])
+                self.assertEqual(detail['parking_problem'],'PARKING_OUTSIDE_TOLERANCE')
+
     def test_parking_zero_precedes_rest_only_when_predicted_tail_fits(self):
         c=dict(BASE,**PROFILES['candidate'],parking=[2.,0.],route_speed_scale=1.)
         plan=RoutePlan.build([('RETURN',[[float(x),0.] for x in np.linspace(0.,2.,81)])],c)

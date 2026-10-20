@@ -56,6 +56,9 @@ def predict_execution(plan, c, measured, plant_response=None, required_clearance
         if t-source_stamp >= pose_period-1e-9:
             observed,source_stamp = plant.pose.copy(),t
         command,detail = tracker.step(observed,0.,plant.dt,pose_age=t-source_stamp,stamp=source_stamp)
+        if detail.get('parking_problem'):
+            return dict(passed=False,reason=detail['parking_problem'],minimum_clearance=minimum,
+                        minimum_stopping_clearance=stopping_clearance,parking_error=detail['parking_error'])
         if finished is not None:command = np.zeros(2)
         policy.receive(*command,0.,now=t)
         sent,_ = policy.tick(t)
