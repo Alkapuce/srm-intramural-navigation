@@ -131,7 +131,7 @@ class RoutePlan:
 
     def sample(self, s):
         points, lengths, tangents, speeds = self._arrays
-        s = float(np.clip(s, 0, self.s[-1]))
+        s = min(max(float(s), 0.), self.s[-1])
         i = min(
             len(lengths) - 2, max(0, int(np.searchsorted(lengths, s, side="right") - 1))
         )
@@ -194,7 +194,7 @@ class OmniTracker:
         self.correction[:] = 0.0
 
     def observe(self, pose, dt, stamp=None):
-        dt = float(np.clip(dt, 0.005, 0.1))
+        dt = min(max(float(dt), 0.005), 0.1)
         p = np.asarray(pose)
         if stamp is None:
             self.elapsed += dt
@@ -212,7 +212,7 @@ class OmniTracker:
             self.previous_stamp = stamp
 
     def step(self, pose, yaw, dt, pose_age=0.0, stamp=None):
-        dt = float(np.clip(dt, 0.005, 0.1))
+        dt = min(max(float(dt), 0.005), 0.1)
         p = np.asarray(pose)
         self.observe(p, dt, stamp)
         error = self.progress.project(
@@ -225,8 +225,8 @@ class OmniTracker:
         delay = self.limits.get("tracking_prediction_delay", self.limits.get("response_delay", 0.2)) + max(0.0, pose_age)
         predicted = p + self.velocity * delay
         lookahead = max(.02, np.linalg.norm(self.velocity)*delay)
-        lo = max(0,int(np.searchsorted(self.plan.s,s))-1)
-        hi = min(len(self.plan.s),int(np.searchsorted(self.plan.s,s+lookahead))+1)
+        lo = max(0,int(np.searchsorted(self.progress.lengths,s))-1)
+        hi = min(len(self.plan.s),int(np.searchsorted(self.progress.lengths,s+lookahead))+1)
         curvature = max(map(abs,self.plan.curvature[lo:hi]),default=0.)
         ahead = min(self.plan.s[-1],s+min(lookahead,.5/max(curvature,1e-9)))
         target, tangent, reference = self.plan.sample(ahead)
