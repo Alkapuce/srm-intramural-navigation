@@ -15,6 +15,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlanningTests(unittest.TestCase):
+    def test_tangent_entry_uses_short_approach_when_side_guides_are_blocked(self):
+        c=json.loads((ROOT/'config/arena.json').read_text())
+        c.update(lower_pole=[0.,0.],upper_pole=[-1.65,-.60],loop_radius=.878,
+                 robot_radius=.29,pole_radius=.15,minimum_clearance=.02,
+                 mission_variant='figure8',optimize_route=True,bounds=[-3.,3.,-3.,3.])
+        g=OccupancyGrid();g.header.frame_id='map';g.info.width=g.info.height=120
+        g.info.resolution=.05;g.info.origin.position.x=g.info.origin.position.y=-3.
+        g.info.origin.orientation.w=1.;yy,xx=np.mgrid[:120,:120]
+        x,y=-3+(xx+.5)*.05,-3+(yy+.5)*.05
+        pixels=np.where(y>1.3,100,0)
+        for px,py in (c['lower_pole'],c['upper_pole']):
+            pixels[np.hypot(x-px,y-py)<.15]=100
+        g.data=pixels.astype(np.int8).ravel().tolist();measured=GridMap(g,c)
+        start=[-1.22,-1.];gate=[-.25,.684];t=np.array([.949,.316]);t/=np.linalg.norm(t)
+        paths=list(measured.connectors(start,gate,t))
+        self.assertTrue(paths)
+        for path in paths:
+            np.testing.assert_allclose(path[0],start)
+            np.testing.assert_allclose(path[-1],gate)
+            self.assertGreater(min(measured.clearance(path)),0.)
+            end=np.array(path[-1])-path[-2]
+            self.assertGreater(np.dot(end,t)/np.linalg.norm(end),.98)
+
     def test_runtime_map_clearance_keeps_body_protection_without_route_pole_margin(self):
         c=json.loads((ROOT/'config/arena.json').read_text())
         c.update(lower_pole=[0.,0.],upper_pole=[0.,1.2],robot_radius=.29,

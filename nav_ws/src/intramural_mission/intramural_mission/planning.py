@@ -91,6 +91,9 @@ class GridMap:
         distance = min(self.c["loop_radius"], 0.8)
         gate = np.asarray(gate)
         waypoint_sets = [[gate.tolist()]] + [
+            [(gate - length * t).tolist(), gate.tolist()]
+            for length in (distance, distance / 2, distance / 4)
+        ] + [
             [
                 (gate + side * distance * normal).tolist(),
                 (gate + side * distance * normal - distance * t).tolist(),
