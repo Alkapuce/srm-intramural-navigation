@@ -84,16 +84,28 @@ class TrajectoryTests(unittest.TestCase):
     def test_parking_zero_precedes_rest_only_when_predicted_tail_fits(self):
         c=dict(BASE,**PROFILES['candidate'],parking=[2.,0.],route_speed_scale=1.)
         plan=RoutePlan.build([('RETURN',[[float(x),0.] for x in np.linspace(0.,2.,81)])],c)
-        for velocity,brake in ((.2,True),(1.6,False)):
-            tracker=OmniTracker(plan,c);tracker.progress.s=1.96
-            tracker.previous_pose=np.array([1.96-velocity*.1,0.]);tracker.previous_stamp=0.
+        for position,velocity,brake in ((1.96,.2,True),(1.93,.2,True),
+                                        (1.93,1.6,False),(1.89,.2,False)):
+            tracker=OmniTracker(plan,c);tracker.progress.s=position
+            tracker.previous_pose=np.array([position-velocity*.1,0.]);tracker.previous_stamp=0.
             tracker.velocity=np.array([velocity,0.]);tracker.command=np.array([.2,0.])
-            command,detail=tracker.step([1.96,0.],0.,.025,stamp=.1)
+            command,detail=tracker.step([position,0.],0.,.025,stamp=.1)
             self.assertEqual(detail['parking_brake'],brake)
             self.assertFalse(detail['done'])
             if brake:
                 np.testing.assert_array_equal(command,[0.,0.])
                 self.assertGreater(np.linalg.norm(tracker.velocity),.06)
+
+    def test_terminal_preview_parks_with_recorded_response_delays(self):
+        c=dict(BASE,**PROFILES['candidate'],parking=[2.,0.],route_speed_scale=1.)
+        plan=RoutePlan.build([('RETURN',[[float(x),0.] for x in np.linspace(0.,2.,81)])],c)
+        for delay,tau in ((.1,.05243267286),(.09168461485,.08902560959)):
+            with self.subTest(delay=delay,tau=tau):
+                result,trace=rollout(c,delay=delay,tau=tau,plan=plan)
+                self.assertTrue(result['done'],result)
+                self.assertLess(result['parking_error'],c['parking_tolerance'])
+                self.assertTrue(any(t['parking_brake'] and np.linalg.norm(t['velocity_observed'])>.06
+                                    for t in trace))
 
     def test_ten_hz_position_noise_does_not_create_repeated_lateral_corrections(self):
         c=dict(BASE,**PROFILES['candidate'])
@@ -126,6 +138,7 @@ class TrajectoryTests(unittest.TestCase):
         before, after = RoutePlan.build(route, old), RoutePlan.build(route, c)
         self.assertGreater(after.sample(4.)[2], before.sample(4.)[2] * 1.5)
         self.assertAlmostEqual(after.sample(4.)[2], c["max_speed"])
+        self.assertAlmostEqual(after.sample(5.8)[2], math.sqrt(2*c['terminal_deceleration']*.2))
         self.assertEqual(after.speed[-1], 0.)
         self.assertLessEqual(max(abs(np.diff(np.square(after.speed)) / (2*np.diff(after.s)))), c["max_acceleration"]+1e-7)
         self.assertEqual(c["braking_acceleration"], .2)

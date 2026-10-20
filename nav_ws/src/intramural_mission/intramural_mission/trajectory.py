@@ -82,8 +82,8 @@ class RoutePlan:
         )
         # Planned parking uses commanded deceleration; emergency stopping stays independent.
         braking = min(limits.get("terminal_deceleration", limits["braking_acceleration"]), limits["max_acceleration"])
-        delay = (limits.get("tracking_prediction_delay", limits.get("response_delay", 0.2))
-                 + limits.get("pose_update_period", 0.1) if "terminal_deceleration" in limits
+        # Tracker preview and lag inversion already advance planned parking deceleration.
+        delay = (0.0 if "terminal_deceleration" in limits
                  else limits.get("response_delay", 0.2) + 0.3)
         cap = np.minimum(
             cap,
@@ -267,7 +267,8 @@ class OmniTracker:
         )
         self.command = command
         parking_brake = (
-            remaining < self.limits.get("finish_distance", 0.06)
+            remaining < max(self.limits.get("finish_distance", 0.06),
+                            self.limits.get("parking_tolerance", 0.08))
             and np.linalg.norm(p - np.asarray(self.plan.points[-1]))
             < self.limits.get("parking_tolerance", 0.08)
             and np.linalg.norm(p + self.velocity*(response_horizon(self.limits)+max(0.,pose_age))
