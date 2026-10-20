@@ -267,7 +267,7 @@ def compile_route(c, grid, start=None):
         return (prediction['passed'] and prediction['minimum_clearance'] >= reserve
                 and prediction.get('minimum_stopping_clearance',math.inf) >= reserve)
     selected = None
-    for speed_scale in (1.,.75,.5,.35,.25):
+    for speed_scale in (1.,.9,.85,.8,.75,.5,.35,.25):
         variants = []
         for original,route,original_report in results:
             actual_scale = original_report['optimized_route'].get('speed_scale',1.)*speed_scale

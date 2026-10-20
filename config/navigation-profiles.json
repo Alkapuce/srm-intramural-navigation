@@ -15,7 +15,7 @@
     "require_stress_models": false,
     "navigation_engine": "trajectory", "optimize_route": true, "max_speed": 2.0,
     "max_acceleration": 3.5, "lateral_acceleration": 3.0,
-    "max_jerk": 13.0, "response_delay": 0.1, "tracking_prediction_delay": 0.09, "execution_clearance": 0.03,
+    "max_jerk": 13.0, "response_delay": 0.1, "tracking_prediction_delay": 0.09, "execution_clearance": 0.025,
     "braking_acceleration": 0.2, "terminal_deceleration": 2.0, "normal_gain": 2.5,
     "tangent_gain": 1.0, "velocity_gain": 0.1,
     "parking_tolerance": 0.08, "finish_distance": 0.05,
