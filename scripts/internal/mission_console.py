@@ -95,9 +95,16 @@ def start(operation):
             future = client.call_async(Trigger.Request())
             if name in ('start', 'start_here'):
                 requested = True
-            deadline = time.monotonic()+30
+            planning = name in ('start', 'start_here')
+            began = time.monotonic()
+            deadline = began+(90 if planning else 30)
+            notice = began
             while not future.done() and time.monotonic() < deadline:
                 rclpy.spin_once(node, timeout_sec=.1)
+                now = time.monotonic()
+                if planning and not future.done() and now-notice >= 5:
+                    print(f'规划接入中，已等待 {now-began:.0f} 秒…', flush=True)
+                    notice = now
             if not future.done():
                 raise RuntimeError(f'任务服务 {name} 响应超时')
             response = future.result()

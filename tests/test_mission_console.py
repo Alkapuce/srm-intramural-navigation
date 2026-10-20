@@ -57,7 +57,7 @@ class MissionConsoleTests(unittest.TestCase):
                               stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         sent=False
         try:
-            deadline=time.monotonic()+10
+            deadline=time.monotonic()+planning_delay+10
             while proc.poll() is None and time.monotonic()<deadline:
                 rclpy.spin_once(node,timeout_sec=.02)
                 if interrupt and began[0] is not None and time.monotonic()-began[0]>.3 and not sent:
@@ -94,6 +94,12 @@ class MissionConsoleTests(unittest.TestCase):
         code,out,counts=self.scenario('DONE',planning_delay=2.5,status_delay=.15)
         self.assertEqual(code,0,out)
         self.assertEqual(counts,dict(start=1,reset=1,cancel=0))
+
+    def test_long_planning_response_does_not_hit_the_ordinary_service_timeout(self):
+        code,out,counts=self.scenario('DONE',planning_delay=30.5,status_delay=.15)
+        self.assertEqual(code,0,out)
+        self.assertEqual(counts,dict(start=1,reset=1,cancel=0))
+        self.assertIn('已等待',out)
 
     def test_missing_status_after_start_still_requests_cancellation(self):
         code,out,counts=self.scenario('DONE',status_delay=2.5)
