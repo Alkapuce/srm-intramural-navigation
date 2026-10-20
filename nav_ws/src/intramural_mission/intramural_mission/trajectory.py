@@ -179,12 +179,14 @@ class OmniTracker:
         self.previous_stamp = None
         self.elapsed = 0.0
         self.velocity = np.zeros(2)
+        self.correction = np.zeros(2)
         models = limits.get('response_models', [])
         self.response_tau = limits.get('response_tau', float(np.median(models,axis=0)[1]) if models else .15)
 
     def stop(self):
         self.command[:] = 0.0
         self.acceleration[:] = 0.0
+        self.correction[:] = 0.0
 
     def observe(self, pose, dt, stamp=None):
         dt = float(np.clip(dt, 0.005, 0.1))
@@ -196,7 +198,8 @@ class OmniTracker:
             observed_dt = stamp - self.previous_stamp
             observed = (p - self.previous_pose) / observed_dt
             if np.linalg.norm(observed) < 2 * self.limits["max_speed"]:
-                self.velocity += min(1.0, observed_dt / 0.05) * (
+                # Source-rate exponential filtering still smooths 10 Hz pose differences.
+                self.velocity += -math.expm1(-observed_dt / 0.05) * (
                     observed - self.velocity
                 )
         if self.previous_stamp is None or stamp > self.previous_stamp:
@@ -232,6 +235,9 @@ class OmniTracker:
         feedback += self.limits.get("velocity_gain", 0.1) * (
             reference * tangent - self.velocity
         )
+        # Smooth noisy corrections independently of reference feedforward and immediate stops.
+        self.correction += -math.expm1(-dt / .05) * (feedback-self.correction)
+        feedback = self.correction.copy()
         desired = reference * tangent + feedback
         # Invert the fitted velocity lag for the reference acceleration, before bounded correction.
         _, next_tangent, next_reference = self.plan.sample(ahead + max(.05,reference)*.05)

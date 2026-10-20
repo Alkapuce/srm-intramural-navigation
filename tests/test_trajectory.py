@@ -81,6 +81,18 @@ def rollout(c, delay=0.2, tau=0.15, gain=1.0, noise=0.0, seed=0, plan=None):
 
 
 class TrajectoryTests(unittest.TestCase):
+    def test_ten_hz_position_noise_does_not_create_repeated_lateral_corrections(self):
+        c=dict(BASE,**PROFILES['candidate'])
+        c['max_speed']=.3
+        plan=RoutePlan.build([('RETURN',[[x,0.] for x in np.linspace(0.,6.,121)])],c)
+        tracker=OmniTracker(plan,c);lateral=[]
+        for tick in range(160):
+            t=tick*.025;frame=tick//4;stamp=frame*.1
+            pose=[.3*stamp,.005*(-1 if frame%2 else 1)]
+            command,_=tracker.step(pose,0.,.025,t-stamp,stamp)
+            if t>1.:lateral.append(command[1])
+        self.assertLess(float(np.sqrt(np.mean(np.square(lateral)))),.035)
+
     def test_response_scaling_slows_curves_without_lowering_straight_cruise(self):
         c=dict(BASE,**PROFILES['candidate'])
         straight=[('RETURN',[[x,0.] for x in np.linspace(0.,12.,241)])]
