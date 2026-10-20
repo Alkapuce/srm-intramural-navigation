@@ -3,6 +3,7 @@
 import copy, json, math, time
 import numpy as np
 from array import array
+from collections import deque
 from pathlib import Path
 import rclpy
 from intramural_base.runtime import run
@@ -16,7 +17,7 @@ from std_msgs.msg import Bool, String
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster, Buffer, TransformListener, TransformException
 from intramural_mission.proximity import obstacle_near, obstacle_on_path, lidar_to_body
 from intramural_mission.route import curve_speed_limit
-from intramural_mission.safety import executable_path, response_horizon, collision_reach
+from intramural_mission.safety import executable_path, response_horizon, collision_reach, compensate_motion
 
 
 class Adapter(Node):
@@ -35,6 +36,9 @@ class Adapter(Node):
         self.output = [0.0, 0.0]
         self.body_velocity = np.zeros(2)
         self.previous_odometry = None
+        self.odom_history = deque(maxlen=32)
+        self.raw_point_times = None
+        self.raw_motion_problem = ''
         self.velocity_stamp = 0.
         self.last_tick = time.monotonic()
         self.raw_near_points = np.empty((0, 2), dtype=np.float32)
@@ -110,7 +114,6 @@ class Adapter(Node):
         previous = self.previous_odometry
         if previous is not None and stamp <= previous[0]:
             return
-        self.previous_odometry = (stamp, position)
         if previous is not None:
             dt = stamp-previous[0]
             velocity = (position-previous[1])/dt
@@ -119,6 +122,9 @@ class Adapter(Node):
             yaw = math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
             co, si = math.cos(yaw), math.sin(yaw)
             self.body_velocity = np.array([co*velocity[0]+si*velocity[1],-si*velocity[0]+co*velocity[1]])
+        yaw = math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
+        self.previous_odometry = (stamp, position)
+        self.odom_history.append((stamp, *position, yaw))
         self.velocity_stamp = stamp
         self.touch('odom')
 
@@ -240,6 +246,14 @@ class Adapter(Node):
             mask = ((body[:, 2] > .15) & (body[:, 2] < 1.4)
                     & (np.sum(body[:, :2] ** 2, axis=1) > self.c["robot_radius"] ** 2))
             tag = raw_fields.get("tag")
+            offset = raw_fields.get('offset_time')
+            self.raw_point_times = None
+            self.raw_trusted_times = None
+            if offset is not None and offset.datatype == PointField.UINT32:
+                offsets = np.ndarray((msg.height,msg.width),dtype='<u4',buffer=msg.data,
+                    offset=offset.offset,strides=(msg.row_step,msg.point_step)).reshape(-1)[valid]
+                times = stamp + offsets*1e-9
+                self.raw_point_times = times[mask]
             self.raw_trusted_points = None
             if tag is not None and tag.datatype == PointField.UINT8:
                 confidence = np.ndarray((msg.height,msg.width),dtype="u1",buffer=msg.data,
@@ -248,10 +262,13 @@ class Adapter(Node):
                 contact = self.c["robot_radius"] + self.c.get("minimum_clearance", .02)
                 supported = ((confidence & 0x3f) == 0) | (np.sum(body[:,:2]**2,axis=1) < contact**2)
                 self.raw_trusted_points = body[mask & supported, :2]
+                if self.raw_point_times is not None:
+                    self.raw_trusted_times = times[mask & supported]
             self.raw_stamp = stamp
             self.raw_near_points = body[mask, :2]
         else:
             self.raw_near_points = np.empty((0, 2), dtype=np.float32)
+            self.raw_point_times = None
         if self.mode != "ideal" or self.last_truth is None:
             return
         # Only ideal mode registers real simulated sensor points using truth.
@@ -316,6 +333,22 @@ class Adapter(Node):
         target = values[:2] if self.motion_permitted and self.enabled and not stale and valid else [0.0, 0.0]
         speed_limit = self.c['bypass_speed'] if self.bypassing else self.c['max_speed']
         path = self.body_path() if self.c.get('raw_collision_follow_path', False) else None
+        raw_points = self.raw_near_points
+        trusted_points = getattr(self, 'raw_trusted_points', None)
+        sensor_age = 0.
+        self.raw_motion_problem = ''
+        if self.c.get('navigation_engine') == 'trajectory' and getattr(self, 'raw_point_times', None) is not None:
+            now_ros = self.get_clock().now().nanoseconds/1e9
+            sensor_age = max(0., now_ros-self.raw_stamp)
+            try:
+                raw_points = compensate_motion(raw_points, self.raw_point_times, self.odom_history, now_ros)
+                if trusted_points is not None:
+                    trusted_points = compensate_motion(trusted_points, self.raw_trusted_times, self.odom_history, now_ros)
+                if path is not None:
+                    path = compensate_motion(path, self.collision_pose_stamp, self.odom_history, now_ros).tolist()
+            except ValueError as error:
+                self.raw_motion_problem = str(error)
+                stale = True
         if path is not None and self.c.get('continuous_corners', False) and self.c.get('navigation_engine')!='trajectory':
             speed_limit = min(speed_limit, curve_speed_limit(path, speed_limit,
                 self.c['lateral_acceleration'], self.c['max_acceleration']))
@@ -340,27 +373,27 @@ class Adapter(Node):
             else:self.held_speed=speed
         radial = self.c['robot_radius'] + self.c.get('minimum_clearance', .1)
         if self.c.get('navigation_engine') == 'trajectory':
-            stop_radius = radial + collision_reach(self.c, speed) - self.c.get('minimum_clearance', 0.)
+            stop_radius = radial + collision_reach(self.c, speed, sensor_age) - self.c.get('minimum_clearance', 0.)
         else:
             # Legacy control retains its original constant-deceleration model.
             braking = min(self.c['max_acceleration'], self.c.get('braking_acceleration', self.c['max_acceleration']))
             stop_radius = radial+.2*speed+speed*speed/(2*braking)
         lateral = self.c['robot_radius'] if 'minimum_clearance' in self.c else radial
         min_points = self.c.get('raw_collision_min_points', 1)
-        self.hazard = obstacle_near(self.raw_near_points, self.last_motion_direction,
+        self.hazard = obstacle_near(raw_points, self.last_motion_direction,
             radial=radial, forward=stop_radius, lateral=lateral, immediate=lateral, min_points=min_points)
         self.guard_mode = 'velocity'
         if self.c.get('raw_collision_follow_path', False):
             if path is not None:
                 if self.c.get('navigation_engine')=='trajectory':
                     path=executable_path(path,observed_velocity,response_horizon(self.c))
-                self.hazard = obstacle_on_path(self.raw_near_points, path,
+                self.hazard = obstacle_on_path(raw_points, path,
                     reach=stop_radius-radial+self.c.get('minimum_clearance', 0.), radius=self.c['robot_radius'], min_points=min_points)
                 self.guard_mode = 'ordered_path'
         if self.hazard and path is not None and getattr(self, 'raw_trusted_points', None) is not None:
-            trusted = obstacle_on_path(self.raw_trusted_points, path,
+            trusted = obstacle_on_path(trusted_points, path,
                 reach=stop_radius-radial+self.c.get('minimum_clearance', 0.), radius=self.c['robot_radius'], min_points=min_points)
-            if trusted:
+            if trusted or np.count_nonzero(np.linalg.norm(raw_points,axis=1) < radial) >= min_points:
                 self.pending_raw_stamp = None
             else:
                 # A single uncertain scan must not stop the car; persistent weak obstacles still stop it.
@@ -391,7 +424,7 @@ class Adapter(Node):
                         "enabled": self.enabled,
                         "motion_permitted": self.motion_permitted,
                         "stale": stale,
-                        "sensors_fresh": all(now-self.last.get(k,0)<age for k,age in (("odom",.5),("lidar",.7),("imu",.2))),
+                        "sensors_fresh": not self.raw_motion_problem and all(now-self.last.get(k,0)<age for k,age in (("odom",.5),("lidar",.7),("imu",.2))),
                         "finite": valid,
                         "mode": self.mode,
                         "wz_disabled": True,
@@ -399,12 +432,15 @@ class Adapter(Node):
                         "raw_hazard_unconfirmed": getattr(self, "pending_raw_stamp", None) is not None and not self.hazard,
                         "collision_check": self.guard_mode,
                         "collision_reach_m": stop_radius-radial+self.c.get('minimum_clearance', 0.),
+                        "raw_source_age_seconds": sensor_age,
+                        "raw_motion_compensated": self.c.get('navigation_engine') == 'trajectory' and getattr(self, 'raw_point_times', None) is not None and not self.raw_motion_problem,
+                        "raw_motion_problem": self.raw_motion_problem,
                         "path_problem": getattr(self, "path_problem", ''),
                         "path_speed_limit": speed_limit,
                         "command": values[:2], "output": self.output,
                         "velocity_observed_body": list(observed_velocity),
                         "input_ages": {k: now-self.last.get(k, 0.) for k in ('command','odom','lidar','imu')},
-                        "nearest_raw_points": (self.raw_near_points[np.argsort(np.sum(self.raw_near_points**2,axis=1))[:6]].tolist()
+                        "nearest_raw_points": (raw_points[np.argsort(np.sum(raw_points**2,axis=1))[:6]].tolist()
                                                if self.hazard else []),
                         "collision_prefix": path[:8] if self.hazard and path is not None else [],
                     }

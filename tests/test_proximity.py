@@ -18,6 +18,31 @@ from intramural_mission.route import curve_speed_limit, arc, line
 
 
 class ProximityTests(unittest.TestCase):
+    def test_old_scan_is_compensated_and_checks_the_full_future_body(self):
+        from livox_ros_driver2.msg import CustomMsg, CustomPoint
+        from intramural_mission.livox_adapter import convert
+        straight=line([0.,0.],[3.,0.],.05)
+        bend=line([0.,0.],[.4,0.],.05)+line([.4,0.],[.4,.8],.05)[1:]
+        for x,y,path,blocked in ((.82,0.,straight,True),(.82,.5,straight,False),(.655,.5,bend,True)):
+            now=time.monotonic();cmd=Twist();cmd.linear.x=1.6;diagnostics=[]
+            c=dict(lidar_pose=[0.]*6,robot_radius=.29,minimum_clearance=.02,max_speed=2.,max_acceleration=3.5,
+                braking_acceleration=.2,bypass_speed=.2,raw_collision_min_points=3,
+                navigation_engine='trajectory',raw_collision_follow_path=True,response_delay=.1,response_tau=.09)
+            m=N(c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
+                motion_permitted=True,enabled=True,bypassing=False,output=[1.6,0.],body_velocity=[1.7,0.],
+                odom_history=[(9.9,-.17,0.,0.),(10.,0.,0.,0.),(10.1,.17,0.,0.),(10.2,.34,0.,0.)],
+                collision_pose_stamp=10.2,last_motion_direction=(1.6,0.),body_path=lambda:path,mode='sensors',
+                touch=lambda k:None,get_clock=lambda:N(now=lambda:N(nanoseconds=10200000000)),
+                pub=N(publish=lambda v:None),hazard_pub=N(publish=lambda v:None),diagnostic=N(publish=lambda v:diagnostics.append(v.data)))
+            msg=CustomMsg();msg.header.frame_id='livox_frame';msg.header.stamp.sec=10
+            msg.points=[CustomPoint(x=float(x),y=float(y+d),z=.5,reflectivity=20,tag=0,offset_time=50000000)for d in (-.01,0.,.01)]
+            msg.point_num=3
+            Adapter.lidar(m,convert(msg));Adapter.tick(m)
+            with self.subTest(x=x,y=y,blocked=blocked):
+                self.assertEqual(m.hazard,blocked)
+                self.assertEqual(m.output==[0.,0.],blocked)
+                self.assertTrue(__import__('json').loads(diagnostics[-1])['raw_motion_compensated'])
+
     def test_trajectory_stop_ignores_later_route_but_preserves_near_obstacle_stop(self):
         now=time.monotonic();cmd=Twist();cmd.linear.x=1.6
         c=dict(robot_radius=.29,minimum_clearance=.02,max_speed=2.,max_acceleration=3.5,

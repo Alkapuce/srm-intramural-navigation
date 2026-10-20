@@ -16,16 +16,18 @@ def convert(msg):
     data = np.array([(p.x, p.y, p.z, p.reflectivity) for p in msg.points], dtype="<f4")
     if not np.isfinite(data).all():
         raise ValueError("Nonfinite real Livox points")
-    packed = np.zeros(len(data), dtype=[("values", "<f4", 4), ("tag", "u1"), ("padding", "u1", 3)])
+    packed = np.zeros(len(data), dtype=[("values", "<f4", 4), ("tag", "u1"), ("padding", "u1", 3), ("offset_time", "<u4")])
     packed["values"] = data
     packed["tag"] = [p.tag for p in msg.points]
+    packed["offset_time"] = [p.offset_time for p in msg.points]
     out = PointCloud2()
     out.header = copy.deepcopy(msg.header)
     out.height, out.width = 1, len(data)
     out.fields = [PointField(name=k, offset=i*4, datatype=7, count=1)
                   for i, k in enumerate(("x", "y", "z", "intensity"))]
     out.fields.append(PointField(name="tag", offset=16, datatype=PointField.UINT8, count=1))
-    out.point_step, out.row_step, out.is_dense = 20, len(data)*20, True
+    out.fields.append(PointField(name="offset_time", offset=20, datatype=PointField.UINT32, count=1))
+    out.point_step, out.row_step, out.is_dense = 24, len(data)*24, True
     out.data = array("B", packed.tobytes())
     return out
 

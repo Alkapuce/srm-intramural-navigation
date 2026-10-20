@@ -16,9 +16,10 @@ class LivoxAdapterTest(unittest.TestCase):
         msg.point_num=1
         out=convert(msg)
         self.assertEqual(out.header,msg.header)
-        self.assertEqual(out.row_step,20)
+        self.assertEqual(out.row_step,24)
         np.testing.assert_array_equal(np.frombuffer(out.data,dtype="<f4",count=4),[1,-2,.5,20])
-        self.assertEqual(out.fields[-1].name,"tag")
+        self.assertEqual(out.fields[-1].name,"offset_time")
+        self.assertEqual(np.frombuffer(out.data,dtype='<u4',count=1,offset=20)[0],100)
         self.assertEqual(out.data[16],16)
         for field,value in [("point_num",2),("point_num",0),("frame_id","camera_init"),("x",float("nan"))]:
             bad=copy.deepcopy(msg)

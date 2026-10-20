@@ -18,10 +18,35 @@ def response_horizon(limits):
     return max(delay + tau for delay, tau in models)
 
 
-def collision_reach(limits, speed):
-    """Inspect the response tail plus one localization period, not an entire later lap."""
-    horizon = response_horizon(limits) + limits.get('pose_update_period', .1)
+def collision_reach(limits, speed, sensor_age=0.):
+    """Cover stopping plus the observed sensor pipeline and the 40/100 Hz command ticks."""
+    horizon = response_horizon(limits) + max(limits.get('pose_update_period', .1), sensor_age) + .035
     return max(.35, speed * horizon) + limits.get('minimum_clearance', .02)
+
+
+def compensate_motion(points, stamps, history, reference_time):
+    """Put sampled body XY into one current body frame using source-time odometry."""
+    points = np.asarray(points, dtype=float)
+    history = np.asarray(history, dtype=float)
+    stamps = np.broadcast_to(np.asarray(stamps, dtype=float), (len(points),))
+    if history.ndim != 2 or history.shape[1] != 4 or len(history) < 2:
+        raise ValueError('ODOMETRY_HISTORY_WARMUP')
+    times = history[:, 0]
+    if (np.any(np.diff(times) <= 0) or reference_time-times[-1] > .25
+            or (len(stamps) and (stamps.min() < times[0] or stamps.max() > reference_time+.01))):
+        raise ValueError('POINT_TIME_OUTSIDE_ODOMETRY')
+    poses = history[:, 1:].copy()
+    poses[:, 2] = np.unwrap(poses[:, 2])
+    def sample(t):
+        p = np.stack([np.interp(t, times, poses[:, k]) for k in range(3)], axis=-1)
+        # Only extrapolate the short unpublished tail of the latest 10 Hz odometry.
+        return p + np.maximum(0., np.asarray(t)-times[-1])[..., None] * ((poses[-1]-poses[-2])/(times[-1]-times[-2]))
+    source, target = sample(stamps), sample(reference_time)
+    co, si = np.cos(source[:, 2]), np.sin(source[:, 2])
+    world = np.column_stack((co*points[:, 0]-si*points[:, 1], si*points[:, 0]+co*points[:, 1])) + source[:, :2]
+    delta = world-target[:2]
+    co, si = math.cos(target[2]), math.sin(target[2])
+    return np.column_stack((co*delta[:, 0]+si*delta[:, 1], -si*delta[:, 0]+co*delta[:, 1]))
 
 
 def executable_path(path, velocity, delay):

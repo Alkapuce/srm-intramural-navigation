@@ -311,7 +311,7 @@ class TrajectoryMission(Node):
         speed = max(
             np.linalg.norm(self.tracker.command), np.linalg.norm(self.tracker.velocity)
         )
-        reach = collision_reach(self.c, speed)
+        reach = collision_reach(self.c, speed, self.guard.get('raw_source_age_seconds', 0.))
         if self.state == "BLOCKED":
             reach = max(reach, self.held_horizon)
         self.held_horizon = reach
