@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import numpy as np
+from intramural_mission.safety import response_horizon
 
 
 @dataclass(frozen=True)
@@ -265,15 +266,19 @@ class OmniTracker:
             1.0, self.limits["max_speed"] / max(1e-9, np.linalg.norm(command))
         )
         self.command = command
-        done = (
+        parking_brake = (
             remaining < self.limits.get("finish_distance", 0.06)
             and np.linalg.norm(p - np.asarray(self.plan.points[-1]))
             < self.limits.get("parking_tolerance", 0.08)
-            and np.linalg.norm(self.velocity) < 0.06
+            and np.linalg.norm(p + self.velocity*(response_horizon(self.limits)+max(0.,pose_age))
+                               - np.asarray(self.plan.points[-1]))
+            < self.limits.get("parking_tolerance", 0.08)
         )
-        if done:
+        # Command zero when the stopping tail fits; do not creep until speed is already zero.
+        if parking_brake:
             self.stop()
             command = self.command
+        done = parking_brake and np.linalg.norm(self.velocity) < 0.06
         co, si = math.cos(yaw), math.sin(yaw)
         body = np.array(
             [co * command[0] + si * command[1], -si * command[0] + co * command[1]]
@@ -284,6 +289,7 @@ class OmniTracker:
             phase=self.progress.phase,
             error=error,
             done=bool(done),
+            parking_brake=bool(parking_brake),
             speed_reference=reference,
             velocity_observed=self.velocity.tolist(),
             feedforward=(reference * tangent).tolist(),

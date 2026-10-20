@@ -81,6 +81,20 @@ def rollout(c, delay=0.2, tau=0.15, gain=1.0, noise=0.0, seed=0, plan=None):
 
 
 class TrajectoryTests(unittest.TestCase):
+    def test_parking_zero_precedes_rest_only_when_predicted_tail_fits(self):
+        c=dict(BASE,**PROFILES['candidate'],parking=[2.,0.],route_speed_scale=1.)
+        plan=RoutePlan.build([('RETURN',[[float(x),0.] for x in np.linspace(0.,2.,81)])],c)
+        for velocity,brake in ((.2,True),(1.6,False)):
+            tracker=OmniTracker(plan,c);tracker.progress.s=1.96
+            tracker.previous_pose=np.array([1.96-velocity*.1,0.]);tracker.previous_stamp=0.
+            tracker.velocity=np.array([velocity,0.]);tracker.command=np.array([.2,0.])
+            command,detail=tracker.step([1.96,0.],0.,.025,stamp=.1)
+            self.assertEqual(detail['parking_brake'],brake)
+            self.assertFalse(detail['done'])
+            if brake:
+                np.testing.assert_array_equal(command,[0.,0.])
+                self.assertGreater(np.linalg.norm(tracker.velocity),.06)
+
     def test_ten_hz_position_noise_does_not_create_repeated_lateral_corrections(self):
         c=dict(BASE,**PROFILES['candidate'])
         c['max_speed']=.3
