@@ -245,6 +245,12 @@ def compile_route(c, grid, start=None):
         for shape in (shapes(c) if family == "joint" else ()):
             for angle in (0.,math.pi):
                 evaluate(shape,angle)
+        # A narrow feasible interval can lie between coarse samples; refine rejected seeds too.
+        if not results and family == "joint":
+            for seed in shapes(c):
+                for shape in refine(seed,c):
+                    for angle in (0.,math.pi):
+                        evaluate(shape,angle)
         if results:
             best = min(results,key=lambda x:x[2]["expected_duration"])[2]["optimized_route"]
             if best["shape"] is not None:
