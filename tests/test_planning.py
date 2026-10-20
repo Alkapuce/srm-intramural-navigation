@@ -117,7 +117,7 @@ class PlanningTests(unittest.TestCase):
     def test_fast_tracking_prediction_matches_recorded_response_on_tight_loops(self):
         c=json.loads((ROOT/'config/arena.json').read_text())
         c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['candidate'])
-        c.update(max_speed=1.2,max_acceleration=2.5,lateral_acceleration=1.4,max_jerk=7.,terminal_deceleration=1.)
+        c.update(max_speed=1.2,max_acceleration=2.5,lateral_acceleration=1.4,max_jerk=7.,terminal_deceleration=1.,response_delay=.2)
         c.update(lower_pole=[0.,0.],upper_pole=[0.,1.218],loop_radius=.609,
                  parking=[-1.4,-.35],entry_angle=math.pi,
                  bounds=[-3.,3.,-3.,4.],optimized_route=dict(shape=None,entry_angle=math.pi,transition_scale=1.25,speed_scale=.35))
