@@ -16,7 +16,7 @@ from std_msgs.msg import Bool, String
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster, Buffer, TransformListener, TransformException
 from intramural_mission.proximity import obstacle_near, obstacle_on_path, lidar_to_body
 from intramural_mission.route import curve_speed_limit
-from intramural_mission.safety import executable_path, response_horizon
+from intramural_mission.safety import executable_path, response_horizon, collision_reach
 
 
 class Adapter(Node):
@@ -338,10 +338,13 @@ class Adapter(Node):
         if self.c.get('navigation_engine')=='trajectory':
             if getattr(self,'mission_state','')=='BLOCKED':speed=max(speed,getattr(self,'held_speed',0.))
             else:self.held_speed=speed
-        # shortcut: 0.2 s latency + configured braking, replace after vehicle stop-distance measurements.
         radial = self.c['robot_radius'] + self.c.get('minimum_clearance', .1)
-        braking = min(self.c['max_acceleration'], self.c.get('braking_acceleration', self.c['max_acceleration']))
-        stop_radius = radial+.2*speed+speed*speed/(2*braking)
+        if self.c.get('navigation_engine') == 'trajectory':
+            stop_radius = radial + collision_reach(self.c, speed) - self.c.get('minimum_clearance', 0.)
+        else:
+            # Legacy control retains its original constant-deceleration model.
+            braking = min(self.c['max_acceleration'], self.c.get('braking_acceleration', self.c['max_acceleration']))
+            stop_radius = radial+.2*speed+speed*speed/(2*braking)
         lateral = self.c['robot_radius'] if 'minimum_clearance' in self.c else radial
         min_points = self.c.get('raw_collision_min_points', 1)
         self.hazard = obstacle_near(self.raw_near_points, self.last_motion_direction,
@@ -395,6 +398,7 @@ class Adapter(Node):
                         "raw_lidar_hazard": self.hazard,
                         "raw_hazard_unconfirmed": getattr(self, "pending_raw_stamp", None) is not None and not self.hazard,
                         "collision_check": self.guard_mode,
+                        "collision_reach_m": stop_radius-radial+self.c.get('minimum_clearance', 0.),
                         "path_problem": getattr(self, "path_problem", ''),
                         "path_speed_limit": speed_limit,
                         "command": values[:2], "output": self.output,

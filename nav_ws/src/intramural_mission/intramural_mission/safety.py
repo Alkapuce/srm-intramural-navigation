@@ -18,6 +18,12 @@ def response_horizon(limits):
     return max(delay + tau for delay, tau in models)
 
 
+def collision_reach(limits, speed):
+    """Inspect the response tail plus one localization period, not an entire later lap."""
+    horizon = response_horizon(limits) + limits.get('pose_update_period', .1)
+    return max(.35, speed * horizon) + limits.get('minimum_clearance', .02)
+
+
 def executable_path(path, velocity, delay):
     """Keep current momentum before joining the ordered reference; do not teleport onto it."""
     points = np.asarray(path, dtype=float)

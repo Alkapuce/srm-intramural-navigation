@@ -21,7 +21,7 @@ from intramural_mission.planning import compile_route, GridMap
 from intramural_mission.trajectory import OmniTracker, RoutePlan
 from intramural_mission.route import line
 from intramural_mission.hazards import first_blocked
-from intramural_mission.safety import executable_path, response_horizon
+from intramural_mission.safety import executable_path, response_horizon, collision_reach
 
 
 class TrajectoryMission(Node):
@@ -177,6 +177,7 @@ class TrajectoryMission(Node):
         self.index = -1
         self.blocked_count = 0
         self.detail = {}
+        self.held_horizon = 0.0
         self.clear_since = None
         self.started = self.get_clock().now().nanoseconds / 1e9
         self.finished = None
@@ -310,9 +311,7 @@ class TrajectoryMission(Node):
         speed = max(
             np.linalg.norm(self.tracker.command), np.linalg.norm(self.tracker.velocity)
         )
-        reach = max(
-            0.35, 0.2 * speed + speed * speed / (2 * self.c["braking_acceleration"])
-        )
+        reach = collision_reach(self.c, speed)
         if self.state == "BLOCKED":
             reach = max(reach, self.held_horizon)
         self.held_horizon = reach

@@ -18,6 +18,26 @@ from intramural_mission.route import curve_speed_limit, arc, line
 
 
 class ProximityTests(unittest.TestCase):
+    def test_trajectory_stop_ignores_later_route_but_preserves_near_obstacle_stop(self):
+        now=time.monotonic();cmd=Twist();cmd.linear.x=1.6
+        c=dict(robot_radius=.29,minimum_clearance=.02,max_speed=2.,max_acceleration=3.5,
+            braking_acceleration=.2,bypass_speed=.2,raw_collision_min_points=3,
+            navigation_engine='trajectory',raw_collision_follow_path=True,
+            response_delay=.1,response_tau=.09)
+        m=N(c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
+            motion_permitted=True,enabled=True,bypassing=False,output=[1.6,0.],body_velocity=[1.6,0.],
+            last_motion_direction=(1.6,0.),raw_near_points=np.array([[2.,-.02],[2.,0.],[2.,.02]]),
+            body_path=lambda:line([0.,0.],[3.,0.],.05),mode='sensors',
+            pub=N(publish=lambda v:None),hazard_pub=N(publish=lambda v:None),diagnostic=N(publish=lambda v:None))
+        Adapter.tick(m)
+        self.assertFalse(m.hazard,'An obstacle 2 m away must not stop the current short braking path')
+        self.assertGreater(m.output[0],0.)
+        m.raw_near_points=np.array([[.5,-.02],[.5,0.],[.5,.02]])
+        m.last_tick=time.monotonic()-.025
+        Adapter.tick(m)
+        self.assertTrue(m.hazard)
+        self.assertEqual(m.output,[0.,0.])
+
     def test_mid360_confidence_reaches_guard_without_hiding_contact_or_normal_returns(self):
         from livox_ros_driver2.msg import CustomMsg, CustomPoint
         from intramural_mission.livox_adapter import convert
