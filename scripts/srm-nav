@@ -19,6 +19,7 @@ SRM 导航调试（在执行本命令的机器上运行，不自动 SSH）
   srm-nav drive [MAP_DIR] [DEVICE]    启用最新已确认场地的导航与串口，任务仍需手动 start
   srm-nav check-standby [MAP_DIR]     检查已启动的地图待机，不打开串口
   srm-nav start                      发车并持续显示进度，结束打印摘要；Ctrl-C 取消
+  srm-nav prepare                    从当前位置预先规划接入和整圈路线，不发车；随后 start 复用
   srm-nav cancel|reset               取消或复位任务
   srm-nav start-here                 从当前位置规划接入完整八字，最终回原停车位
   srm-nav return-home TRACE MAP_DIR   按记录轨迹倒序低速回位；替代 drive，仍需另执行 start
@@ -125,7 +126,7 @@ case "$command" in
   check-standby)
     optional_arg "$@"; input="$(select_path map "${1:-${INTRAMURAL_NAVIGATION_CONFIG:-}}")"; report_dir
     exec "$root/scripts/run.sh" python3 /work/scripts/validation/verify-vehicle-standby.py --map-config "$input" --output "$(runtime_path "$report")" ;;
-  start|start-here)
+  start|start-here|prepare)
     [[ $# == 0 ]] || { usage >&2; exit 2; }
     exec "$root/scripts/run.sh" python3 /work/scripts/internal/mission_console.py "$command" ;;
   result)

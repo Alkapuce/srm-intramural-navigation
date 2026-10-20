@@ -90,6 +90,8 @@ class TrajectoryMission(Node):
             10,
         )
         self.create_service(Trigger, "mission/start", self.start)
+        self.create_service(Trigger, "mission/prepare",
+            lambda req, res: self.start(req, res, from_here=True, prepare_only=True))
         self.create_service(
             Trigger, "mission/start_here", lambda req, res: self.start(req, res, True)
         )
@@ -128,18 +130,19 @@ class TrajectoryMission(Node):
             and self.guard.get("sensors_fresh", False)
         )
 
-    def start(self, request, response, from_here=False):
+    def start(self, request, response, from_here=False, prepare_only=False):
         if from_here and self.c["mission_variant"] != "figure8":
             response.message = "Start-here requires the figure-eight mission"
             return response
-        if self.state != "IDLE":
+        prepared = self.state == 'PREPARED' and not from_here
+        if self.state not in ("IDLE", "PREPARED"):
             response.message = "Reset required or mission active"
             return response
         if not self.start_permitted or not self.ready():
             response.message = "Map, localization or sensors not ready"
             return response
         if (
-            not from_here
+            not from_here and not prepared
             and math.dist(self.pose, self.c["parking"]) > self.c["parking_tolerance"]
         ):
             response.message = "Outside parking tolerance; use start-here"
@@ -149,7 +152,17 @@ class TrajectoryMission(Node):
             folder = self.config_file.parent
             manifest_file = folder/'manifest.json'
             manifest = json.loads(manifest_file.read_text()) if manifest_file.exists() else {}
-            if not from_here and self.c['mission_variant']=='figure8' and manifest.get('route_sources_sha256'):
+            if prepared:
+                if self.report['map_id'] != self.measured.map_id:
+                    raise ValueError('Prepared map changed; run srm-nav prepare again')
+                if math.dist(self.pose,self.prepared_pose) > self.c['parking_tolerance']:
+                    raise ValueError('Vehicle moved since prepare; run srm-nav prepare again')
+                if min(self.measured.clearance(line(self.pose,self.plan.points[0],.025),
+                        include_poles=not self.c.get('pole_clearance_from_map',False))) <= 0:
+                    raise ValueError('Prepared starting footprint is obstructed')
+                self.report = dict(self.report,reused_prepared_start=True,
+                    preparation_seconds=self.report.get('planning_seconds',0.),planning_seconds=0.)
+            elif not from_here and self.c['mission_variant']=='figure8' and manifest.get('route_sources_sha256'):
                 if manifest['route_sources_sha256'] != self.source_hashes:
                     raise ValueError('Route source version changed; regenerate field configuration')
                 for name in ('arena.json','route-plan.json','route-analysis.json'):
@@ -169,6 +182,16 @@ class TrajectoryMission(Node):
             response.message = str(exc)
             return response
         self.tracker = OmniTracker(self.plan, self.c)
+        if prepare_only:
+            self.prepared_pose = list(self.pose)
+            self.state, self.reason = 'PREPARED', 'ROUTE_PREPARED'
+            self.command_pub.publish(Twist())
+            self.enable_pub.publish(Bool(data=False))
+            self.path_pub.publish(self.make_path(self.plan.points))
+            self.publish_collision()
+            response.success = True
+            response.message = f'Route prepared in {self.report.get("planning_seconds",0.):.2f}s; run srm-nav start'
+            return response
         self.run += 1
         self.run_id = uuid.uuid4().hex
         self.state = "STARTING"
@@ -196,7 +219,7 @@ class TrajectoryMission(Node):
         self.prepared_stamp = self.get_clock().now().nanoseconds / 1e9
         self.enable_pub.publish(Bool(data=False))
         response.success = True
-        response.message = (
+        response.message = 'Prepared route started' if prepared else (
             "Whole ordered route started from current pose"
             if from_here
             else "Mission started"
@@ -256,6 +279,12 @@ class TrajectoryMission(Node):
         self.plan = None
         self.input_failure.clear()
         self.tracker = None
+        if hasattr(self, 'log'):
+            self.log.close()
+            del self.log
+        self.run_id = ''
+        self.started = 0.
+        self.finished = None
         response.success = True
         response.message = "Reset"
         return response

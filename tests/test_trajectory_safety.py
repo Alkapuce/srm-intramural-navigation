@@ -24,6 +24,52 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TrajectorySafetyTests(unittest.TestCase):
+    def test_prepare_stays_disabled_and_start_reuses_it_or_rejects_changed_pose(self):
+        from std_msgs.msg import Bool
+        c=json.loads((ROOT/'config/arena.json').read_text());c['optimize_route']=False
+        with tempfile.TemporaryDirectory(dir=ROOT/'cache') as folder:
+            config=Path(folder)/'arena.json';config.write_text(json.dumps(c))
+            rclpy.init(domain_id=87,args=['--ros-args','-p',f'arena_config:={config}'])
+            node=TrajectoryMission();position=list(c['parking']);enabled=[]
+            node.create_subscription(Bool,'mission/enabled',lambda m:enabled.append(m.data),10)
+            def transform(*args):
+                t=TransformStamped();t.header.stamp=node.get_clock().now().to_msg();t.transform.rotation.w=1.
+                if args[1]=='base_footprint':
+                    t.transform.translation.x,t.transform.translation.y=position
+                return t
+            node.tf=N(lookup_transform=transform)
+            grid=OccupancyGrid();grid.header.frame_id='map';grid.info.resolution=.05
+            grid.info.width=grid.info.height=200;grid.info.origin.position.x=grid.info.origin.position.y=-2.
+            grid.info.origin.orientation.w=1.;grid.data=[0]*40000
+            def fresh():
+                node.receive_map(grid);node.receive_costmap(grid)
+                node.receive_guard(String(data='{"sensors_fresh":true}'));node.tick()
+            def call(name):
+                client=node.create_client(Trigger,'mission/'+name)
+                try:
+                    self.assertTrue(client.wait_for_service(timeout_sec=2.))
+                    future=client.call_async(Trigger.Request());rclpy.spin_until_future_complete(node,future,timeout_sec=10.)
+                    self.assertTrue(future.done());return future.result()
+                finally:node.destroy_client(client)
+            try:
+                fresh();response=call('prepare');self.assertTrue(response.success,response.message)
+                self.assertEqual(node.state,'PREPARED');self.assertEqual(node.run,0)
+                self.assertEqual(node.tracker.command.tolist(),[0.,0.]);self.assertNotIn(True,enabled)
+                position[0]+=.2;fresh();response=call('start')
+                self.assertFalse(response.success);self.assertEqual(node.state,'PREPARED');self.assertEqual(node.run,0)
+                position[:]=c['parking'];grid.data[0]=-1;fresh();response=call('start')
+                self.assertFalse(response.success);self.assertEqual(node.run,0)
+                grid.data[0]=0
+                position[:]=c['parking'];fresh();response=call('prepare');self.assertTrue(response.success,response.message)
+                prepared=node.plan;fresh();response=call('start')
+                self.assertTrue(response.success,response.message);self.assertIs(node.plan,prepared)
+                self.assertIn(node.state,('STARTING','RUNNING'));self.assertEqual(node.run,1)
+                self.assertTrue(node.report['reused_prepared_start']);self.assertEqual(node.report['planning_seconds'],0.)
+            finally:
+                if hasattr(node,'log'):node.log.close()
+                if node.run_id:shutil.rmtree(ROOT/'artifacts/navigation-runs'/node.run_id)
+                node.destroy_node();rclpy.shutdown()
+
     def test_odometry_coasting_still_blocks_after_zero_command_and_off_route_turn(self):
         from nav_msgs.msg import Odometry
         from geometry_msgs.msg import Twist

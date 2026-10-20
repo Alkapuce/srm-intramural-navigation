@@ -95,7 +95,7 @@ def start(operation):
             future = client.call_async(Trigger.Request())
             if name in ('start', 'start_here'):
                 requested = True
-            planning = name in ('start', 'start_here')
+            planning = name in ('start', 'start_here', 'prepare')
             began = time.monotonic()
             deadline = began+(90 if planning else 30)
             notice = began
@@ -135,7 +135,13 @@ def start(operation):
         if latest['state'] == 'DONE':
             print('上一轮已完成，复位后开始新一轮。', flush=True)
             call('reset')
-        print('开始任务，正在规划接入…', flush=True)
+        if operation == 'prepare':
+            print('准备接入与整圈路线，不发车…', flush=True)
+            print(call('prepare'), flush=True)
+            print('准备完成，保持车辆位置；执行 srm-nav start 发车。', flush=True)
+            return 0
+        print('使用已准备路线，等待启动确认…' if latest['state']=='PREPARED'
+              else '开始任务，正在规划接入…', flush=True)
         print(call(operation.replace('-', '_')), flush=True)
         # Planning pauses status publication; start its watchdog after service acceptance.
         received = time.monotonic()
@@ -189,7 +195,7 @@ def start(operation):
 
 def main():
     operation = sys.argv[1]
-    if operation in ('start', 'start-here'):
+    if operation in ('start', 'start-here', 'prepare'):
         return start(operation)
     folder = Path(sys.argv[2]).expanduser().resolve() if len(sys.argv)>2 else max(
         (ROOT/'artifacts/navigation-runs').glob('*/manifest.json'), key=lambda p:p.stat().st_mtime_ns).parent
