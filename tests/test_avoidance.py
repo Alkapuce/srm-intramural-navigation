@@ -50,6 +50,20 @@ class AvoidanceTests(unittest.TestCase):
         self.assertEqual(len(route_topology(reference,c,[obstacle],9)),2)
         self.assertEqual(len(route_topology(reference,c,[obstacle],0)),2)
 
+    def test_splice_assigns_joint_locations_in_order_after_a_long_detour(self):
+        from intramural_mission.route import line
+        c,_,_,_=self.case()
+        names=['ENTER','LOWER','LOWER','LOWER','UPPER','UPPER','UPPER','UPPER','LOWER_EXIT','RETURN']
+        plan=RoutePlan.build([(name,line([i,0.],[i+1.,0.],.025))for i,name in enumerate(names)],c)
+        vertices=[[6.5,0.],[6.55,.9],[7.,.9],[8.,0.],[9.5,0.]]
+        bridge=[]
+        for a,b in zip(vertices,vertices[1:]):bridge.extend(line(a,b,.025)[1 if bridge else 0:])
+        updated,_=splice(plan,6.5,bridge,9.5,c,lambda p:np.ones(len(p)),0.)
+        self.assertEqual([updated.points[i]for _,i in updated.gates[:6]],
+                         [plan.points[i]for _,i in plan.gates[:6]])
+        self.assertLess(np.linalg.norm(np.asarray(updated.points[updated.gates[7][1]])-[8.,0.]),.026)
+        self.assertTrue(all(a[1]<b[1]for a,b in zip(updated.gates,updated.gates[1:])))
+
     def test_blocked_next_crossing_can_rejoin_after_the_joint_without_skipping_gates(self):
         from intramural_mission.avoidance import DetourPlanner
         c,grid,_,_=self.case()

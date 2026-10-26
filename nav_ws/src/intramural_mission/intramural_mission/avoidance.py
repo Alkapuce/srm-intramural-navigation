@@ -250,17 +250,25 @@ def route_topology(plan,config,tracks,phase):
 def splice(plan, progress, bridge, join_s, limits, clearance, initial_speed):
     i = max(0, int(np.searchsorted(plan.s, progress, side='right'))-1)
     j = min(len(plan.points)-1, int(np.searchsorted(plan.s, join_s)))
-    points = list(plan.points[:i])+[tuple(p) for p in bridge]+list(plan.points[j+1:])
+    bridge = [tuple(p) for p in bridge]
+    points = list(plan.points[:i])+bridge+list(plan.points[j+1:])
     shift = len(bridge)-(j-i+1)
     gates = []
+    remaining = sum(i<index<=j for _,index in plan.gates)
+    cursor = 0
     for phase, index in plan.gates:
-        if index < i:
+        if index <= i:
             mapped = index
         elif index > j:
             mapped = index+shift
         else:
-            fraction = (plan.s[index]-plan.s[i])/max(1e-9, plan.s[j]-plan.s[i])
-            mapped = i+round(fraction*(len(bridge)-1))
+            # Extra detour length must not move the upper/lower joint down the next loop.
+            first,last = cursor+1,len(bridge)-remaining
+            if first>last:raise ValueError('Bridge cannot preserve ordered checkpoints')
+            cursor = (len(bridge)-1 if index==j else first+int(np.argmin(
+                np.linalg.norm(np.asarray(bridge[first:last+1])-plan.points[index],axis=1))))
+            mapped = i+cursor
+            remaining -= 1
         gates.append((phase, mapped))
     route, begin = [], 0
     for phase, index in gates:
