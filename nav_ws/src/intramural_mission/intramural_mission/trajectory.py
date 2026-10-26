@@ -7,7 +7,7 @@ import hashlib
 import json
 import math
 import numpy as np
-from intramural_mission.safety import response_horizon
+from intramural_mission.safety import stopping_horizon
 
 
 @dataclass(frozen=True)
@@ -290,14 +290,16 @@ class OmniTracker:
             1.0, self.limits["max_speed"] / max(1e-9, np.linalg.norm(command))
         )
         self.command = command
+        speed=float(np.linalg.norm(self.velocity))
+        parking_horizon=stopping_horizon(self.limits,speed)+max(0.,pose_age)
+        force=self.limits.get('drive_acceleration_limit')
+        # Finite force also bounds the shortest stopping distance; check both ends before latching zero.
+        earliest=max(0.,pose_age)+(speed/(2*force) if force else 0.)
         parking_brake = self.parking_samples is not None or (
             remaining < max(self.limits.get("finish_distance", 0.06),
-                            self.limits.get("parking_tolerance", 0.08))
-            and np.linalg.norm(p - np.asarray(self.plan.points[-1]))
-            < self.limits.get("parking_tolerance", 0.08)
-            and np.linalg.norm(p + self.velocity*(response_horizon(self.limits)+max(0.,pose_age))
-                               - np.asarray(self.plan.points[-1]))
-            < self.limits.get("parking_tolerance", 0.08)
+                            self.limits.get("parking_tolerance", 0.08))+np.linalg.norm(self.velocity)*parking_horizon
+            and max(np.linalg.norm(p+self.velocity*t-np.asarray(self.plan.points[-1]))
+                    for t in (earliest,parking_horizon)) < self.limits.get("parking_tolerance", 0.08)
         )
         # Command zero when the stopping tail fits; do not creep until speed is already zero.
         if parking_brake:

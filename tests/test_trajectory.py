@@ -157,6 +157,20 @@ class TrajectoryTests(unittest.TestCase):
                 np.testing.assert_array_equal(command,[0.,0.])
                 self.assertGreater(np.linalg.norm(tracker.velocity),.06)
 
+    def test_terminal_stop_respects_force_bound_and_can_begin_before_goal_radius(self):
+        c=dict(BASE,**PROFILES['candidate'],parking=[0.,0.],drive_acceleration_limit=3.5,
+            route_speed_scale=1.)
+        plan=RoutePlan.build([('RETURN',[[2.*x,1.5*x] for x in np.linspace(1.,0.,81)])],c)
+        # The first boundary previously latched zero even though its force-limited tail overshot.
+        for position,velocity,expected in (([.0443710771,.0386735641],[-.4811517057,-.3744119686],False),
+                                           ([.172,.129],[-.8,-.6],True)):
+            tracker=OmniTracker(plan,c);tracker.progress.s=plan.s[-1]-float(np.linalg.norm(position))
+            tracker.previous_pose=np.asarray(position)-np.asarray(velocity)*.1;tracker.previous_stamp=0.
+            tracker.velocity=np.asarray(velocity);tracker.command=np.asarray(velocity)
+            command,detail=tracker.step(position,0.,.025,stamp=.1,pose_age=.04)
+            self.assertEqual(detail['parking_brake'],expected,detail)
+            if expected:np.testing.assert_array_equal(command,[0.,0.])
+
     def test_terminal_preview_parks_with_recorded_response_delays(self):
         c=dict(BASE,**PROFILES['candidate'],parking=[2.,0.],route_speed_scale=1.)
         plan=RoutePlan.build([('RETURN',[[float(x),0.] for x in np.linspace(0.,2.,81)])],c)
