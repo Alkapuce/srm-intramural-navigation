@@ -86,7 +86,7 @@ def motion_timing(measurements):
         scope='Source-stamped physical position differences; whole run includes starting and final stop confirmation')
 
 
-def channel_agreement(measurements,history,config):
+def channel_agreement(measurements,history,config,actors=None):
     trace=np.asarray(measurements)
     if np.linalg.norm(trace[0,1:]-config['parking'])>2*config['parking_tolerance']:
         return dict(passed=True,scope='Start-here begins away from home; regular entry/return comparison not applicable')
@@ -100,10 +100,33 @@ def channel_agreement(measurements,history,config):
     separation=np.linalg.norm(np.column_stack([np.interp(distance,a,entry[:,k])-
         np.interp(distance,b,returning[:,k]) for k in (0,1)]),axis=1)
     maximum=float(max(separation,default=math.inf))
-    return dict(passed=length>.2 and maximum<2*config['max_tracking_error'],
+    blocked=False;same_side=True
+    if actors is not None and len(actors):
+        actor=np.asarray(actors);valid=np.ones(len(actor),bool)
+        if 'bounds' in config:
+            xmin,xmax,ymin,ymax=config['bounds']
+            valid=(actor[:,1]>xmin)&(actor[:,1]<xmax)&(actor[:,2]>ymin)&(actor[:,2]<ymax)
+        # Only observed occupancy before RETURN can justify changing its reverse-entry reference.
+        for row in actor[valid&(actor[:,0]>=history[8]['sim_time'])&(actor[:,0]<=history[9]['sim_time'])][::5]:
+            if min(box_clearance(entry-row[1:3],row[3] if len(row)>3 else 0.,config))<=0.:
+                blocked=True;break
+        initial=actor[valid&(actor[:,0]<=history[1]['sim_time'])]
+        if len(initial):
+            anchor=initial[0,1:3];yaw=initial[0,3]if actor.shape[1]>3 else 0.
+            nearest=int(np.argmin(np.linalg.norm(entry-anchor,axis=1)))
+            if .6<a[nearest]<a[-1]-.6 and min(box_clearance(entry-anchor,yaw,config))>0.:
+                # A moved actor must not erase the historical side chosen during entry.
+                stem=np.vstack((entry,returning[::-1],entry[:1]))-anchor
+                u,v=stem[:-1],stem[1:]
+                turn=float(np.sum(np.arctan2(u[:,0]*v[:,1]-u[:,1]*v[:,0],np.sum(u*v,axis=1)))/(2*math.pi))
+                same_side=abs(turn)<.25
+    limit=2*config['max_tracking_error']
+    if blocked:limit+=config.get('bypass_max_deviation',0.)
+    return dict(passed=length>.2 and maximum<limit and same_side,
         compared_length_m=float(length),max_ordered_separation_m=maximum,
-        scope='Independent truth, ordered distance from home, return reversed; twice the unchanged tracking tolerance')
-
+        original_return_blocked=blocked,historical_entry_side_preserved=bool(same_side),
+        allowed_separation_m=limit,
+        scope='Independent truth, ordered distance from home; observed return blockage permits configured detour deviation plus tracking errors, historical entry side retained')
 
 def response_agreement(measurements, commands, config):
     """Replay the observed serial command sequence in an independent planar integrator."""
@@ -423,7 +446,7 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.,
                 minimum_dynamic_clearance=None if not math.isfinite(minimum) else minimum)
             row['ordered_turns']=ordered_turns(measurements,status['history'],route,c)
             row['passed'] &= row['ordered_turns']['passed']
-            row['channel_agreement']=channel_agreement(measurements,status['history'],c)
+            row['channel_agreement']=channel_agreement(measurements,status['history'],c,actor_trace)
             row['passed'] &= row['channel_agreement']['passed']
             row['motion_timing']=motion_timing(measurements)
             row['route_switches']=[s for s in switches if s['run_id']==run_id]

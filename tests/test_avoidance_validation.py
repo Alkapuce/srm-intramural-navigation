@@ -27,6 +27,31 @@ class PhysicalOracleTests(unittest.TestCase):
         trace[4][2]=-1.
         self.assertFalse(oracle.channel_agreement(trace,history,config)['passed'])
 
+    def test_return_replan_uses_detour_corridor_only_when_old_channel_is_blocked(self):
+        config=dict(parking=[0.,0.],parking_tolerance=.08,max_tracking_error=.3,
+            bypass_max_deviation=1.1,robot_radius=.29,obstacle_size=[.5,.5,1.])
+        history=[dict(sim_time=0.)for _ in range(10)]
+        history[1]['sim_time']=3.;history[8]['sim_time']=4.;history[9]['sim_time']=5.
+        trace=[[0.,0.,0.],[1.,1.,0.],[2.,2.,0.],[3.,3.,0.],
+               [5.,3.,0.],[6.,2.,.8],[7.,1.,.8],[8.,0.,0.]]
+        actor=[[0.,1.5,2.,0.],[3.,1.5,2.,0.],[4.,1.5,0.,0.],[8.,1.5,0.,0.]]
+        self.assertFalse(oracle.channel_agreement(trace,history,config)['passed'])
+        self.assertTrue(oracle.channel_agreement(trace,history,config,actor)['passed'])
+        clear=[[row[0],row[1],2.,0.]for row in actor]
+        self.assertFalse(oracle.channel_agreement(trace,history,config,clear)['passed'])
+        trace[5][2]=trace[6][2]=2.
+        self.assertFalse(oracle.channel_agreement(trace,history,config,actor)['passed'])
+
+    def test_blocked_return_still_cannot_change_historical_entry_side(self):
+        config=dict(parking=[0.,0.],parking_tolerance=.08,max_tracking_error=.3,
+            bypass_max_deviation=1.1,robot_radius=.29,obstacle_size=[.5,.5,1.])
+        history=[dict(sim_time=0.)for _ in range(10)]
+        history[1]['sim_time']=3.;history[8]['sim_time']=4.;history[9]['sim_time']=5.
+        trace=[[0.,0.,0.],[1.,1.,.65],[2.,2.,.65],[3.,3.,0.],
+               [5.,3.,0.],[6.,2.,-.65],[7.,1.,-.65],[8.,0.,0.]]
+        actor=[[0.,1.5,0.,0.],[3.,1.5,0.,0.],[4.,1.5,.65,0.],[8.,1.5,.65,0.]]
+        self.assertFalse(oracle.channel_agreement(trace,history,config,actor)['passed'])
+
     def test_loop_order_rejects_swapped_loops_with_the_same_final_winding(self):
         import numpy as np
         lo=np.column_stack((np.cos(np.linspace(np.pi/2,5*np.pi/2,5)),
