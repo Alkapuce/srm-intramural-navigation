@@ -27,10 +27,17 @@ ROOT=Path(__file__).resolve().parents[1]
 
 class TrajectoryClosedLoopTests(unittest.TestCase):
     def test_complete_ordered_route_person_removal_and_terminal_stop(self):
+        self.complete_route(False)
+
+    def test_persistent_obstacle_detour_completes_through_production_guard(self):
+        self.complete_route(True)
+
+    def complete_route(self, persistent):
         c=json.loads((ROOT/'config/arena.json').read_text())
         c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['safe'])
         c.update(lower_pole=[1.,0.],upper_pole=[1.,1.4],loop_radius=.7,parking=[-.5,-.5],
                  bounds=[-2.,4.,-2.,4.],lidar_pose=[0.]*6,optimize_route=False,max_speed=.65)
+        c['allow_bypass'] = persistent
         with tempfile.TemporaryDirectory(dir=ROOT/'cache') as folder:
             source=Path(folder)/'map';source.mkdir();prepared=Path(folder)/'navigation'
             from PIL import Image
@@ -87,9 +94,10 @@ class TrajectoryClosedLoopTests(unittest.TestCase):
                     if person is None and mission.state=='RUNNING' and mission.detail.get('s',0.)>.8:
                         person=now
                     xyz=[[1.,0.,0.]]
-                    if person is not None and now-person<1.:
+                    if person is not None and (persistent or now-person<1.):
                         norm=np.linalg.norm(sent)
-                        if norm>.05 and not blocked:person_point=plant.pose+sent/norm*.45
+                        if norm>.05 and not blocked and (not persistent or 'person_point' not in locals()):
+                            person_point=plant.pose+sent/norm*(1.1 if persistent else .45)
                         if 'person_point' in locals():
                             xy=person_point-plant.pose;xyz=[[xy[0]+dx,xy[1],.3] for dx in (-.01,0.,.01)]
                     cloud=PointCloud2(height=1,width=len(xyz),point_step=12,row_step=12*len(xyz))
@@ -98,8 +106,13 @@ class TrajectoryClosedLoopTests(unittest.TestCase):
                     for _ in range(35):executor.spin_once(timeout_sec=0.)
                     if request is None and mission.ready() and client.service_is_ready():
                         requested_at=time.monotonic();request=client.call_async(Trigger.Request())
+                    if request is None and now-began > 10:
+                        self.fail(dict(state=mission.state, pose=mission.pose, pose_age=mission.pose_age,
+                            costmap=mission.costmap is not None, guard=mission.guard,
+                            service_ready=client.service_is_ready()))
                     if request is not None and request.done() and accepted_after is None:
                         accepted_after=time.monotonic()-requested_at
+                        self.assertTrue(request.result().success, request.result().message)
                     blocked=blocked or mission.state=='BLOCKED'
                     resumed=resumed or (blocked and mission.state=='RUNNING')
                     if mission.state in ('DONE','FAULT'):break
@@ -108,15 +121,19 @@ class TrajectoryClosedLoopTests(unittest.TestCase):
                 self.assertTrue(request.done() and request.result().success)
                 self.assertLess(accepted_after,1.,'A prepared start must not rerun whole-route prediction')
                 self.assertTrue(mission.report['reused_prepared_route'])
-                self.assertEqual(mission.plan.route_id,json.loads((prepared/'route-plan.json').read_text())['route_id'])
-                self.assertTrue(blocked and resumed,(blocked,resumed,mission.reason))
+                if persistent:
+                    self.assertGreater(mission.bypass_count,0,mission.avoidance)
+                else:
+                    self.assertEqual(mission.plan.route_id,json.loads((prepared/'route-plan.json').read_text())['route_id'])
+                    self.assertTrue(blocked and resumed,(blocked,resumed,mission.reason))
                 self.assertEqual(mission.state,'DONE',(mission.reason,mission.detail))
                 self.assertEqual(len(mission.history),10)
-                self.assertEqual(mission.blocked_count,1)
+                if not persistent:self.assertEqual(mission.blocked_count,1)
                 self.assertLess(np.linalg.norm(plant.pose-c['parking']),c['parking_tolerance'])
                 self.assertEqual(guard.output,[0.,0.])
             finally:
                 mission.stop();guard.stop()
+                if mission.worker:mission.worker.close()
                 if hasattr(mission,'log'):mission.log.close()
                 if mission.run_id:
                     evidence=ROOT/'artifacts/tests/trajectory-closed-loop'/mission.run_id

@@ -221,7 +221,7 @@ def main():
         config.update(lower_pole=lower, upper_pole=upper, parking=args.parking,mission_variant='figure8',
             loop_radius=math.dist(lower,upper)/2, pole_radius=max(config['pole_radius'],*(p['radius_bound_m'] for p in poles)),
             continuous_corners=True,
-            bypass_speed=.2, allow_bypass=False, minimum_clearance=.02,
+            bypass_speed=.2, allow_bypass=config.get('allow_bypass',False), minimum_clearance=.02,
             raw_zero_intensity_min_range_m=.15,
             raw_collision_follow_path=True,
             raw_collision_min_points=3,

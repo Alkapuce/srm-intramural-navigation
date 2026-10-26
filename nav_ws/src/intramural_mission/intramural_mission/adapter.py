@@ -17,7 +17,7 @@ from std_msgs.msg import Bool, String
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster, Buffer, TransformListener, TransformException
 from intramural_mission.proximity import obstacle_near, obstacle_on_path, lidar_to_body
 from intramural_mission.route import curve_speed_limit
-from intramural_mission.safety import executable_path, response_horizon, collision_reach, compensate_motion
+from intramural_mission.safety import executable_path, response_horizon, collision_reach, compensate_motion, map_motion_pose
 
 
 class Adapter(Node):
@@ -44,6 +44,10 @@ class Adapter(Node):
         self.raw_near_points = np.empty((0, 2), dtype=np.float32)
         self.last_motion_direction = (0.0, 0.0)
         self.hazard = False
+        self.atomic_command = self.c.get('navigation_engine') == 'trajectory'
+        self.snapshot_stamp = -math.inf
+        self.observed_stamp = -math.inf
+        self.observation_pub = self.create_publisher(String, 'motion_guard/observations', 1)
         self.mission_phase = ''
         self.create_subscription(String,'mission/status',self.receive_mission_status,10)
         self.collision_path = None
@@ -98,7 +102,7 @@ class Adapter(Node):
         elif self.mode != "sensors":
             raise ValueError("localization must be ideal or sensors")
         self.create_timer(
-            0.025, self.tick, clock=Clock(clock_type=ClockType.STEADY_TIME)
+            .01 if self.atomic_command else .025, self.tick, clock=Clock(clock_type=ClockType.STEADY_TIME)
         )
 
     def touch(self, key):
@@ -138,11 +142,32 @@ class Adapter(Node):
         d=json.loads(msg.data)
         points=np.asarray(d['points'],dtype=float)
         pose=np.asarray(d.get('pose'),dtype=float)
-        self.collision_context=(d['run_id'],d['route_id'])
+        context=(d['run_id'],d['route_id'])
+        command=np.asarray(d.get('command', [0., 0.]), dtype=float)
         if (points.ndim!=2 or points.shape[1]!=2 or not np.isfinite(points).all() or not math.isfinite(d['stamp'])
-                or pose.shape!=(3,) or not np.isfinite(pose).all() or not math.isfinite(d['pose_stamp'])):
+                or pose.shape!=(3,) or not np.isfinite(pose).all() or not math.isfinite(d['pose_stamp'])
+                or command.shape!=(2,) or not np.isfinite(command).all()):
             self.collision_path=None
+            self.cmd = Twist()
             return
+        if self.atomic_command:
+            now=self.get_clock().now().nanoseconds/1e9
+            if abs(now-d['pose_stamp']) > .25:
+                self.collision_path=None
+                self.cmd=Twist()
+                return
+            if (getattr(self,'mission_state','') in ('RUNNING','BLOCKED','CANCELLING')
+                    and context[0] != getattr(self,'mission_context',('',''))[0]):
+                return
+            if abs(now-d['stamp']) > .3 or d['stamp'] <= self.snapshot_stamp:
+                return
+            self.snapshot_stamp=d['stamp']
+            self.mission_context=context
+            self.cmd=Twist()
+            self.cmd.linear.x,self.cmd.linear.y=map(float,command)
+            self.touch('command')
+            if not np.any(command):self.output=[0.,0.]
+        self.collision_context=context
         self.collision_pose, self.collision_pose_stamp = pose, d['pose_stamp']
         from geometry_msgs.msg import PoseStamped
         path=RosPath();path.header.frame_id='map';path.header.stamp.sec=int(d['stamp'])
@@ -160,7 +185,9 @@ class Adapter(Node):
             self.path_problem = 'NO_PATH'
             return None
         if self.c.get('navigation_engine')=='trajectory':
-            if getattr(self,'collision_context',None)!=getattr(self,'mission_context',None):
+            expected=getattr(self,'mission_context',None)
+            actual=getattr(self,'collision_context',None)
+            if actual is None or expected is None or (actual[0]!=expected[0] if self.atomic_command else actual!=expected):
                 self.path_problem = 'CONTEXT_MISMATCH'
                 return None
             now=self.get_clock().now().nanoseconds/1e9
@@ -194,10 +221,14 @@ class Adapter(Node):
         self.bypassing = msg.data
 
     def command(self, msg):
+        if self.atomic_command:
+            return
         self.cmd = msg
         self.touch("command")
 
     def controller_command(self, msg):
+        if self.atomic_command:
+            return
         # A segment-end zero must survive the upstream smoother and timer ordering.
         if msg.linear.x == 0.0 and msg.linear.y == 0.0:
             self.cmd = Twist()
@@ -331,7 +362,7 @@ class Adapter(Node):
         values = [self.cmd.linear.x, self.cmd.linear.y, self.cmd.angular.z]
         valid = all(math.isfinite(v) for v in values)
         target = values[:2] if self.motion_permitted and self.enabled and not stale and valid else [0.0, 0.0]
-        speed_limit = self.c['bypass_speed'] if self.bypassing else self.c['max_speed']
+        speed_limit = self.c['bypass_speed'] if self.bypassing and not self.atomic_command else self.c['max_speed']
         path = self.body_path() if self.c.get('raw_collision_follow_path', False) else None
         raw_points = self.raw_near_points
         trusted_points = getattr(self, 'raw_trusted_points', None)
@@ -355,6 +386,25 @@ class Adapter(Node):
             if getattr(self,'mission_phase','')=='RETURN':
                 remaining=math.hypot(*path[0])+sum(math.dist(a,b)for a,b in zip(path,path[1:]))
                 speed_limit=min(speed_limit,max(.05,math.sqrt(2*self.c['max_acceleration']*max(0.,remaining-self.c['parking_tolerance']))))
+        if (self.c.get('allow_bypass', False) and self.atomic_command and not self.raw_motion_problem
+                and getattr(self,'raw_stamp',-math.inf)>self.observed_stamp
+                and getattr(self,'collision_pose',None) is not None):
+            self.observed_stamp=self.raw_stamp
+            x,y,yaw=self.collision_pose
+            if self.raw_point_times is not None:
+                (x,y),yaw=map_motion_pose(self.collision_pose,self.collision_pose_stamp,
+                    self.odom_history,self.get_clock().now().nanoseconds/1e9)
+            co,si=math.cos(yaw),math.sin(yaw)
+            world=raw_points@np.array([[co,si],[-si,co]])+np.array([x,y])
+            counts=np.ones(len(world),dtype=int)
+            # Same compensated body observations as the emergency guard; no second scan filter.
+            if len(world):
+                _,indices,counts=np.unique(np.floor(world/.04).astype(int),axis=0,return_index=True,return_counts=True)
+                world=world[indices]
+                within=np.linalg.norm(world-[x,y],axis=1)<4.
+                world,counts=world[within],counts[within]
+            self.observation_pub.publish(String(data=json.dumps(dict(stamp=self.raw_stamp,
+                reference_stamp=self.collision_pose_stamp,points=world.tolist(),weights=counts.tolist()))))
         length = math.hypot(*target)
         if length > speed_limit:
             target = [v*speed_limit/length for v in target]
@@ -437,6 +487,8 @@ class Adapter(Node):
                         "raw_motion_problem": self.raw_motion_problem,
                         "path_problem": getattr(self, "path_problem", ''),
                         "path_speed_limit": speed_limit,
+                        "route_id": getattr(self,'collision_context',('',''))[1],
+                        "guard_tick_ms": (time.monotonic()-now)*1000,
                         "command": values[:2], "output": self.output,
                         "velocity_observed_body": list(observed_velocity),
                         "input_ages": {k: now-self.last.get(k, 0.) for k in ('command','odom','lidar','imu')},

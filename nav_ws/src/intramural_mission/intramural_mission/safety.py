@@ -49,6 +49,19 @@ def compensate_motion(points, stamps, history, reference_time):
     return np.column_stack((co*delta[:, 0]+si*delta[:, 1], -si*delta[:, 0]+co*delta[:, 1]))
 
 
+def map_motion_pose(pose, source_stamp, history, reference_time):
+    """Advance the map pose with the same odometry used to compensate the scan."""
+    history = np.asarray(history)
+    yaw = np.unwrap(history[:, 3])
+    dt = history[-1, 0]-history[-2, 0]
+    source_yaw = float(np.interp(source_stamp, history[:, 0], yaw))
+    current_yaw = yaw[-1]+max(0., reference_time-history[-1, 0])*(yaw[-1]-yaw[-2])/dt
+    angle = pose[2]+current_yaw-source_yaw
+    origin = compensate_motion([[0., 0.]], [source_stamp], history, reference_time)[0]
+    co, si = math.cos(angle), math.sin(angle)
+    return np.asarray(pose[:2])-np.array([co*origin[0]-si*origin[1], si*origin[0]+co*origin[1]]), angle
+
+
 def executable_path(path, velocity, delay):
     """Keep current momentum before joining the ordered reference; do not teleport onto it."""
     points = np.asarray(path, dtype=float)

@@ -27,6 +27,37 @@ class Plant:
         self.pose += self.velocity*self.dt
 
 
+def predict_motion(plan, limits, pose, velocity, command, acceleration, progress, horizon=3.):
+    """Production tracker and transport from a moving boundary, including stop tails."""
+    models = limits.get('response_models', [(limits.get('response_delay', .2), limits.get('response_tau', .15))])
+    trajectories = []
+    for delay, tau in models:
+        plant = Plant(pose, delay, tau)
+        plant.velocity = np.asarray(velocity).copy()
+        plant.queue = deque(np.asarray(command).copy() for _ in plant.queue)
+        tracker = OmniTracker(plan, limits)
+        tracker.progress.s = progress
+        tracker.velocity = np.asarray(velocity).copy()
+        tracker.command = np.asarray(command).copy()
+        tracker.acceleration = np.asarray(acceleration).copy()
+        policy = CommandPolicy([[1, 0], [0, 1]], limits['max_speed'], limits['max_acceleration'], limits['max_speed'])
+        policy.enabled, policy.last_tick = True, -plant.dt
+        policy.previous = tuple(command)
+        points, tails, errors = [plant.pose.copy()], [plant.pose+plant.velocity*response_horizon(limits)], []
+        for i in range(math.ceil(horizon/plant.dt)):
+            t = i*plant.dt
+            u, detail = tracker.step(plant.pose, 0., plant.dt, stamp=t)
+            policy.receive(*u, 0., now=t)
+            sent, _ = policy.tick(t)
+            plant.step(sent[:2])
+            points.append(plant.pose.copy())
+            tails.append(plant.pose+plant.velocity*response_horizon(limits))
+            errors.append(detail['error'])
+        trajectories.append((np.asarray(points), np.arange(len(points))*plant.dt,
+                             np.asarray(tails), max(errors, default=0.)))
+    return trajectories
+
+
 def predict_execution(plan, c, measured, plant_response=None, required_clearance=0.):
     """Score executable model time, including response and the final zero-command tail."""
     if not math.isfinite(required_clearance) or required_clearance < 0:

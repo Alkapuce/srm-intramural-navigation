@@ -188,6 +188,7 @@ class OmniTracker:
         self.velocity = np.zeros(2)
         self.correction = np.zeros(2)
         self.parking_samples = None
+        self.speed_scale = 1.
         models = limits.get('response_models', [])
         self.response_tau = limits.get('response_tau', float(np.median(models,axis=0)[1]) if models else .15)
 
@@ -237,6 +238,7 @@ class OmniTracker:
         curvature = max(map(abs,self.plan.curvature[lo:hi]),default=0.)
         ahead = min(self.plan.s[-1],s+min(lookahead,.5/max(curvature,1e-9)))
         target, tangent, reference = self.plan.sample(ahead)
+        reference *= self.speed_scale
         offset = target - predicted
         along = float(np.dot(offset, tangent))
         normal = offset - along * tangent
