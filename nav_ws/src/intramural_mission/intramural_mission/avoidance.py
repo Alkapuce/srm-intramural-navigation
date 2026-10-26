@@ -94,10 +94,11 @@ class ObstacleTracker:
                     partial=clusters[j][2]<.5*extent
                     face_center=clusters[j][0]+np.sign(clusters[j][0]-sensor_position)*(extent-clusters[j][2])
                     center=np.where(partial,face_center,center)
-                old_inside=np.all(np.abs(clusters[j][0]-expected)+t['extent']<=clusters[j][2]+.04)
-                if old_inside and np.any(clusters[j][2]>t['extent']+.04):
-                    # Revealing another face changes the contour center without moving the object.
-                    t['x'][:2]+=center-expected
+                # Only newly revealed dimensions recenter the shape; observable axes still estimate motion.
+                revealed=clusters[j][2]>t['extent']+.04
+                shape_shift=np.where(revealed,center-expected,0.)
+                t['x'][:2]+=shape_shift
+                t['measurement_center']+=shape_shift
                 innovation = measurement@t['p']@measurement.T+np.eye(2)*.02**2
                 residual=center-measurement@t['x']
                 if float(residual@np.linalg.solve(innovation,residual))>9.:

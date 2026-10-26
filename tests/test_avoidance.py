@@ -6,6 +6,36 @@ from intramural_mission.trajectory import RoutePlan
 
 
 class AvoidanceTests(unittest.TestCase):
+    def test_revealing_an_orthogonal_face_is_not_a_velocity_jump(self):
+        tracker=ObstacleTracker()
+        top=[[2.+x,.25] for x in np.linspace(-.25,.25,11)]
+        side=[[2.25,y] for y in np.linspace(-.25,.25,11)]
+        for i in range(10):tracker.update(top,i*.1,sensor_position=[0.,1.])
+        track=tracker.update(side,1.,sensor_position=[3.,0.])[0]
+        self.assertLess(np.linalg.norm(track['velocity']),.1)
+        np.testing.assert_allclose(track['center'],[2.,0.],atol=.04)
+
+    def test_real_motion_remains_observable_while_another_face_is_revealed(self):
+        tracker=ObstacleTracker()
+        top=[[2.+x,.25] for x in np.linspace(-.25,.25,11)]
+        for i in range(10):tracker.update(top,i*.1,sensor_position=[0.,1.])
+        side=[[2.45,y] for y in np.linspace(-.25,.25,11)]
+        track=tracker.update(side,1.,sensor_position=[3.,0.])[0]
+        self.assertAlmostEqual(track['velocity'][0],2.,delta=.15)
+        self.assertLess(abs(track['velocity'][1]),.1)
+
+    def test_noisy_static_observations_keep_bounded_position_and_velocity_estimates(self):
+        tracker=ObstacleTracker();rng=np.random.default_rng(31);errors=[];speeds=[]
+        for i in range(200):
+            center=np.array([2.,0.])+rng.normal(0.,.015,2)
+            cloud=center+np.array([[x,y] for x in (-.25,0.,.25) for y in (-.25,0.,.25)])
+            track=tracker.update(cloud,i*.05)[0]
+            if i>20:
+                errors.append(np.linalg.norm(np.asarray(track['center'])-[2.,0.]))
+                speeds.append(np.linalg.norm(track['velocity']))
+        self.assertLess(np.mean(errors),.04)
+        self.assertLess(np.percentile(speeds,95),.4)
+
     def test_stopping_place_remains_occupied_when_an_actor_arrives_after_rest(self):
         from intramural_mission.avoidance import collision_segments,stopped_collision
         brakes=np.array([[[0.,0.],[.2,0.]]]);times=np.array([[0.,.3]])
