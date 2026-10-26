@@ -287,6 +287,32 @@ class AvoidanceTests(unittest.TestCase):
         finally:worker.close()
         self.assertFalse(worker.process.is_alive())
 
+    def test_worker_reports_urgent_braking_conflict_before_search_finishes(self):
+        import time
+        from intramural_mission.avoidance import PlanningWorker
+        c,grid,plan,points=self.case();c['drive_acceleration_limit']=2.
+        worker=PlanningWorker(c,grid)
+        def receive():
+            deadline=time.monotonic()+5.
+            while time.monotonic()<deadline:
+                result=worker.poll()
+                if result is not None:return result
+                time.sleep(.002)
+            self.fail('Worker result did not arrive')
+        try:
+            worker.submit(dict(plan=plan,progress=0.,pose=[0.,0.],velocity=[0.,0.],
+                command=[0.,0.],acceleration=[0.,0.],points=points,stamp=1.))
+            receive()
+            worker.submit(dict(plan=plan,progress=.3,pose=[.3,0.],velocity=[1.,0.],
+                command=[1.,0.],acceleration=[0.,0.],points=np.asarray(points)-[.15,0.],stamp=1.1))
+            alert=receive()
+            self.assertEqual(alert['reason'],'BRAKING_ENVELOPE_CONFLICT')
+            self.assertTrue(alert['blocked']);self.assertIsNone(alert['plan'])
+            self.assertTrue(worker.busy)
+            self.assertEqual(receive()['stamp'],1.1)
+            self.assertFalse(worker.busy)
+        finally:worker.close()
+
     def test_stopped_worker_with_large_queued_input_closes_without_feeder_hang(self):
         import os
         import signal

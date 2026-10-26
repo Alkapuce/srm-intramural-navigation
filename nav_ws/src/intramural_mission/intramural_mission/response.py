@@ -65,7 +65,7 @@ def predict_motion(plan, limits, pose, velocity, command, acceleration, progress
             errors.append(detail['error'])
         # Batch a zero-command branch at every future state, retaining its actual delay queue.
         positions,brake_velocity=np.asarray(points).copy(),np.asarray(velocities).copy()
-        braking=[positions.copy()];offsets=[0.];commands=np.asarray(sent_commands)
+        braking=[positions.copy()];offsets=[0.];commands=np.asarray(sent_commands or [command])
         count=len(points);delay_steps=round(delay/plant.dt)
         force=plant.acceleration_limit
         duration=delay+5*tau+(float(max(np.linalg.norm(brake_velocity,axis=1)))/force if force else 0.)

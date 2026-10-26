@@ -258,6 +258,11 @@ def splice(plan, progress, bridge, join_s, limits, clearance, initial_speed):
     if len(route) == 10 and i < plan.gates[0][1]:
         route[-1] = ('RETURN', list(reversed(route[0][1])))
         from intramural_mission.route import line
+        # The measured departure may differ from home inside parking tolerance; do not reverse that tiny correction.
+        returning=route[-1][1]
+        near=next((n for n,p in enumerate(returning)
+            if math.dist(p,plan.points[-1])<limits.get('parking_tolerance',.08)),len(returning)-1)
+        route[-1]=('RETURN',returning[:near+1])
         route[-1][1].extend(line(route[-1][1][-1],plan.points[-1],limits['path_spacing'])[1:])
         left,right=route[-2][1],route[-1][1]
         # Smoothed entry/exit gates differ; reversing entry also needs a smooth lower-exit joint.
@@ -320,7 +325,7 @@ class DetourPlanner:
         return [dict(track,shared_margin=self.c.get('minimum_clearance',.02))
                 for track in self.tracker.update(points,stamp,weights,sensor_position,point_times)]
 
-    def solve(self, request):
+    def solve(self, request, urgent=None):
         began = time.monotonic()
         offsets=request.get('point_offsets')
         source=request.get('source_stamp',request['stamp'])
@@ -339,15 +344,25 @@ class DetourPlanner:
             t['prediction_age'] = age
         report = dict(stamp=request['stamp'], route_id=plan.route_id, run_id=request.get('run_id'),tracks=tracks,
                       plan=None, blocked=False, imminent=False,reason='', side=0, rejected={})
+        models=self.c.get('response_models',[(self.c.get('response_delay',.2),self.c.get('response_tau',.15))])
+        endpoints=[max(models,key=sum)]
+        if any(t['moving'] for t in tracks):
+            fastest=min(models,key=sum)
+            if fastest!=endpoints[0]:endpoints.append(fastest)
+        if urgent is not None and any(t['moving'] and t['velocity_observed'] for t in tracks):
+            from intramural_mission.response import predict_motion
+            # Publish a current braking conflict before candidate search can use the remaining solve budget.
+            for _,_,brakes,brake_times,_ in predict_motion(plan,self.c,pose,velocity,
+                    request.get('command',velocity),request.get('acceleration',[0.,0.]),progress,horizon=0.,models=endpoints):
+                if (collision(brakes[0],brake_times[0],tracks,radius)
+                        or stopped_collision(brakes,brake_times,tracks,radius)):
+                    urgent(dict(report,blocked=True,imminent=True,execution_failure=True,
+                        reason='BRAKING_ENVELOPE_CONFLICT',seconds=time.monotonic()-began))
+                    break
         def reject(reason):
             report['rejected'][reason] = report['rejected'].get(reason, 0)+1
         def executable(proposal, start_s, horizon=2.):
             from intramural_mission.response import predict_motion
-            models=self.c.get('response_models',[(self.c.get('response_delay',.2),self.c.get('response_tau',.15))])
-            endpoints=[max(models,key=sum)]
-            if any(t['moving'] for t in tracks):
-                fastest=min(models,key=sum)
-                if fastest!=endpoints[0]:endpoints.append(fastest)
             predict_started=time.monotonic()
             predictions=predict_motion(proposal,self.c,pose,velocity,request.get('command',velocity),
                 request.get('acceleration',[0.,0.]),start_s,horizon=horizon,models=endpoints)
@@ -586,7 +601,7 @@ def _work(config, grid, incoming, outgoing, ready):
             return
         started=time.monotonic()
         try:
-            result = planner.solve(request)
+            result = planner.solve(request,urgent=lambda result:outgoing.put(dict(result,intermediate=True)))
             if result['plan'] is not None:result['plan_json']=json.dumps(asdict(result['plan']))
         except (ValueError, IndexError, FloatingPointError) as error:
             result = dict(stamp=request['stamp'], route_id=request['plan'].route_id,
@@ -599,7 +614,7 @@ def _work(config, grid, incoming, outgoing, ready):
 class PlanningWorker:
     def __init__(self, config, grid):
         context = mp.get_context('spawn')
-        self.incoming, self.outgoing = context.Queue(1), context.Queue(1)
+        self.incoming, self.outgoing = context.Queue(1), context.Queue(2)
         self.ready=context.Event()
         self.process = context.Process(target=_work, args=(config, grid, self.incoming, self.outgoing,self.ready), daemon=True)
         self.process.start()
@@ -623,8 +638,9 @@ class PlanningWorker:
             result = self.outgoing.get_nowait()
         except queue.Empty:
             return None
-        self.busy = False
-        self.dispatch()
+        if not result.pop('intermediate',False):
+            self.busy = False
+            self.dispatch()
         return result
 
     def close(self):

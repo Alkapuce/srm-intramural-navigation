@@ -81,6 +81,32 @@ def rollout(c, delay=0.2, tau=0.15, gain=1.0, noise=0.0, seed=0, plan=None):
 
 
 class TrajectoryTests(unittest.TestCase):
+    def test_unequal_adjacent_steps_cannot_hide_a_short_reversal(self):
+        c=dict(BASE,**PROFILES['candidate'])
+        for points in ([[0.,0.],[.06,.02],[.05,.02],[1.,.2]],
+                       [[0.,0.],[.5,0.],[.01,0.],[1.,0.]],
+                       [[.00154,-.01254],[.05616,.02601],[.04938,.02586]]):
+            with self.subTest(points=points):
+                plan=RoutePlan.build([('RETURN',points)],c)
+                self.assertEqual(plan.speed[1],0.)
+
+    def test_reversed_departure_tail_reaches_home_without_a_feedforward_equilibrium(self):
+        from intramural_mission.response import Plant
+        c=dict(BASE,**PROFILES['candidate'])
+        points=[[-.0595,.0394],[-.0422,.0321],[-.025,.025],[-.0187,.0225],[-.0123,.0206],
+            [-.0058,.0194],[.0009,.0191],[.0077,.0195],[.0146,.0206],[.0216,.0219],
+            [.0287,.0233],[.0356,.0246],[.0426,.0254],[.0494,.0259],[.0562,.0260],
+            [.00154,-.01254],[0.,0.]]
+        plan=RoutePlan.build([('RETURN',points)],c);tracker=OmniTracker(plan,c)
+        tracker.progress.s=plan.s[-1]-.077
+        plant=Plant([.2357,.1357],.09,.05,acceleration_limit=3.5)
+        for i in range(600):
+            command,report=tracker.step(plant.pose,0.,.025,stamp=i*.025)
+            plant.step(command)
+            if report['done']:break
+        self.assertTrue(report['done'],report)
+        self.assertLess(np.linalg.norm(plant.pose),c['parking_tolerance'])
+
     def test_worker_roundtrip_preserves_cached_plan_and_tracker_motion(self):
         import pickle
         c=dict(BASE,**PROFILES['candidate'])

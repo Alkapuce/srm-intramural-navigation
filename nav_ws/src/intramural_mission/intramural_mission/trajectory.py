@@ -73,6 +73,7 @@ class RoutePlan:
         tangent = d / norm[:, None]
         curvature = np.zeros(len(p))
         a, b = np.diff(p, axis=0)[:-1], np.diff(p, axis=0)[1:]
+        reversing=np.sum(a*b,axis=1)<-.01*ds[:-1]*ds[1:]
         curvature[1:-1] = (
             2
             * (a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0])
@@ -83,6 +84,8 @@ class RoutePlan:
         if not math.isfinite(speed_scale) or not 0 < speed_scale <= 1:
             raise ValueError('Route speed scale must be in (0, 1]')
         cap = np.full(len(p), limits["max_speed"], dtype=float)
+        # A stopped departure can reverse, but its finite curvature estimate must not permit a moving cusp.
+        cap[np.flatnonzero(reversing)+1]=0.
         cap = np.minimum(
             cap,
             speed_scale * np.sqrt(
