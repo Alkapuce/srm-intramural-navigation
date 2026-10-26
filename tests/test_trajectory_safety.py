@@ -61,6 +61,60 @@ class TrajectorySafetyTests(unittest.TestCase):
             finally:
                 node.worker=None;node.destroy_node();rclpy.shutdown()
 
+    def test_real_worker_speed_restore_does_not_jump_to_the_returning_branch(self):
+        from dataclasses import replace
+        c=json.loads((ROOT/'config/arena.json').read_text())
+        c.update(allow_bypass=True,mission_variant='return',parking=[0.,.6],
+            lower_pole=[-10.,-10.],upper_pole=[10.,10.],response_models=[[0.,0.]],
+            response_delay=0.,response_tau=0.,require_stress_models=False)
+        with tempfile.TemporaryDirectory(dir=ROOT/'cache') as folder:
+            config=Path(folder)/'arena.json';config.write_text(json.dumps(c))
+            rclpy.init(domain_id=89,args=['--ros-args','-p',f'arena_config:={config}'])
+            node=TrajectoryMission()
+            grid=OccupancyGrid();grid.header.frame_id='map';grid.info.resolution=.05
+            grid.info.width=grid.info.height=80;grid.info.origin.position.x=grid.info.origin.position.y=-2.
+            grid.info.origin.orientation.w=1.;grid.data=[0]*6400
+            node.receive_map(grid)
+            try:
+                self.assertTrue(node.worker.ready.wait(5.))
+                points=([[float(x),0.]for x in np.linspace(0.,.35,15)]+
+                    [[.35,float(y)]for y in np.linspace(.01,.04,4)]+
+                    [[float(x),.04]for x in np.linspace(.325,0.,14)]+
+                    [[0.,float(y)]for y in np.linspace(.08,.6,14)])
+                fast=RoutePlan.build([('RETURN',points)],c)
+                slow=replace(fast,route_id='slow',speed=tuple(v*.3 for v in fast.speed))
+                node.plan=slow;node.tracker=OmniTracker(slow,c);node.tracker.progress.s=.16
+                node.pose=[.16,.025];node.run_id='switch';node.state='RUNNING'
+                node.speed_restore=fast
+                for _ in range(2):
+                    stamp=node.get_clock().now().nanoseconds/1e9
+                    node.worker.submit(dict(run_id='switch',plan=slow,restore_plan=fast,progress=.15,
+                        pose=[.15,.025],velocity=[0.,0.],command=[0.,0.],acceleration=[0.,0.],
+                        points=[],stamp=stamp))
+                    deadline=time.monotonic()+5.
+                    while node.avoidance.get('stamp',0.)<stamp and time.monotonic()<deadline:
+                        node.update_avoidance();time.sleep(.005)
+                    self.assertGreaterEqual(node.avoidance.get('stamp',0.),stamp)
+                self.assertNotEqual(node.plan.route_id,slow.route_id)
+                self.assertAlmostEqual(node.tracker.progress.s,.16)
+                self.assertEqual(node.tracker.progress.phase,0)
+                node.plan=slow;node.tracker.plan=slow;node.pose=[0.,.5]
+                node.state='BLOCKED';node.execution_blocked=True
+                stamp=node.get_clock().now().nanoseconds/1e9
+                node.worker.submit(dict(run_id='switch',plan=slow,restore_plan=fast,progress=.15,
+                    pose=[.15,.025],velocity=[0.,0.],command=[0.,0.],acceleration=[0.,0.],
+                    points=[],stamp=stamp))
+                deadline=time.monotonic()+5.
+                while node.avoidance.get('stamp',0.)<stamp and time.monotonic()<deadline:
+                    node.update_avoidance();time.sleep(.005)
+                self.assertGreaterEqual(node.avoidance.get('stamp',0.),stamp)
+                self.assertEqual(node.plan.route_id,slow.route_id)
+                self.assertTrue(node.execution_blocked)
+                self.assertEqual(node.state,'BLOCKED')
+            finally:
+                if node.worker:node.worker.close();node.worker=None
+                node.destroy_node();rclpy.shutdown()
+
     def test_missing_tf_lookup_keeps_only_the_still_fresh_snapshot(self):
         from tf2_ros import LookupException
         c=json.loads((ROOT/'config/arena.json').read_text());c['allow_bypass']=False

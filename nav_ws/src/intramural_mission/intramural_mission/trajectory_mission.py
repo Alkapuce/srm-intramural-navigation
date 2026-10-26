@@ -156,12 +156,14 @@ class TrajectoryMission(Node):
             accepted=False
             previous=self.avoidance
             self.avoidance = result
-            if result.get('execution_failure') or result['reason']!='PLANNING_TIMEOUT':
+            if result.get('execution_failure') or candidate is None and result['reason']!='PLANNING_TIMEOUT':
                 self.execution_blocked=bool(result.get('execution_failure'))
             if candidate is not None:
                 progress = Progress(candidate)
-                progress.s = result['progress']
-                error = progress.project(self.pose, self.c['max_speed']*.5+.12, self.c['max_tracking_error'])
+                # A speed update keeps its branch; a geometric switch uses the validated moving boundary.
+                progress.s = self.tracker.progress.s if candidate.points==self.plan.points else result['progress']
+                progress.phase = self.tracker.progress.phase
+                error = float(np.linalg.norm(np.asarray(self.pose)-candidate.sample(progress.s)[0]))
                 changed_side = bool(result['side']) and self.bypassing and result['side'] != self.channel_side
                 worthwhile = result['expected_seconds'] < .9*max(0.,self.channel_cost-(now-self.channel_at))
                 samples,times=preview(candidate,progress.s,float(np.linalg.norm(self.tracker.velocity)))
@@ -198,7 +200,8 @@ class TrajectoryMission(Node):
                         (Path(self.log.name).parent/f'route-{candidate.route_id}.json').write_text(
                             (plan_json if plan_json is not None else json.dumps(asdict(candidate)))+'\n')
             self.tracker.speed_scale = 1.
-            feasible=not result.get('blocked') and result['reason']!='PLANNING_TIMEOUT'
+            feasible=(not result.get('blocked') and result['reason']!='PLANNING_TIMEOUT'
+                and (candidate is None or accepted))
             if feasible:self.predictive_stop=False
             if accepted or feasible:
                 self.continuation_until=0.
