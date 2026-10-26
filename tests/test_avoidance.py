@@ -6,6 +6,19 @@ from intramural_mission.trajectory import RoutePlan
 
 
 class AvoidanceTests(unittest.TestCase):
+    def test_stationary_scan_jitter_does_not_extrapolate_unobserved_acceleration(self):
+        from intramural_mission.avoidance import obstacle_positions
+        tracker=ObstacleTracker();rng=np.random.default_rng(17)
+        moving=[]
+        for i in range(100):
+            center=np.array([2.,0.])+rng.normal(0.,.005,2)
+            cloud=center+np.array([[x,y] for x in (-.25,0.,.25) for y in (-.25,0.,.25)])
+            track=tracker.update(cloud,i*.1+.04,point_times=np.full(9,i*.1))[0]
+            if i>10:moving.append(track['moving'])
+        self.assertFalse(any(moving))
+        track.update(moving=False,velocity=[.077,-.022],acceleration=[.519,0.])
+        np.testing.assert_array_equal(obstacle_positions(track,[0.,1.,2.]),[track['center']]*3)
+
     def test_cruise_checks_future_braking_tails_when_the_ideal_line_is_clear(self):
         from intramural_mission.avoidance import DetourPlanner,preview
         c,grid,plan,_=self.case()

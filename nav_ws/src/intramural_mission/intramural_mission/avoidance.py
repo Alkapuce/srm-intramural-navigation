@@ -113,7 +113,10 @@ class ObstacleTracker:
                 t['p'] = h@t['p']@h.T + k@(np.eye(2)*.02**2)@k.T
                 t.update(radius=float(np.linalg.norm(extent)), extent=extent, seen=clusters[j][3],measurement_center=center,
                     observations=t['observations']+1)
-                if np.linalg.norm(t['x'][2:4])>.08 or np.linalg.norm(t['x'][4:])>.4:t['moving_until']=stamp+.3
+                # A small derivative inside its own uncertainty is scan jitter, not motion evidence.
+                sigma=np.sqrt(np.maximum(0.,np.diag(t['p'])))
+                if (np.linalg.norm(t['x'][2:4])>max(.08,max(sigma[2:4])) or
+                        np.linalg.norm(t['x'][4:])>max(.4,max(sigma[4:]))):t['moving_until']=stamp+.3
                 used.add(j)
         for j, (center, radius, extent, source_time) in enumerate(clusters):
             if j not in used:
@@ -183,6 +186,7 @@ def prediction_uncertainty(track,horizon):
 
 def obstacle_positions(track,times):
     t=np.asarray(times)+track.get('prediction_age',0.)
+    if not track.get('moving',True):return np.broadcast_to(track['center'],t.shape+(2,))
     positions=np.asarray(track['center'])+t[...,None]*np.asarray(track['velocity'])
     acceleration=np.asarray(track.get('acceleration',[0.,0.]))
     if np.any(acceleration):positions+=acceleration_motion(t)[0][...,None]*acceleration
@@ -197,7 +201,8 @@ def collision_segments(start,end,begin,finish,tracks,radius):
         d=b-a
         f = np.clip(-np.sum(a*d, axis=1)/np.maximum(1e-12, np.sum(d*d, axis=1)), 0., 1.)
         uncertainty=prediction_uncertainty(track,finish)
-        uncertainty+=np.linalg.norm(acceleration)*(np.asarray(finish)-np.asarray(begin))**2/8
+        if track.get('moving',True):
+            uncertainty+=np.linalg.norm(acceleration)*(np.asarray(finish)-np.asarray(begin))**2/8
         broad=np.linalg.norm(a+f[:,None]*d,axis=1)
         bound=np.linalg.norm(track['extent']) if 'extent' in track else track['radius']
         if not np.any(broad<=radius+bound+uncertainty):
