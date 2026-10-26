@@ -59,6 +59,11 @@ args=(--rm --init -i --network host --ipc host --ulimit core=0 --user "$(id -u):
   -e MAKEFLAGS=-j2 -e CMAKE_BUILD_PARALLEL_LEVEL=2
   --label "io.srm.intramural.root=$INTRAMURAL_ROOT"
   -v "$INTRAMURAL_ROOT:/work" -w /work/nav_ws)
+if [[ -f "$INTRAMURAL_ROOT/.git" ]]; then
+  # Linked worktrees reference the common Git directory by its host absolute path.
+  common_git="$(git -C "$INTRAMURAL_ROOT" rev-parse --path-format=absolute --git-common-dir)"
+  args+=(-v "$common_git:$common_git:ro")
+fi
 if [[ -n "${DISPLAY:-}" && -d /tmp/.X11-unix ]]; then
   args+=(-e "DISPLAY=$DISPLAY" -v /tmp/.X11-unix:/tmp/.X11-unix:ro)
   display_authority="${XAUTHORITY:-$HOME/.Xauthority}"

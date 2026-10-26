@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>intramural_sim</name><version>0.1.0</version>
+  <description>Measured planar response through rigid-body forces.</description>
+  <maintainer email="local@example.invalid">SRM intramural participant</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>ignition-gazebo6</depend><depend>ignition-transport11</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

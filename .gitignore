@@ -9,6 +9,7 @@ nav_ws/log/
 nav_ws/src/*
 !nav_ws/src/intramural_base/
 !nav_ws/src/intramural_mission/
+!nav_ws/src/intramural_sim/
 __pycache__/
 *.pyc
 

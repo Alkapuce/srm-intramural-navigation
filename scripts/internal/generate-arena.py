@@ -6,13 +6,13 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 import numpy as np
 import yaml
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_share_directory, get_package_prefix
 from xmacro.xmacro4sdf import XMLMacro4sdf
 from intramural_mission.route import segments, clearance
 from organizer_model import build_robot
 
 root = Path(__file__).resolve().parents[2]
-c = json.loads((root / "config/arena.json").read_text())
+c = json.loads(Path(os.environ.get("INTRAMURAL_ARENA_CONFIG", str(root / "config/arena.json"))).read_text())
 out = root / "simulation/generated"
 out.mkdir(parents=True, exist_ok=True)
 for name, val in c.items():
@@ -62,13 +62,18 @@ for name in ("lower_pole", "upper_pole"):
             f'<model name="{name}"><static>true</static><pose>{x} {y} {h / 2} 0 0 0</pose><link name="link"><collision name="collision"><geometry><cylinder><radius>{r}</radius><length>{h}</length></cylinder></geometry></collision><visual name="visual"><geometry><cylinder><radius>{r}</radius><length>{h}</length></cylinder></geometry><material><ambient>1 .5 .1 1</ambient><diffuse>1 .5 .1 1</diffuse></material></visual></link></model>'
         )
     )
-box(
+actor=box(
     "movable_obstacle",
     *c["obstacle_initial"],
     c["obstacle_size"][2] / 2,
     c["obstacle_size"],
     color=".8 .1 .1 1",
+    static=not c.get('avoidance_actor',False),
 )
+if c.get('avoidance_actor',False):
+    ET.SubElement(actor.find('link'),'gravity').text='false'
+    plugin=Path(get_package_prefix('intramural_sim'))/'lib/libintramural_drive.so'
+    actor.append(ET.fromstring(f'<plugin filename="{plugin}" name="intramural::Drive"><topic>/{ns}/acceptance/obstacle_velocity</topic><delay>0</delay><tau>{c["actor_tau"]}</tau><acceleration>{c["actor_acceleration"]}</acceleration></plugin>'))
 # Painted parking and crossing marks have no collision geometry.
 for name, p, size in [
     ("parking", c["parking"], (c["robot_length"] + 0.2, c["robot_width"] + 0.2, 0.002)),
@@ -98,11 +103,13 @@ source = ET.fromstring(x.to_string()).find("model")
 robot, description = build_robot(root, c, source, out)
 (out / "organizer-model.json").write_text(json.dumps(description, indent=2) + "\n")
 model = robot.find("model")
-model.append(
-    ET.fromstring(
-        f'<plugin filename="ignition-gazebo-velocity-control-system" name="ignition::gazebo::systems::VelocityControl"><topic>/{ns}/cmd_vel</topic></plugin>'
-    )
-)
+if c.get('simulation_drive') == 'response':
+    response = np.median(c['response_models'], axis=0)
+    filename = Path(get_package_prefix('intramural_sim'))/'lib/libintramural_drive.so'
+    model.append(ET.fromstring(f'<plugin filename="{filename}" name="intramural::Drive"><topic>/{ns}/cmd_vel</topic><delay>{response[0]}</delay><tau>{response[1]}</tau><acceleration>{c["max_acceleration"]}</acceleration></plugin>'))
+else:
+    model.append(ET.fromstring(f'<plugin filename="ignition-gazebo-velocity-control-system" name="ignition::gazebo::systems::VelocityControl"><topic>/{ns}/cmd_vel</topic></plugin>'))
+
 model.append(
     ET.fromstring(
         f'<plugin filename="ignition-gazebo-odometry-publisher-system" name="ignition::gazebo::systems::OdometryPublisher"><odom_frame>world</odom_frame><robot_base_frame>base_footprint</robot_base_frame><odom_topic>/{ns}/odometry_gt</odom_topic><odom_publish_frequency>50</odom_publish_frequency><dimensions>2</dimensions></plugin>'
@@ -161,6 +168,13 @@ bridges.append(
     )
 )
 (out / "bridge.yaml").write_text(yaml.safe_dump(bridges))
+if c.get('avoidance_actor',False):
+    bridges += [dict(ros_topic_name=f'/{ns}/acceptance/obstacle_velocity',
+        gz_topic_name=f'/{ns}/acceptance/obstacle_velocity',ros_type_name='geometry_msgs/msg/Twist',
+        gz_type_name='ignition.msgs.Twist',direction='ROS_TO_GZ'),
+        dict(ros_topic_name=f'/{ns}/acceptance/world_poses',gz_topic_name='/world/default/pose/info',
+        ros_type_name='tf2_msgs/msg/TFMessage',gz_type_name='ignition.msgs.Pose_V',direction='GZ_TO_ROS')]
+    (out/'bridge.yaml').write_text(yaml.safe_dump(bridges))
 res = c["map_resolution"]
 width = math.ceil((xmax - xmin) / res) + 2
 height = math.ceil((ymax - ymin) / res) + 2
