@@ -154,6 +154,7 @@ class TrajectoryMission(Node):
                 result.update(plan=None,reason='PLANNING_TIMEOUT')
             candidate = result.pop('plan')
             accepted=False
+            previous=self.avoidance
             self.avoidance = result
             if result.get('execution_failure') or result['reason']!='PLANNING_TIMEOUT':
                 self.execution_blocked=bool(result.get('execution_failure'))
@@ -201,8 +202,11 @@ class TrajectoryMission(Node):
             if feasible:self.predictive_stop=False
             if accepted or feasible:
                 self.continuation_until=0.
-                if self.state=='BLOCKED':
-                    # The accepted/current trajectory was checked; the latest obstacle check still gates this tick.
+                clear_twice=(previous.get('blocked') is False and previous.get('reason')!='PLANNING_TIMEOUT'
+                    and previous.get('route_id')==result['route_id'] and previous.get('run_id')==self.run_id
+                    and previous['stamp']<result['stamp'])
+                if self.state=='BLOCKED' and (accepted or clear_twice):
+                    # New route or two distinct clear observations; the latest obstacle check still gates this tick.
                     self.clear_since=-math.inf
             elif result['reason']!='PLANNING_TIMEOUT':
                 self.continuation_until=result.get('continuation_until',0.)

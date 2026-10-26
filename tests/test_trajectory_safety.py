@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TrajectorySafetyTests(unittest.TestCase):
-    def test_fresh_feasibility_resumes_without_debounce_but_latest_raw_obstacle_still_stops(self):
+    def test_two_fresh_feasible_observations_resume_but_latest_raw_obstacle_still_stops(self):
         from collections import deque
         from intramural_mission.planning import GridMap
         c=json.loads((ROOT/'config/arena.json').read_text());c.update(allow_bypass=False,mission_variant='return',parking=[2.,0.])
@@ -45,12 +45,15 @@ class TrajectorySafetyTests(unittest.TestCase):
             node.receive_map(grid);node.measured=GridMap(grid,c)
             try:
                 for raw in (False,True):
-                    node.stop('BLOCKED');node.raw_hazard=raw
+                    node.stop('BLOCKED');node.raw_hazard=raw;node.avoidance={}
                     node.receive_costmap(grid)
                     node.receive_guard(String(data=json.dumps(dict(sensors_fresh=True,route_id=node.plan.route_id))))
                     replies.append(dict(stamp=node.get_clock().now().nanoseconds/1e9,route_id=node.plan.route_id,
                         run_id='current',plan=None,blocked=False,execution_failure=False,imminent=False,
                         reason='',seconds=.01,tracks=[]))
+                    node.tick()
+                    self.assertEqual(node.state,'BLOCKED')
+                    replies.append(dict(node.avoidance,stamp=node.get_clock().now().nanoseconds/1e9,plan=None))
                     node.tick()
                     self.assertEqual(node.state,'BLOCKED' if raw else 'RUNNING')
                     if raw:np.testing.assert_array_equal(node.tracker.command,[0.,0.])
