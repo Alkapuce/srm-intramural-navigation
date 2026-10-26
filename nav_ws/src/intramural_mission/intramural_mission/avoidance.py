@@ -238,7 +238,7 @@ def preview(plan, progress, speed, horizon=2.):
 
 def route_topology(plan,config,tracks,phase):
     centers=[config[key] for key in ('lower_pole','upper_pole')]
-    if len(plan.gates)==10 and phase==9:
+    if len(plan.gates)==10 and phase>=8:
         radius=config['robot_radius']+config.get('minimum_clearance',.02)
         for track in tracks:
             # A clear existing channel has a defined side; a newly blocked reference does not.
@@ -464,7 +464,8 @@ class DetourPlanner:
         original=request.get('original_plan') or plan
         original_start=0 if phase==0 else original.gates[phase-1][1]
         original_end=original.gates[min(join_phase,len(original.gates)-1)][1]
-        corridor_reference=(reference[:plan.gates[0][1]+1] if len(plan.gates)==10 and phase==9
+        corridor_reference=(np.vstack((reference[plan.gates[phase-1][1]:plan.gates[8][1]+1],
+                                        reference[:plan.gates[0][1]+1])) if len(plan.gates)==10 and phase>=8
                             else np.asarray(original.points)[original_start:original_end+1])
         original_corridor=cKDTree(corridor_reference)
         start = min(len(lengths)-2, int(np.searchsorted(lengths, progress)))

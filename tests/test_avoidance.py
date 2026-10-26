@@ -22,6 +22,7 @@ class AvoidanceTests(unittest.TestCase):
             covariance=np.zeros((4,4)).tolist(),age=0.,moving=False,shared_margin=.02)
         constraints=route_topology(reference,c,[obstacle],9)
         self.assertEqual(len(constraints),3)
+        self.assertEqual(len(route_topology(reference,c,[obstacle],8)),3)
         self.assertTrue(all(winding(reference.points,p)==v for p,v in constraints))
         self.assertFalse(all(winding(wrong.points,p)==v for p,v in constraints))
         self.assertTrue(all(winding(wrong.points,c[k])==winding(reference.points,c[k])
