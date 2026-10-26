@@ -25,6 +25,25 @@ def load(name, file):
 
 
 class ResponseTests(unittest.TestCase):
+    def test_current_candidate_response_plan_does_not_bypass_the_vehicle_limit(self):
+        import subprocess
+        result=subprocess.run([sys.executable,str(ROOT/'scripts/validation/measure-response.py'),
+            'plan','--axis','both','--levels','2','--repeats','1'],capture_output=True,text=True,timeout=5)
+        self.assertEqual(result.returncode,0,result.stderr)
+        schedule=json.loads(result.stdout)['phases']
+        self.assertEqual({tuple(row[1])for row in schedule},
+            {(0.,0.),(2.,0.),(-2.,0.),(0.,2.),(0.,-2.)})
+        measurement=load('measurement_limit','measure-response.py')
+        with tempfile.TemporaryDirectory(dir=ROOT/'cache') as folder:
+            folder=Path(folder)
+            (folder/'base-vehicle.json').write_text(json.dumps(dict(firmware_protocol_verified=True,
+                link_loss_stop_verified=True,calibrated_for_vehicle=True,body_to_protocol=[[1,0],[0,1]],
+                max_body_speed_mps=1.,max_body_acceleration_mps2=3.5,max_protocol_axis=2.)))
+            args=SimpleNamespace(execute=True,stop_available=True,vehicle_config=folder,levels=[2.],
+                device=str(folder/'no-serial-device'))
+            with self.assertRaises(ValueError):measurement.record(args,folder/'output',schedule)
+            self.assertFalse((folder/'output').exists())
+
     def test_identification_recovers_analytical_response_and_validates_unseen_tail(self):
         delay, tau = .12, .16
         commands = np.column_stack((np.arange(0, 30, .01), np.zeros((3000, 2))))
