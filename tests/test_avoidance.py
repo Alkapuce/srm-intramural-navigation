@@ -6,6 +6,25 @@ from intramural_mission.trajectory import RoutePlan
 
 
 class AvoidanceTests(unittest.TestCase):
+    def test_safe_crawl_still_searches_a_faster_detour_when_recovery_is_blocked(self):
+        from dataclasses import replace
+        from intramural_mission.avoidance import DetourPlanner,preview
+        c,grid,fast,points=self.case()
+        slow=replace(fast,speed=tuple(min(.1,v)if s<2. else v for s,v in zip(fast.s,fast.speed)),route_id='crawl')
+        planner=DetourPlanner(c,grid)
+        for i in range(6):planner.observations(points,i*.1)
+        current,times=preview(slow,0.,.1)
+        self.assertFalse(collision(current,times,planner.observations(points,.6),c['robot_radius']))
+        result=None
+        for i in range(8):
+            result=planner.solve(dict(plan=slow,restore_plan=fast,progress=0.,pose=[0.,0.],
+                velocity=[.1,0.],command=[.1,0.],acceleration=[0.,0.],points=points,stamp=.7+i*.1))
+            if result['plan'] is not None:break
+        self.assertIsNotNone(result['plan'],result)
+        self.assertEqual(result['reason'],'DETOUR_READY')
+        self.assertFalse(result['blocked'])
+        self.assertNotEqual(result['plan'].points,slow.points)
+
     def test_return_cannot_change_sides_around_an_already_avoided_obstacle(self):
         from intramural_mission.avoidance import route_topology
         from intramural_mission.bypass import winding

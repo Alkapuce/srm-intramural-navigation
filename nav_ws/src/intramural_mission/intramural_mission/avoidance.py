@@ -403,6 +403,8 @@ class DetourPlanner:
             return replace(plan,speed=tuple(speeds),route_id=hashlib.sha256(
                 plan.route_id.encode()+speeds.tobytes()).hexdigest()[:20])
 
+        restore_conflict=False
+        improve_speed=False
         if not tracks or (not request.get('path_blocked') and not collision(samples, times, tracks, radius)):
             if nominal is not plan:
                 previous=self.restore_confirm
@@ -411,7 +413,9 @@ class DetourPlanner:
                     proposal=retimed(scale)
                     if remaining_seconds(proposal,first,last)>=.9*remaining_seconds(plan,first,last):continue
                     fast,arrival=preview(proposal,progress,speed)
-                    if collision(fast,arrival,tracks,radius) or not executable(proposal,progress):
+                    timed_conflict=collision(fast,arrival,tracks,radius)
+                    restore_conflict |= timed_conflict
+                    if timed_conflict or not executable(proposal,progress):
                         if time.monotonic()-began>.06:break
                         continue
                     key=request.get('run_id'),plan.route_id,nominal.route_id,scale
@@ -435,19 +439,23 @@ class DetourPlanner:
                             reason='RETIME_READY')
                         break
                     if time.monotonic()-began>.06:break
-            if report['plan'] is not None or not report['blocked'] or not tracks:
+            improve_speed=restore_conflict and not report['blocked']
+            if report['plan'] is not None or not tracks or (not report['blocked'] and not improve_speed):
                 return dict(report, seconds=time.monotonic()-began)
-        report.update(blocked=True, reason='PREDICTED_CONFLICT')
+        report.update(blocked=not improve_speed, reason='FASTER_ROUTE_CONFLICT' if improve_speed else 'PREDICTED_CONFLICT')
         self.restore_confirm=None
         # The braking prefix remains physical even if the desired path turns away.
         stop_horizon=stopping_horizon(self.c,speed)
         coast = np.stack((pose, pose+velocity*stop_horizon))
         if collision(coast, [0., stop_horizon], tracks, radius):
-            report.update(imminent=True,reason='STOPPING_PREFIX_CONFLICT')
+            report.update(blocked=True,imminent=True,reason='STOPPING_PREFIX_CONFLICT')
         if not report['imminent'] and executable(plan,progress,horizon=.3):
             # Reserve a checked continuation before search can consume the solve budget.
             report['continuation_until']=request['stamp']+age+.3
             report['execution_failure']=False
+        if improve_speed:
+            # A slow two-second preview must not hide an obstacle that prevents speed recovery.
+            samples,times=preview(nominal,progress,speed)
         threat=min(tracks,key=lambda t:float(np.min(obstacle_gap(
             samples-obstacle_positions(t,times)+t['center'],t)-prediction_uncertainty(t,times))))
         reference = np.asarray(plan.points)
