@@ -349,7 +349,7 @@ class DetourPlanner:
         if any(t['moving'] for t in tracks):
             fastest=min(models,key=sum)
             if fastest!=endpoints[0]:endpoints.append(fastest)
-        if urgent is not None and any(t['moving'] and t['velocity_observed'] for t in tracks):
+        if urgent is not None and tracks:
             from intramural_mission.response import predict_motion
             # Publish a current braking conflict before candidate search can use the remaining solve budget.
             for _,_,brakes,brake_times,_ in predict_motion(plan,self.c,pose,velocity,
