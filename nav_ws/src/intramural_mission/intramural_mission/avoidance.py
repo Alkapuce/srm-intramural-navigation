@@ -236,6 +236,17 @@ def preview(plan, progress, speed, horizon=2.):
     return np.asarray(points), times
 
 
+def route_topology(plan,config,tracks,phase):
+    centers=[config[key] for key in ('lower_pole','upper_pole')]
+    if len(plan.gates)==10 and phase==9:
+        radius=config['robot_radius']+config.get('minimum_clearance',.02)
+        for track in tracks:
+            # A clear existing channel has a defined side; a newly blocked reference does not.
+            if min(obstacle_gap(np.asarray(plan.points),track))>radius+prediction_uncertainty(track,0.):
+                centers.append(track['center'])
+    return [(center,winding(plan.points,center)) for center in centers]
+
+
 def splice(plan, progress, bridge, join_s, limits, clearance, initial_speed):
     i = max(0, int(np.searchsorted(plan.s, progress, side='right'))-1)
     j = min(len(plan.points)-1, int(np.searchsorted(plan.s, join_s)))
@@ -442,6 +453,7 @@ class DetourPlanner:
         reference = np.asarray(plan.points)
         lengths = np.asarray(plan.s)
         phase=request.get('phase',0)
+        topology=route_topology(plan,self.c,tracks,phase)
         join_phase=min(phase+1,len(plan.gates)-1)
         if len(plan.gates)==10 and join_phase in (3,7):
             cross=reference[plan.gates[join_phase][1]]
@@ -452,7 +464,9 @@ class DetourPlanner:
         original=request.get('original_plan') or plan
         original_start=0 if phase==0 else original.gates[phase-1][1]
         original_end=original.gates[min(join_phase,len(original.gates)-1)][1]
-        original_corridor=cKDTree(np.asarray(original.points)[original_start:original_end+1])
+        corridor_reference=(reference[:plan.gates[0][1]+1] if len(plan.gates)==10 and phase==9
+                            else np.asarray(original.points)[original_start:original_end+1])
+        original_corridor=cKDTree(corridor_reference)
         start = min(len(lengths)-2, int(np.searchsorted(lengths, progress)))
         end = min(join_limit+1,len(lengths), int(np.searchsorted(lengths, progress+self.c.get('bypass_max_deviation', 1.1)*4)))
         blocked_index = start+int(np.argmin(np.linalg.norm(reference[start:end]-threat['center'], axis=1)))
@@ -564,8 +578,7 @@ class DetourPlanner:
                         proposal = replace(proposal, speed=tuple(speeds), route_id=hashlib.sha256(
                             proposal.route_id.encode()+speeds.tobytes()).hexdigest()[:20])
                         # Full-route topology is checked in addition to local gate ownership.
-                        if any(winding(proposal.points, self.c[key]) != winding(plan.points, self.c[key])
-                               for key in ('lower_pole', 'upper_pole')):
+                        if any(winding(proposal.points,center)!=expected for center,expected in topology):
                             reject('topology')
                             continue
                         points, arrival = preview(proposal, start_s, speed)

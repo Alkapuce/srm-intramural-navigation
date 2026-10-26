@@ -6,6 +6,30 @@ from intramural_mission.trajectory import RoutePlan
 
 
 class AvoidanceTests(unittest.TestCase):
+    def test_return_cannot_change_sides_around_an_already_avoided_obstacle(self):
+        from intramural_mission.avoidance import route_topology
+        from intramural_mission.bypass import winding
+        c,_,_,_=self.case()
+        route=[('ENTER',[[0.,0.],[1.,1.],[2.,0.]])]
+        previous=[2.,0.]
+        for n,angle in enumerate(np.linspace(np.pi,3*np.pi,9)[1:]):
+            point=[2.4+.4*np.cos(angle),.4*np.sin(angle)]
+            route.append((str(n),[previous,point]));previous=point
+        route.append(('RETURN',[[2.,0.],[1.,1.],[0.,0.]]))
+        reference=RoutePlan.build(route,c)
+        wrong=RoutePlan.build(route[:-1]+[('RETURN',[[2.,0.],[1.,-1.],[0.,0.]])],c)
+        obstacle=dict(center=[1.,0.],extent=[.15,.15],radius=.22,
+            covariance=np.zeros((4,4)).tolist(),age=0.,moving=False,shared_margin=.02)
+        constraints=route_topology(reference,c,[obstacle],9)
+        self.assertEqual(len(constraints),3)
+        self.assertTrue(all(winding(reference.points,p)==v for p,v in constraints))
+        self.assertFalse(all(winding(wrong.points,p)==v for p,v in constraints))
+        self.assertTrue(all(winding(wrong.points,c[k])==winding(reference.points,c[k])
+                            for k in ('lower_pole','upper_pole')))
+        obstacle['center']=[1.,1.]
+        self.assertEqual(len(route_topology(reference,c,[obstacle],9)),2)
+        self.assertEqual(len(route_topology(reference,c,[obstacle],0)),2)
+
     def test_blocked_next_crossing_can_rejoin_after_the_joint_without_skipping_gates(self):
         from intramural_mission.avoidance import DetourPlanner
         c,grid,_,_=self.case()
