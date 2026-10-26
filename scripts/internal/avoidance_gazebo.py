@@ -32,6 +32,15 @@ def aligned_clearance(measurements, actors, config):
     return float(min((gaps-bound)[valid])) if np.any(valid) else math.inf
 
 
+def motion_timing(measurements):
+    trace=np.asarray(measurements);dt=np.diff(trace[:,0])
+    speed=np.linalg.norm(np.diff(trace[:,1:],axis=0),axis=1)/dt
+    return dict(stopped_seconds=float(np.sum(dt[speed<.05])),
+        below_point_two_mps_seconds=float(np.sum(dt[speed<.2])),
+        peak_measured_speed_mps=float(np.max(speed)),
+        scope='Source-stamped physical position differences; whole run includes starting and final stop confirmation')
+
+
 def response_agreement(measurements, commands, config):
     """Replay the observed serial command sequence in an independent planar integrator."""
     actual,commands=np.asarray(measurements),np.asarray(commands)
@@ -115,12 +124,17 @@ def verify(root, out, count, offset=0, baseline=False, gui=False):
         env=env,stdout=log,stderr=subprocess.STDOUT)
     rclpy.init();node=rclpy.create_node('avoidance_physical_acceptance',parameter_overrides=[Parameter('use_sim_time',value=True)])
     status={};truth={};commands=[];path=[];guard_ms=[];controller_ms=[];planner_ms=[];planner_seen=set()
-    current=[];actuation=[];measurements=[];actor_trace=[];actor_state={};progress_clock=[]
+    current=[];actuation=[];measurements=[];actor_trace=[];actor_state={};progress_clock=[];switches=[];bypass_seen={}
     obstacle=None;last_obstacle=None;minimum=math.inf;static_minimum=math.inf;last_pose=None;sim_stamps=[]
     def state(msg):
         nonlocal status
         status=json.loads(msg.data)
         controller_ms.append(status.get('control_tick_ms',0.))
+        run=status.get('run_id');count=status.get('bypass_count',0)
+        if count>bypass_seen.get(run,0):
+            bypass_seen[run]=count
+            switches.append(dict(run_id=run,route_id=status.get('route_id'),bypass_count=count,
+                speed_mps=truth.get('speed'),source_age_seconds=node.get_clock().now().nanoseconds/1e9-truth.get('stamp',0.)))
         report=status.get('avoidance',{})
         key=status.get('run_id'),report.get('route_id'),report.get('stamp')
         if report.get('seconds') is not None and key not in planner_seen:
@@ -130,7 +144,8 @@ def verify(root, out, count, offset=0, baseline=False, gui=False):
     def measured(msg):
         nonlocal minimum,static_minimum,last_pose,last_obstacle
         p=msg.pose.pose.position;xy=np.array([p.x,p.y])
-        truth.update(position=xy,speed=math.hypot(msg.twist.twist.linear.x,msg.twist.twist.linear.y))
+        truth.update(position=xy,speed=math.hypot(msg.twist.twist.linear.x,msg.twist.twist.linear.y),
+            stamp=msg.header.stamp.sec+msg.header.stamp.nanosec/1e9)
         q=msg.pose.pose.orientation
         truth['yaw']=math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
         measurements.append([msg.header.stamp.sec+msg.header.stamp.nanosec/1e9,p.x,p.y])
@@ -318,6 +333,8 @@ def verify(root, out, count, offset=0, baseline=False, gui=False):
                 nominal_counterfactual_clearance=nominal_gap,
                 minimum_pole_clearance=static_minimum,
                 minimum_dynamic_clearance=None if not math.isfinite(minimum) else minimum)
+            row['motion_timing']=motion_timing(measurements)
+            row['route_switches']=[s for s in switches if s['run_id']==run_id]
             row['response']=response_agreement(measurements,actuation,c)
             row['truth_sampling']={name:dict(samples=len(values),max_gap_seconds=float(np.max(np.diff(np.asarray(values)[:,0]))))
                 for name,values in (('robot',measurements),('obstacle',actor_trace)) if len(values)>1}

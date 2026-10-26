@@ -11,6 +11,12 @@ oracle=importlib.util.module_from_spec(spec);spec.loader.exec_module(oracle)
 class PhysicalOracleTests(unittest.TestCase):
     config=dict(robot_radius=.29,obstacle_size=[.5,.5,1.])
 
+    def test_speed_loss_uses_physical_source_time(self):
+        summary=oracle.motion_timing([[0.,0.,0.],[1.,0.,0.],[1.5,.05,0.],[2.,1.05,0.]])
+        self.assertAlmostEqual(summary['stopped_seconds'],1.)
+        self.assertAlmostEqual(summary['below_point_two_mps_seconds'],1.5)
+        self.assertAlmostEqual(summary['peak_measured_speed_mps'],2.)
+
     def test_asynchronous_truth_is_interpolated_at_the_same_source_time(self):
         robot=[[0.,0.,0.],[1.,1.,0.]]
         actor=[[.1,.1,1.],[.9,.9,1.]]

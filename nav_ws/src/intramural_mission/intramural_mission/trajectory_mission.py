@@ -197,9 +197,13 @@ class TrajectoryMission(Node):
                         (Path(self.log.name).parent/f'route-{candidate.route_id}.json').write_text(
                             (plan_json if plan_json is not None else json.dumps(asdict(candidate)))+'\n')
             self.tracker.speed_scale = 1.
-            if not result.get('blocked') and result['reason']!='PLANNING_TIMEOUT':self.predictive_stop=False
-            if accepted or not result.get('blocked'):
+            feasible=not result.get('blocked') and result['reason']!='PLANNING_TIMEOUT'
+            if feasible:self.predictive_stop=False
+            if accepted or feasible:
                 self.continuation_until=0.
+                if self.state=='BLOCKED':
+                    # The accepted/current trajectory was checked; the latest obstacle check still gates this tick.
+                    self.clear_since=-math.inf
             elif result['reason']!='PLANNING_TIMEOUT':
                 self.continuation_until=result.get('continuation_until',0.)
             if result.get('blocked') and not accepted:

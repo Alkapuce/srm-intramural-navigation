@@ -24,6 +24,40 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TrajectorySafetyTests(unittest.TestCase):
+    def test_fresh_feasibility_resumes_without_debounce_but_latest_raw_obstacle_still_stops(self):
+        from collections import deque
+        from intramural_mission.planning import GridMap
+        c=json.loads((ROOT/'config/arena.json').read_text());c.update(allow_bypass=False,mission_variant='return',parking=[2.,0.])
+        with tempfile.TemporaryDirectory(dir=ROOT/'cache') as folder:
+            config=Path(folder)/'arena.json';config.write_text(json.dumps(c))
+            rclpy.init(domain_id=89,args=['--ros-args','-p',f'arena_config:={config}'])
+            node=TrajectoryMission();replies=deque()
+            node.worker=N(poll=lambda:replies.popleft() if replies else None)
+            node.plan=RoutePlan.build([('RETURN',[[float(x),0.] for x in np.linspace(0.,2.,41)])],c)
+            node.tracker=OmniTracker(node.plan,c);node.run_id='current'
+            def transform(*args):
+                t=TransformStamped();t.header.stamp=node.get_clock().now().to_msg();t.transform.rotation.w=1.
+                return t
+            node.tf=N(lookup_transform=transform)
+            grid=OccupancyGrid();grid.header.frame_id='map';grid.info.resolution=.05
+            grid.info.width=100;grid.info.height=40;grid.info.origin.position.x=grid.info.origin.position.y=-1.
+            grid.info.origin.orientation.w=1.;grid.data=[0]*4000
+            node.receive_map(grid);node.measured=GridMap(grid,c)
+            try:
+                for raw in (False,True):
+                    node.stop('BLOCKED');node.raw_hazard=raw
+                    node.receive_costmap(grid)
+                    node.receive_guard(String(data=json.dumps(dict(sensors_fresh=True,route_id=node.plan.route_id))))
+                    replies.append(dict(stamp=node.get_clock().now().nanoseconds/1e9,route_id=node.plan.route_id,
+                        run_id='current',plan=None,blocked=False,execution_failure=False,imminent=False,
+                        reason='',seconds=.01,tracks=[]))
+                    node.tick()
+                    self.assertEqual(node.state,'BLOCKED' if raw else 'RUNNING')
+                    if raw:np.testing.assert_array_equal(node.tracker.command,[0.,0.])
+                    else:self.assertGreater(np.linalg.norm(node.tracker.command),0.)
+            finally:
+                node.worker=None;node.destroy_node();rclpy.shutdown()
+
     def test_missing_tf_lookup_keeps_only_the_still_fresh_snapshot(self):
         from tf2_ros import LookupException
         c=json.loads((ROOT/'config/arena.json').read_text());c['allow_bypass']=False
@@ -68,6 +102,9 @@ class TrajectorySafetyTests(unittest.TestCase):
                 replies.append(dict(base,plan=node.plan,seconds=.09,continuation_until=now+10.))
                 node.update_avoidance()
                 self.assertEqual(node.state,'BLOCKED');self.assertEqual(node.avoidance['reason'],'PLANNING_TIMEOUT')
+                node.state='RUNNING';node.continuation_until=now-1.
+                replies.append(dict(base,blocked=False,seconds=.09));node.update_avoidance()
+                self.assertEqual(node.state,'BLOCKED')
             finally:
                 node.worker=None;node.destroy_node();rclpy.shutdown()
 
