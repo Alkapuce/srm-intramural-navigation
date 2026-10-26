@@ -325,7 +325,7 @@ class DetourPlanner:
         return [dict(track,shared_margin=self.c.get('minimum_clearance',.02))
                 for track in self.tracker.update(points,stamp,weights,sensor_position,point_times)]
 
-    def solve(self, request, urgent=None):
+    def solve(self, request):
         began = time.monotonic()
         offsets=request.get('point_offsets')
         source=request.get('source_stamp',request['stamp'])
@@ -349,16 +349,15 @@ class DetourPlanner:
         if any(t['moving'] for t in tracks):
             fastest=min(models,key=sum)
             if fastest!=endpoints[0]:endpoints.append(fastest)
-        if urgent is not None and tracks:
+        if tracks:
             from intramural_mission.response import predict_motion
-            # Publish a current braking conflict before candidate search can use the remaining solve budget.
+            # Every candidate shares this initial braking branch; a conflict makes further search futile.
             for _,_,brakes,brake_times,_ in predict_motion(plan,self.c,pose,velocity,
                     request.get('command',velocity),request.get('acceleration',[0.,0.]),progress,horizon=0.,models=endpoints):
                 if (collision(brakes[0],brake_times[0],tracks,radius)
                         or stopped_collision(brakes,brake_times,tracks,radius)):
-                    urgent(dict(report,blocked=True,imminent=True,execution_failure=True,
-                        reason='BRAKING_ENVELOPE_CONFLICT',seconds=time.monotonic()-began))
-                    break
+                    return dict(report,blocked=True,imminent=True,execution_failure=True,
+                        reason='BRAKING_ENVELOPE_CONFLICT',seconds=time.monotonic()-began)
         def reject(reason):
             report['rejected'][reason] = report['rejected'].get(reason, 0)+1
         def executable(proposal, start_s, horizon=2.):
@@ -601,7 +600,7 @@ def _work(config, grid, incoming, outgoing, ready):
             return
         started=time.monotonic()
         try:
-            result = planner.solve(request,urgent=lambda result:outgoing.put(dict(result,intermediate=True)))
+            result = planner.solve(request)
             if result['plan'] is not None:result['plan_json']=json.dumps(asdict(result['plan']))
         except (ValueError, IndexError, FloatingPointError) as error:
             result = dict(stamp=request['stamp'], route_id=request['plan'].route_id,
@@ -614,7 +613,7 @@ def _work(config, grid, incoming, outgoing, ready):
 class PlanningWorker:
     def __init__(self, config, grid):
         context = mp.get_context('spawn')
-        self.incoming, self.outgoing = context.Queue(1), context.Queue(2)
+        self.incoming, self.outgoing = context.Queue(1), context.Queue(1)
         self.ready=context.Event()
         self.process = context.Process(target=_work, args=(config, grid, self.incoming, self.outgoing,self.ready), daemon=True)
         self.process.start()
@@ -638,9 +637,8 @@ class PlanningWorker:
             result = self.outgoing.get_nowait()
         except queue.Empty:
             return None
-        if not result.get('intermediate',False):
-            self.busy = False
-            self.dispatch()
+        self.busy = False
+        self.dispatch()
         return result
 
     def close(self):

@@ -166,7 +166,7 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.)
         ([] if gui else ['--no-gui']),
         env=env,stdout=log,stderr=subprocess.STDOUT)
     rclpy.init();node=rclpy.create_node('avoidance_physical_acceptance',parameter_overrides=[Parameter('use_sim_time',value=True)])
-    status={};truth={};commands=[];path=[];guard_ms=[];controller_ms=[];planner_ms=[];planner_seen=set();urgent_ms=[];urgent_seen=set()
+    status={};truth={};commands=[];path=[];guard_ms=[];controller_ms=[];planner_ms=[];planner_seen=set()
     current=[];actuation=[];measurements=[];lidar_origins=[];actor_trace=[];actor_state={};progress_clock=[];switches=[];bypass_seen={};scene_moves=[]
     obstacle=None;last_obstacle=None;minimum=math.inf;static_minimum=math.inf;last_pose=None;sim_stamps=[];scenario={}
     def state(msg):
@@ -180,11 +180,8 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.)
                 speed_mps=truth.get('speed'),source_age_seconds=node.get_clock().now().nanoseconds/1e9-truth.get('stamp',0.)))
         report=status.get('avoidance',{})
         key=status.get('run_id'),report.get('route_id'),report.get('stamp')
-        if report.get('seconds') is not None:
-            if report.get('intermediate'):
-                if key not in urgent_seen:urgent_seen.add(key);urgent_ms.append(report['seconds']*1000)
-            elif key not in planner_seen:
-                planner_seen.add(key);planner_ms.append(report['seconds']*1000)
+        if report.get('seconds') is not None and key not in planner_seen:
+            planner_seen.add(key);planner_ms.append(report['seconds']*1000)
         if status.get('state')=='RUNNING':
             progress_clock.append([status.get('original_progress',0.),node.get_clock().now().nanoseconds/1e9])
     def measured(msg):
@@ -446,7 +443,6 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.)
         control_p99_ms=float(np.percentile(controller_ms,99)) if controller_ms else None,
         guard_p99_ms=float(np.percentile(guard_ms,99)) if guard_ms else None,cases=results,
         planner_p95_ms=float(np.percentile(planner_ms,95)) if planner_ms else None,
-        urgent_reports=len(urgent_ms),urgent_p95_ms=float(np.percentile(urgent_ms,95)) if urgent_ms else None,
         planning_reports=len(planner_ms),planning_timeouts=sum(t>80 for t in planner_ms),
         scope='Force-driven Gazebo, raw simulated sensors, Point-LIO + small_gicp and PTY serial; not real-vehicle acceptance')
     report['functional_passed']=report['passed']

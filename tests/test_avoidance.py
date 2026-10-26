@@ -236,12 +236,15 @@ class AvoidanceTests(unittest.TestCase):
                  drive_acceleration_limit=2.)
         self.assertGreater(stopping_horizon(c,1.),response_horizon(c))
         trajectories=predict_motion(plan,c,[.3,0.],[1.,0.],[1.,0.],[0.,0.],.3,horizon=.3)
+        current=predict_motion(plan,c,[.3,0.],[1.,0.],[1.,0.],[0.,0.],.3,horizon=0.)
         self.assertEqual(len(trajectories),2)
-        for actual,timing,braking,brake_times,error in trajectories:
+        for (actual,timing,braking,brake_times,error),prefix in zip(trajectories,current):
             np.testing.assert_array_equal(actual[0],[.3,0.])
             np.testing.assert_array_equal(braking[:,0],actual)
             self.assertEqual(braking.shape[:2],brake_times.shape)
             self.assertGreater(braking[0,-1,0]-.3,.3)
+            np.testing.assert_allclose(braking[0],prefix[2][0])
+            np.testing.assert_array_equal(brake_times[0],prefix[3][0])
 
     def test_contour_keeps_free_square_corners_and_sweeps_between_samples(self):
         t=dict(center=[0.,0.],velocity=[0.,0.],radius=.354,extent=[.25,.25],
@@ -287,7 +290,7 @@ class AvoidanceTests(unittest.TestCase):
         finally:worker.close()
         self.assertFalse(worker.process.is_alive())
 
-    def test_worker_reports_urgent_braking_conflict_before_search_finishes(self):
+    def test_worker_finishes_current_brake_failure_without_redundant_candidate_search(self):
         import time
         from intramural_mission.avoidance import PlanningWorker
         c,grid,plan,points=self.case();c['drive_acceleration_limit']=2.
@@ -307,11 +310,9 @@ class AvoidanceTests(unittest.TestCase):
                 command=[1.,0.],acceleration=[0.,0.],points=np.asarray(points)-[.15,0.],stamp=1.1))
             alert=receive()
             self.assertEqual(alert['reason'],'BRAKING_ENVELOPE_CONFLICT')
-            self.assertTrue(alert['intermediate'])
             self.assertTrue(alert['blocked']);self.assertIsNone(alert['plan'])
-            self.assertTrue(worker.busy)
-            self.assertEqual(receive()['stamp'],1.1)
             self.assertFalse(worker.busy)
+            self.assertIsNone(worker.poll())
         finally:worker.close()
 
     def test_stopped_worker_with_large_queued_input_closes_without_feeder_hang(self):
