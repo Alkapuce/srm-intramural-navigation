@@ -35,7 +35,11 @@ def aligned_clearance(measurements, actors, config):
 def motion_timing(measurements):
     trace=np.asarray(measurements);dt=np.diff(trace[:,0])
     speed=np.linalg.norm(np.diff(trace[:,1:],axis=0),axis=1)/dt
-    return dict(stopped_seconds=float(np.sum(dt[speed<.05])),
+    moving=np.flatnonzero(speed>=.05);active=np.zeros(len(dt),dtype=bool)
+    if len(moving):active[moving[0]:moving[-1]+1]=True
+    return dict(en_route_stopped_seconds=float(np.sum(dt[active&(speed<.05)])),
+        en_route_below_point_two_mps_seconds=float(np.sum(dt[active&(speed<.2)])),
+        stopped_seconds=float(np.sum(dt[speed<.05])),
         below_point_two_mps_seconds=float(np.sum(dt[speed<.2])),
         peak_measured_speed_mps=float(np.max(speed)),
         scope='Source-stamped physical position differences; whole run includes starting and final stop confirmation')

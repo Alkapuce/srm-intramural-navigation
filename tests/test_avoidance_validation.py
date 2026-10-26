@@ -16,6 +16,11 @@ class PhysicalOracleTests(unittest.TestCase):
         self.assertAlmostEqual(summary['stopped_seconds'],1.)
         self.assertAlmostEqual(summary['below_point_two_mps_seconds'],1.5)
         self.assertAlmostEqual(summary['peak_measured_speed_mps'],2.)
+        self.assertAlmostEqual(summary['en_route_stopped_seconds'],0.)
+        summary=oracle.motion_timing([[0.,0.,0.],[1.,0.,0.],[1.5,.5,0.],[1.75,.5,0.],[2.25,1.,0.],[3.25,1.,0.]])
+        self.assertAlmostEqual(summary['en_route_stopped_seconds'],.25)
+        self.assertAlmostEqual(summary['stopped_seconds'],2.25)
+        self.assertEqual(oracle.motion_timing([[0.,0.,0.],[1.,0.,0.]])['en_route_stopped_seconds'],0.)
 
     def test_asynchronous_truth_is_interpolated_at_the_same_source_time(self):
         robot=[[0.,0.,0.],[1.,1.,0.]]
