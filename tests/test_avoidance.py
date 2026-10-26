@@ -6,6 +6,14 @@ from intramural_mission.trajectory import RoutePlan
 
 
 class AvoidanceTests(unittest.TestCase):
+    def test_position_error_and_static_margin_share_one_budget(self):
+        track=dict(center=[0.,0.],velocity=[0.,0.],extent=[.25,.25],radius=.36,
+            covariance=np.diag([.02**2,.02**2,0.,0.]).tolist(),age=0.,moving=False,shared_margin=.02)
+        self.assertFalse(collision([[.585,0.],[.585,0.]],[0.,0.],[track],.29+.02))
+        self.assertTrue(collision([[.575,0.],[.575,0.]],[0.,0.],[track],.29+.02))
+        track['covariance']=np.diag([.005**2,.005**2,0.,0.]).tolist()
+        self.assertTrue(collision([[.555,0.],[.555,0.]],[0.,0.],[track],.29+.02))
+
     def test_stationary_scan_jitter_does_not_extrapolate_unobserved_acceleration(self):
         from intramural_mission.avoidance import obstacle_positions
         tracker=ObstacleTracker();rng=np.random.default_rng(17)

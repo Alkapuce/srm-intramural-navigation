@@ -171,7 +171,7 @@ def prediction_uncertainty(track,horizon):
     covariance=np.asarray(track['covariance'])
     horizon=np.asarray(horizon)+track.get('prediction_age',0.)
     if not track.get('moving',True):
-        return 2*math.sqrt(max(np.diag(covariance)[:2]))+.02*horizon
+        return np.maximum(0.,2*math.sqrt(max(np.diag(covariance)[:2]))+.02*horizon-track.get('shared_margin',0.))
     h=horizon if track.get('velocity_observed',True) else np.minimum(horizon,.15)
     variance=np.maximum(covariance[0,0]+2*h*covariance[0,2]+h*h*covariance[2,2],
                         covariance[1,1]+2*h*covariance[1,3]+h*h*covariance[3,3])
@@ -181,7 +181,8 @@ def prediction_uncertainty(track,horizon):
             +a*a*covariance[4,4]+2*a*covariance[0,4]+2*h*a*covariance[2,4],
             covariance[1,1]+2*h*covariance[1,3]+h*h*covariance[3,3]
             +a*a*covariance[5,5]+2*a*covariance[1,5]+2*h*a*covariance[3,5])
-    return 2*np.sqrt(np.maximum(0.,variance))+.025*horizon*horizon
+    # The collision radius already contains the shared static error budget.
+    return np.maximum(0.,2*np.sqrt(np.maximum(0.,variance))+.025*horizon*horizon-track.get('shared_margin',0.))
 
 
 def obstacle_positions(track,times):
@@ -306,7 +307,8 @@ class DetourPlanner:
             points = points[selected]
             weights = weights[selected]
             if point_times is not None:point_times=np.asarray(point_times)[selected]
-        return self.tracker.update(points, stamp, weights,sensor_position,point_times)
+        return [dict(track,shared_margin=self.c.get('minimum_clearance',.02))
+                for track in self.tracker.update(points,stamp,weights,sensor_position,point_times)]
 
     def solve(self, request):
         began = time.monotonic()

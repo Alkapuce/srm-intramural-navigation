@@ -185,6 +185,8 @@ try:
         if status["state"] == "DONE":
             call("reset")
             until(lambda: status.get("state") == "IDLE", 5, "reset")
+        preplaced=a.cancel_bypass and c.get('navigation_engine')=='trajectory'
+        if preplaced:move('place',target)
         call("start")
         until(lambda: status.get("state") == "RUNNING" and status.get("segment",-1) <= segment
               and latest.get("truth") and math.hypot(latest["truth"].twist.twist.linear.x,
@@ -195,7 +197,7 @@ try:
         moving_pose = latest["truth"].pose.pose.position
         moving_pose = (moving_pose.x, moving_pose.y)
         before = list(status["history"])
-        move("place", target)
+        if not preplaced:move("place", target)
         inserted_at = time.monotonic()
         if a.cancel_bypass and c.get('navigation_engine')=='trajectory':
             until(lambda: status.get('state')=='RUNNING' and status.get('bypass_count',0)>0
