@@ -166,9 +166,9 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.)
         ([] if gui else ['--no-gui']),
         env=env,stdout=log,stderr=subprocess.STDOUT)
     rclpy.init();node=rclpy.create_node('avoidance_physical_acceptance',parameter_overrides=[Parameter('use_sim_time',value=True)])
-    status={};truth={};commands=[];path=[];guard_ms=[];controller_ms=[];planner_ms=[];planner_seen=set()
+    status={};truth={};commands=[];path=[];guard_ms=[];controller_ms=[];planner_ms=[];planner_seen=set();urgent_ms=[];urgent_seen=set()
     current=[];actuation=[];measurements=[];lidar_origins=[];actor_trace=[];actor_state={};progress_clock=[];switches=[];bypass_seen={};scene_moves=[]
-    obstacle=None;last_obstacle=None;minimum=math.inf;static_minimum=math.inf;last_pose=None;sim_stamps=[]
+    obstacle=None;last_obstacle=None;minimum=math.inf;static_minimum=math.inf;last_pose=None;sim_stamps=[];scenario={}
     def state(msg):
         nonlocal status
         status=json.loads(msg.data)
@@ -180,8 +180,11 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.)
                 speed_mps=truth.get('speed'),source_age_seconds=node.get_clock().now().nanoseconds/1e9-truth.get('stamp',0.)))
         report=status.get('avoidance',{})
         key=status.get('run_id'),report.get('route_id'),report.get('stamp')
-        if report.get('seconds') is not None and key not in planner_seen:
-            planner_seen.add(key);planner_ms.append(report['seconds']*1000)
+        if report.get('seconds') is not None:
+            if report.get('intermediate'):
+                if key not in urgent_seen:urgent_seen.add(key);urgent_ms.append(report['seconds']*1000)
+            elif key not in planner_seen:
+                planner_seen.add(key);planner_ms.append(report['seconds']*1000)
         if status.get('state')=='RUNNING':
             progress_clock.append([status.get('original_progress',0.),node.get_clock().now().nanoseconds/1e9])
     def measured(msg):
@@ -343,6 +346,10 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.)
             nominal_arrival=(float(np.interp(s[at],reference_clock[:,0],reference_clock[:,1]))
                 if reference_clock is not None else 0.)
             actor_start=motion_start+max(0.,nominal_arrival-travel_time)
+            scenario=dict(index=index,run_id=run_id,kind=kind,target_phase=target_phase,
+                target=target.tolist(),direction=direction.tolist(),maneuver=maneuver,
+                speed=speed,actor_start_sim=actor_start,entrance=entrance,exit_distance=exit_distance,
+                travel_time=travel_time,reversal=reversal)
             if kind=='dynamic':
                 if min(entrance,exit_distance)<.1:raise RuntimeError('Actor has insufficient physical crossing space')
                 move(target-direction*entrance)
@@ -354,6 +361,8 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.)
                 now=time.monotonic()
                 if kind=='dynamic':
                     if crossing is None and not finished_actor and node.get_clock().now().nanoseconds/1e9>=actor_start:
+                        scenario.update(actor_command_start=node.get_clock().now().nanoseconds/1e9,
+                            onset_robot_samples=measurements[-3:],onset_actor_samples=actor_trace[-3:])
                         obstacle=actor_state['position'].copy();active=True
                         crossing=node.get_clock().now().nanoseconds/1e9+travel_time
                     if active:
@@ -414,7 +423,7 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.)
                 continue
             results.append(row);(out/f'run-{index:02}.json').write_text(json.dumps(dict(result=row,truth=current),indent=2)+'\n')
             (out/f'inputs-{index:02}.json').write_text(json.dumps(dict(transport_world=actuation,
-                measured_positions=measurements,measured_lidar_origins=lidar_origins,obstacle_poses=actor_trace))+'\n')
+                measured_positions=measurements,measured_lidar_origins=lidar_origins,obstacle_poses=actor_trace,scenario=scenario))+'\n')
             (out/'cases.json').write_text(json.dumps(results,indent=2)+'\n');print(json.dumps(row),flush=True)
             if not row['passed']:raise RuntimeError(f'Run failed independent acceptance: {row}')
             actor_velocity([0.,0.]);move(c['obstacle_initial']);obstacle=None
@@ -423,7 +432,7 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.)
         (out/'failure.json').write_text(json.dumps(dict(error=failure,status=status),indent=2)+'\n')
         (out/'failed-truth.json').write_text(json.dumps(current)+'\n')
         (out/'failed-inputs.json').write_text(json.dumps(dict(transport_world=actuation,
-            measured_positions=measurements,measured_lidar_origins=lidar_origins,obstacle_poses=actor_trace))+'\n')
+            measured_positions=measurements,measured_lidar_origins=lidar_origins,obstacle_poses=actor_trace,scenario=scenario))+'\n')
     finally:
         executor.shutdown();reader.join(timeout=5.);node.destroy_node();rclpy.shutdown()
         process.send_signal(signal.SIGINT)
@@ -437,6 +446,7 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.)
         control_p99_ms=float(np.percentile(controller_ms,99)) if controller_ms else None,
         guard_p99_ms=float(np.percentile(guard_ms,99)) if guard_ms else None,cases=results,
         planner_p95_ms=float(np.percentile(planner_ms,95)) if planner_ms else None,
+        urgent_reports=len(urgent_ms),urgent_p95_ms=float(np.percentile(urgent_ms,95)) if urgent_ms else None,
         planning_reports=len(planner_ms),planning_timeouts=sum(t>80 for t in planner_ms),
         scope='Force-driven Gazebo, raw simulated sensors, Point-LIO + small_gicp and PTY serial; not real-vehicle acceptance')
     report['functional_passed']=report['passed']

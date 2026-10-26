@@ -307,6 +307,7 @@ class AvoidanceTests(unittest.TestCase):
                 command=[1.,0.],acceleration=[0.,0.],points=np.asarray(points)-[.15,0.],stamp=1.1))
             alert=receive()
             self.assertEqual(alert['reason'],'BRAKING_ENVELOPE_CONFLICT')
+            self.assertTrue(alert['intermediate'])
             self.assertTrue(alert['blocked']);self.assertIsNone(alert['plan'])
             self.assertTrue(worker.busy)
             self.assertEqual(receive()['stamp'],1.1)

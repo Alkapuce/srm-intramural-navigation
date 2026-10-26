@@ -638,7 +638,7 @@ class PlanningWorker:
             result = self.outgoing.get_nowait()
         except queue.Empty:
             return None
-        if not result.pop('intermediate',False):
+        if not result.get('intermediate',False):
             self.busy = False
             self.dispatch()
         return result
