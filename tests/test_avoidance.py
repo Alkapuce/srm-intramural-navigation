@@ -6,6 +6,16 @@ from intramural_mission.trajectory import RoutePlan
 
 
 class AvoidanceTests(unittest.TestCase):
+    def test_stopping_place_remains_occupied_when_an_actor_arrives_after_rest(self):
+        from intramural_mission.avoidance import collision_segments,stopped_collision
+        brakes=np.array([[[0.,0.],[.2,0.]]]);times=np.array([[0.,.3]])
+        actor=dict(center=[.2,-1.],velocity=[0.,1.],radius=.05,
+            covariance=np.zeros((4,4)).tolist(),age=0.,moving=True)
+        self.assertFalse(collision_segments(brakes[:,0],brakes[:,1],times[:,0],times[:,1],[actor],.29))
+        self.assertTrue(stopped_collision(brakes,times,[actor],.29))
+        actor['velocity']=[0.,-1.]
+        self.assertFalse(stopped_collision(brakes,times,[actor],.29))
+
     def test_position_error_and_static_margin_share_one_budget(self):
         track=dict(center=[0.,0.],velocity=[0.,0.],extent=[.25,.25],radius=.36,
             covariance=np.diag([.02**2,.02**2,0.,0.]).tolist(),age=0.,moving=False,shared_margin=.02)
@@ -25,7 +35,8 @@ class AvoidanceTests(unittest.TestCase):
             if i>10:moving.append(track['moving'])
         self.assertFalse(any(moving))
         track.update(moving=False,velocity=[.077,-.022],acceleration=[.519,0.])
-        np.testing.assert_array_equal(obstacle_positions(track,[0.,1.,2.]),[track['center']]*3)
+        np.testing.assert_allclose(obstacle_positions(track,[0.,1.,2.]),
+            np.asarray(track['center'])+np.arange(3)[:,None]*track['velocity'])
 
     def test_cruise_checks_future_braking_tails_when_the_ideal_line_is_clear(self):
         from intramural_mission.avoidance import DetourPlanner,preview

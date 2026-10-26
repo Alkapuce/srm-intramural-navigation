@@ -187,10 +187,10 @@ def prediction_uncertainty(track,horizon):
 
 def obstacle_positions(track,times):
     t=np.asarray(times)+track.get('prediction_age',0.)
-    if not track.get('moving',True):return np.broadcast_to(track['center'],t.shape+(2,))
     positions=np.asarray(track['center'])+t[...,None]*np.asarray(track['velocity'])
     acceleration=np.asarray(track.get('acceleration',[0.,0.]))
-    if np.any(acceleration):positions+=acceleration_motion(t)[0][...,None]*acceleration
+    if track.get('moving',True) and np.any(acceleration):
+        positions+=acceleration_motion(t)[0][...,None]*acceleration
     return positions
 
 
@@ -213,6 +213,15 @@ def collision_segments(start,end,begin,finish,tracks,radius):
         if np.any(gap <= radius+uncertainty):
             return True
     return False
+
+
+def stopped_collision(brakes,brake_times,tracks,radius):
+    # Rest is still occupied space: a moving obstacle may arrive after braking ends.
+    horizon=np.maximum(2.,brake_times[:,-1,None])
+    begin=np.minimum(brake_times[:,-1,None]+np.arange(0.,2.05,.05),horizon)
+    finish=np.minimum(begin+.05,horizon)
+    points=np.broadcast_to(brakes[:,-1,None,:],begin.shape+(2,)).reshape(-1,2)
+    return collision_segments(points,points,begin.ravel(),finish.ravel(),tracks,radius)
 
 
 def preview(plan, progress, speed, horizon=2.):
@@ -347,7 +356,8 @@ class DetourPlanner:
                         or min(self.map.clearance(brakes.reshape(-1,2),include_poles=not self.c.get('pole_clearance_from_map',False)))<=self.c.get('execution_clearance',0.)
                         or collision(actual,timing,tracks,radius)
                         or collision_segments(brakes[:,:-1].reshape(-1,2),brakes[:,1:].reshape(-1,2),
-                            brake_times[:,:-1].ravel(),brake_times[:,1:].ravel(),tracks,radius)):
+                            brake_times[:,:-1].ravel(),brake_times[:,1:].ravel(),tracks,radius)
+                        or stopped_collision(brakes,brake_times,tracks,radius)):
                     return False
             return True
 
