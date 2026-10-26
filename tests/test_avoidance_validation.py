@@ -11,6 +11,19 @@ oracle=importlib.util.module_from_spec(spec);spec.loader.exec_module(oracle)
 class PhysicalOracleTests(unittest.TestCase):
     config=dict(robot_radius=.29,obstacle_size=[.5,.5,1.])
 
+    def test_loop_order_rejects_swapped_loops_with_the_same_final_winding(self):
+        import numpy as np
+        lo=np.column_stack((np.cos(np.linspace(np.pi/2,5*np.pi/2,5)),
+            -1+np.sin(np.linspace(np.pi/2,5*np.pi/2,5))))
+        hi=np.column_stack((np.cos(np.linspace(-np.pi/2,-5*np.pi/2,5)),
+            1+np.sin(np.linspace(-np.pi/2,-5*np.pi/2,5))))
+        points=np.vstack((lo,hi[1:]));swapped=np.vstack((hi,lo[1:]))
+        nominal=dict(points=points.tolist(),gates=[['stage',min(i+1,8)] for i in range(10)])
+        history=[dict(segment=i,sim_time=float(i)) for i in range(10)]
+        config=dict(lower_pole=[0.,-1.],upper_pole=[0.,1.])
+        self.assertTrue(oracle.ordered_turns(np.column_stack((np.arange(9),points)),history,nominal,config)['passed'])
+        self.assertFalse(oracle.ordered_turns(np.column_stack((np.arange(9),swapped)),history,nominal,config)['passed'])
+
     def test_speed_loss_uses_physical_source_time(self):
         summary=oracle.motion_timing([[0.,0.,0.],[1.,0.,0.],[1.5,.05,0.],[2.,1.05,0.]])
         self.assertAlmostEqual(summary['stopped_seconds'],1.)

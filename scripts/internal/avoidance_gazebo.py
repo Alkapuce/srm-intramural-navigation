@@ -32,6 +32,25 @@ def aligned_clearance(measurements, actors, config):
     return float(min((gaps-bound)[valid])) if np.any(valid) else math.inf
 
 
+def ordered_turns(measurements,history,nominal,config):
+    trace=np.asarray(measurements);reference=np.asarray(nominal['points']);checks=[]
+    def turns(points,pole):
+        delta=np.asarray(points)-pole
+        angle=np.unwrap(np.arctan2(delta[:,1],delta[:,0]))
+        return float((angle[-1]-angle[0])/(2*math.pi))
+    for phase in (4,8):
+        stamp=next(h['sim_time'] for h in history if h['segment']==phase)
+        end=[np.interp(stamp,trace[:,0],trace[:,k]) for k in (1,2)]
+        actual=np.vstack((trace[trace[:,0]<stamp,1:],end))
+        expected=reference[:nominal['gates'][phase-1][1]+1]
+        for key in ('lower_pole','upper_pole'):
+            observed,wanted=turns(actual,config[key]),turns(expected,config[key])
+            checks.append(dict(phase=phase,pole=key,actual=observed,nominal=wanted,
+                passed=abs(observed-wanted)<.25))
+    return dict(passed=all(c['passed'] for c in checks),checks=checks,
+        scope='Independent truth angles at ordered loop boundaries; full-route winding checked separately')
+
+
 def motion_timing(measurements):
     trace=np.asarray(measurements);dt=np.diff(trace[:,0])
     speed=np.linalg.norm(np.diff(trace[:,1:],axis=0),axis=1)/dt
@@ -337,6 +356,8 @@ def verify(root, out, count, offset=0, baseline=False, gui=False):
                 nominal_counterfactual_clearance=nominal_gap,
                 minimum_pole_clearance=static_minimum,
                 minimum_dynamic_clearance=None if not math.isfinite(minimum) else minimum)
+            row['ordered_turns']=ordered_turns(measurements,status['history'],route,c)
+            row['passed'] &= row['ordered_turns']['passed']
             row['motion_timing']=motion_timing(measurements)
             row['route_switches']=[s for s in switches if s['run_id']==run_id]
             row['response']=response_agreement(measurements,actuation,c)
