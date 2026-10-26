@@ -11,6 +11,17 @@ import threading
 import numpy as np
 
 
+def matrix_indices(count,offset=0,baseline=False,selected=None):
+    indices=list(range(offset,offset+count)) if selected is None else list(selected)
+    if not indices or len(set(indices))!=len(indices) or min(indices)<0 or max(indices)>61:
+        raise ValueError('Choose distinct Gazebo indices within 0..61; 60=start-here, 61=prepare')
+    if baseline and max(indices)>9:
+        raise ValueError('Baseline requires nominal indices within 0..9')
+    if selected is None and offset==0 and count==60 and not baseline:
+        indices.remove(47);indices.insert(0,47)
+    return indices
+
+
 def aligned_clearance(measurements, actors, config):
     """Independent millisecond oracle; interpolate source-stamped truth, excluding teleport sweeps."""
     robot,actor=np.asarray(measurements),np.asarray(actors)
@@ -149,7 +160,7 @@ def verify_faults(root,out,config):
         wire_break_scope='Unprotected simulated MCU must retain motion until communication is restored; this is a boundary reproduction, not physical disconnect safety')
 
 
-def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.):
+def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.,selected=None):
     import rclpy
     from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
     from nav_msgs.msg import Odometry
@@ -159,6 +170,7 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.)
     from rclpy.parameter import Parameter
     from rclpy.executors import SingleThreadedExecutor
     from intramural_mission.bypass import winding
+    indices=matrix_indices(count,offset,baseline,selected);count=len(indices)
     c=json.loads((root/'config/arena.json').read_text())
     c.update(json.loads((root/'config/navigation-profiles.json').read_text())['candidate'])
     c.update(allow_bypass=not baseline,
@@ -285,9 +297,6 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.)
     try:
         until(lambda:status.get('state')=='IDLE' and status.get('ready') and truth and actor_state,120,'sensor readiness')
         reference_clock=None;reference_motion=None
-        indices=list(range(offset,offset+count))
-        if offset==0 and count==60 and not baseline:
-            indices.remove(47);indices.insert(0,47)
         for index in [-1,*indices]:
             if status.get('state')=='DONE':call('reset')
             actor_velocity([0.,0.]);move(c['obstacle_initial']);obstacle=None

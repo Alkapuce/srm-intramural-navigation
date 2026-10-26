@@ -11,6 +11,14 @@ oracle=importlib.util.module_from_spec(spec);spec.loader.exec_module(oracle)
 class PhysicalOracleTests(unittest.TestCase):
     config=dict(robot_radius=.29,obstacle_size=[.5,.5,1.])
 
+    def test_physical_matrix_selection_preserves_formal_order_and_subsets(self):
+        self.assertEqual(oracle.matrix_indices(60),[47,*range(47),*range(48,60)])
+        self.assertEqual(oracle.matrix_indices(10,baseline=True),list(range(10)))
+        self.assertEqual(oracle.matrix_indices(60,selected=[10,40,56]),[10,40,56])
+        for selected in ([],[10,10],[-1],[62]):
+            with self.assertRaises(ValueError):oracle.matrix_indices(60,selected=selected)
+        with self.assertRaises(ValueError):oracle.matrix_indices(60,baseline=True,selected=[10])
+
     def test_entry_and_return_must_use_the_same_ordered_channel(self):
         config=dict(parking=[0.,0.],parking_tolerance=.08,max_tracking_error=.3)
         trace=[[0.,0.,0.],[1.,1.,1.],[2.,2.,1.],[3.,2.,1.],[4.,1.,1.],[5.,0.,0.]]

@@ -204,6 +204,7 @@ def main():
     parser.add_argument('--archive',type=Path,default=ROOT/'artifacts/field/2026-10-20/nuc-closeout/nuc')
     parser.add_argument('--cases',type=int,help='Explicit development subset; omitted uses 300 model / 60 Gazebo runs')
     parser.add_argument('--case-offset',type=int,default=0,help='Start at a named Gazebo matrix index for development')
+    parser.add_argument('--case-indices',type=int,nargs='+',help='Explicit noncontiguous Gazebo subset; cannot combine with --cases or --case-offset')
     parser.add_argument('--baseline',action='store_true',help='Gazebo nominal runs with avoidance disabled, otherwise identical configuration')
     parser.add_argument('--gui',action='store_true',help='Show the physical Gazebo acceptance scene')
     parser.add_argument('--speed-scale',type=float,choices=(.5,.75,1.),default=1.,help='Gazebo speed fraction of unchanged candidate limit')
@@ -211,10 +212,14 @@ def main():
     out=out.resolve()
     if not out.is_relative_to(ROOT/'artifacts') or out==ROOT/'artifacts' or out.exists():parser.error('Choose a new directory inside project artifacts/')
     if args.cases is not None and args.cases<1:parser.error('--cases must be positive')
-    if args.case_offset<0 or args.suite=='gazebo' and args.case_offset+(args.cases or 60)>62:
-        parser.error('Gazebo indices must be within 0..61; 60=start-here, 61=prepare')
-    if args.baseline and (args.suite!='gazebo' or args.case_offset+(args.cases or 60)>10):
-        parser.error('--baseline requires a nominal Gazebo subset of at most ten runs')
+    if args.case_offset<0:parser.error('--case-offset must be nonnegative')
+    if args.case_indices is not None and (args.suite!='gazebo' or args.cases is not None or args.case_offset):
+        parser.error('--case-indices requires Gazebo without --cases or --case-offset')
+    if args.baseline and args.suite!='gazebo':parser.error('--baseline applies only to Gazebo')
+    if args.suite in ('gazebo','all'):
+        from avoidance_gazebo import matrix_indices
+        try:matrix_indices(args.cases or 60,args.case_offset,args.baseline,args.case_indices)
+        except ValueError as error:parser.error(str(error))
     if args.speed_scale!=1. and args.suite!='gazebo':parser.error('--speed-scale applies only to Gazebo')
     out.mkdir(parents=True)
     sources=list((ROOT/'nav_ws/src/intramural_mission/intramural_mission').glob('*.py'))
@@ -233,7 +238,7 @@ def main():
         source_sha256={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (ROOT/'nav_ws/src/intramural_mission/intramural_mission').glob('*.py')},
         implementation_sha256={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sources if p.is_file()},
         command=sys.argv,ros_domain=os.environ.get('ROS_DOMAIN_ID'),ign_partition=os.environ.get('IGN_PARTITION'),
-        physical_devices_opened=False,suite=args.suite,development_subset=args.cases is not None)
+        physical_devices_opened=False,suite=args.suite,development_subset=args.cases is not None or args.case_indices is not None)
     save(out/'manifest.json',manifest)
     reports={}
     for suite in (['replay','model','gazebo'] if args.suite=='all' else [args.suite]):
@@ -242,8 +247,8 @@ def main():
         elif suite=='model':report=models(folder,args.cases or 300)
         else:
             from avoidance_gazebo import verify,verify_faults
-            report=verify(ROOT,folder,args.cases or 60,args.case_offset,args.baseline,args.gui,args.speed_scale)
-            if args.cases is None:
+            report=verify(ROOT,folder,args.cases or 60,args.case_offset,args.baseline,args.gui,args.speed_scale,args.case_indices)
+            if args.cases is None and args.case_indices is None:
                 report['faults']=verify_faults(ROOT,folder/'faults',folder/'arena.json')
                 report['passed'] &= report['faults']['passed']
         reports[suite]=report
