@@ -6,6 +6,44 @@ from intramural_mission.trajectory import RoutePlan
 
 
 class AvoidanceTests(unittest.TestCase):
+    def test_cruise_checks_future_braking_tails_when_the_ideal_line_is_clear(self):
+        from intramural_mission.avoidance import DetourPlanner,preview
+        c,grid,plan,_=self.case()
+        c.update(response_models=[[2.,.5]],response_delay=2.,response_tau=.5,drive_acceleration_limit=2.)
+        planner=DetourPlanner(c,grid)
+        points=[[3.+x,y] for x in (-.1,0.,.1) for y in (-.1,0.,.1)]
+        for i in range(7):
+            tracks=planner.observations(points,i*.1)
+        samples,timing=preview(plan,0.,1.)
+        self.assertFalse(collision(samples,timing,tracks,.31))
+        result=planner.solve(dict(plan=plan,progress=0.,pose=[0.,0.],velocity=[1.,0.],
+            command=[1.,0.],acceleration=[0.,0.],points=points,stamp=.7))
+        self.assertTrue(result['blocked'],result)
+        self.assertNotEqual(result['reason'],'')
+
+    def test_delayed_accelerating_observation_predicts_the_short_term_position(self):
+        from intramural_mission.avoidance import obstacle_positions
+        tracker=ObstacleTracker()
+        for i in range(31):
+            source=i*.05;moving=max(0.,source-1.)
+            cloud=[[2.+moving*moving+x,y] for x in (-.1,0.,.1) for y in (-.1,0.,.1)]
+            track=tracker.update(cloud,source+.1,sensor_position=[0.,0.],point_times=np.full(9,source))[0]
+        actual=2.+.75**2+1.5*(.9-.75)
+        linear=track['center'][0]+track['velocity'][0]*.3
+        forecast=obstacle_positions(track,.3)[0]
+        self.assertLess(abs(forecast-actual),.12)
+        self.assertLess(abs(forecast-actual),.8*abs(linear-actual))
+        self.assertGreater(track['acceleration'][0],.5)
+
+    def test_accelerating_target_sweep_covers_a_curve_between_endpoints(self):
+        track=dict(center=[-1.,0.],velocity=[2.,0.],acceleration=[0.,8.],radius=.01,
+                   covariance=np.zeros((6,6)).tolist(),age=0.,moving=True)
+        # Independent fine integration of da/dt=-a/.4 reaches the robot between samples.
+        p=np.array(track['center']);v=np.array(track['velocity']);a=np.array(track['acceleration'])
+        for _ in range(5000):
+            p+=v*.0001;v+=a*.0001;a-=a*.0001/.4
+        self.assertTrue(collision([p,p],[0.,1.],[track],.05))
+
     def test_speed_restoration_needs_two_distinct_clear_updates(self):
         from dataclasses import replace
         from intramural_mission.avoidance import DetourPlanner

@@ -62,7 +62,7 @@ def entry_path(c, start, goal, grid, clearance=None, free_mask=None):
     if not valid(source) or not valid(target):
         return None
     direct=line(start,goal,min(res/2,c['path_spacing']))
-    if all(valid(cell(p)) for p in direct):
+    if free_mask is None and all(valid(cell(p)) for p in direct):
         return line(start,goal,c['path_spacing'])
     queue, costs, previous = [(math.dist(source, target), 0., source)], {source: 0.}, {}
     while queue:
@@ -75,14 +75,26 @@ def entry_path(c, start, goal, grid, clearance=None, free_mask=None):
                 cells.append(previous[cells[-1]])
             path = [list(start)] + [point(p) for p in reversed(cells)] + [list(goal)]
             if free_mask is not None:
-                corners=[path[0]]
-                for a,b,d in zip(path,path[1:],path[2:]):
+                def sampled_cost(points):
+                    p=np.asarray(points);delta=p-[origin.position.x,origin.position.y]
+                    row=np.floor((-so*delta[:,0]+co*delta[:,1])/res).astype(int)
+                    col=np.floor((co*delta[:,0]+so*delta[:,1])/res).astype(int)
+                    weights=travel_cost[row,col]
+                    return np.r_[0.,np.cumsum(np.linalg.norm(np.diff(p,axis=0),axis=1)*(weights[:-1]+weights[1:])/2)]
+                cumulative=sampled_cost(path)
+                indices=[0]
+                for n,(a,b,d) in enumerate(zip(path,path[1:],path[2:]),1):
                     u,v=np.asarray(b)-a,np.asarray(d)-b
-                    if np.dot(u,v)<.999*np.linalg.norm(u)*np.linalg.norm(v):corners.append(b)
-                corners.append(path[-1]);path=[corners[0]];i=0
+                    if np.dot(u,v)<.999*np.linalg.norm(u)*np.linalg.norm(v):indices.append(n)
+                indices.append(len(path)-1)
+                corners=[path[n] for n in indices];path=[corners[0]];i=0
                 while i<len(corners)-1:
                     j=len(corners)-1
-                    while j>i+1 and not all(valid(cell(p)) for p in line(corners[i],corners[j],res/2)):j-=1
+                    while j>i+1:
+                        shortcut=line(corners[i],corners[j],res/2)
+                        if (all(valid(cell(p)) for p in shortcut) and
+                                sampled_cost(shortcut)[-1]<=1.01*(cumulative[indices[j]]-cumulative[indices[i]])):break
+                        j-=1
                     path.append(corners[j]);i=j
             return [p for a, b in zip(path, path[1:]) for p in line(a, b, c['path_spacing'])[:-1]] + [list(goal)]
         for dy, dx in ((-1,0),(1,0),(0,-1),(0,1),(-1,-1),(-1,1),(1,-1),(1,1)):

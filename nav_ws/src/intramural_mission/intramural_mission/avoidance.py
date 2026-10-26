@@ -17,6 +17,19 @@ from intramural_mission.route import quintic_curve
 from intramural_mission.safety import response_horizon,stopping_horizon
 
 
+def acceleration_motion(dt):
+    tau=.4
+    velocity=-tau*np.expm1(-np.asarray(dt)/tau)
+    return tau*(dt-velocity),velocity,np.exp(-np.asarray(dt)/tau)
+
+
+def obstacle_transition(dt):
+    position,velocity,decay=acceleration_motion(dt)
+    f=np.eye(6);f[:2,2:4]=np.eye(2)*dt;f[:2,4:]=np.eye(2)*position
+    f[2:4,4:]=np.eye(2)*velocity;f[4:,4:]=np.eye(2)*decay
+    return f
+
+
 class ObstacleTracker:
     def __init__(self):
         self.tracks, self.stamp, self.serial = [], -math.inf, 0
@@ -57,15 +70,15 @@ class ObstacleTracker:
         self.tracks = [t for t in self.tracks if stamp-t['seen'] <= .6]
         for t in self.tracks:
             dt = stamp-t['stamp']
-            f = np.eye(4); f[:2, 2:] = np.eye(2)*dt
-            g = np.vstack((np.eye(2)*dt*dt/2, np.eye(2)*dt))
+            f=obstacle_transition(dt)
+            g=np.vstack((np.eye(2)*dt**3/6,np.eye(2)*dt*dt/2,np.eye(2)*dt))
             t['x'] = f@t['x']
-            t['p'] = f@t['p']@f.T + 2.**2*g@g.T
+            t['p'] = f@t['p']@f.T + 15.**2*g@g.T
             t['stamp'] = stamp
             t['dt']=dt
         used = set()
         if self.tracks and clusters:
-            costs = np.array([[np.linalg.norm(t['x'][:2]-(stamp-c[3])*t['x'][2:]-c[0]) for c in clusters] for t in self.tracks])
+            costs = np.array([[np.linalg.norm(obstacle_transition(c[3]-stamp)[:2]@t['x']-c[0]) for c in clusters] for t in self.tracks])
             rows, cols = linear_sum_assignment(costs)
             for i, j in zip(rows, cols):
                 t = self.tracks[i]
@@ -73,7 +86,7 @@ class ObstacleTracker:
                     continue
                 extent=np.maximum(t['extent'],clusters[j][2])
                 lag=stamp-clusters[j][3]
-                measurement=np.hstack((np.eye(2),-lag*np.eye(2)))
+                measurement=obstacle_transition(-lag)[:2]
                 expected=measurement@t['x']
                 center=np.clip(expected,clusters[j][0]+clusters[j][2]-extent,
                     clusters[j][0]-clusters[j][2]+extent)
@@ -91,29 +104,29 @@ class ObstacleTracker:
                     # A motion start is a velocity jump, not measurement noise to average away.
                     dt=max(.01,clusters[j][3]-t['seen'])
                     velocity=(center-t['measurement_center'])/dt
-                    t['x']=np.r_[center+lag*velocity,velocity]
-                    t['p']=np.diag([.1**2]*2+[2*.02**2/dt**2]*2)
+                    t['x']=obstacle_transition(lag)@np.r_[center,velocity,t['x'][4:]]
+                    t['p']=np.diag([.1**2]*2+[2*.02**2/dt**2]*2+[2.**2]*2)
                     innovation=measurement@t['p']@measurement.T+np.eye(2)*.02**2
                 k = np.linalg.solve(innovation, (t['p']@measurement.T).T).T
                 t['x'] += k@(center-measurement@t['x'])
-                h = np.eye(4)-k@measurement
+                h = np.eye(6)-k@measurement
                 t['p'] = h@t['p']@h.T + k@(np.eye(2)*.02**2)@k.T
                 t.update(radius=float(np.linalg.norm(extent)), extent=extent, seen=clusters[j][3],measurement_center=center,
                     observations=t['observations']+1)
-                if np.linalg.norm(t['x'][2:])>.08:t['moving_until']=stamp+.3
+                if np.linalg.norm(t['x'][2:4])>.08 or np.linalg.norm(t['x'][4:])>.4:t['moving_until']=stamp+.3
                 used.add(j)
         for j, (center, radius, extent, source_time) in enumerate(clusters):
             if j not in used:
                 self.serial += 1
-                initial=np.diag([.02**2]*2+[.5**2]*2)
-                advance=np.eye(4);advance[:2,2:]=np.eye(2)*(stamp-source_time)
-                self.tracks.append(dict(id=self.serial, x=np.r_[center, 0., 0.],
+                initial=np.diag([.02**2]*2+[.5**2]*2+[2.**2]*2)
+                advance=obstacle_transition(stamp-source_time)
+                self.tracks.append(dict(id=self.serial, x=np.r_[center, 0., 0.,0.,0.],
                     p=advance@initial@advance.T,
                     radius=radius,extent=extent,stamp=stamp,seen=source_time,measurement_center=center,observations=1,moving_until=stamp))
         return self.snapshot(stamp)
 
     def snapshot(self, stamp):
-        return [dict(id=t['id'], center=t['x'][:2].tolist(), velocity=t['x'][2:].tolist(),
+        return [dict(id=t['id'], center=t['x'][:2].tolist(), velocity=t['x'][2:4].tolist(),acceleration=t['x'][4:].tolist(),
                      covariance=t['p'].tolist(), radius=t['radius'], extent=t['extent'].tolist(), age=max(0., stamp-t['seen']),
                      velocity_observed=t['observations']>=2,
                      moving=bool(t['observations']<3 or stamp<t['moving_until']))
@@ -159,18 +172,32 @@ def prediction_uncertainty(track,horizon):
     h=horizon if track.get('velocity_observed',True) else np.minimum(horizon,.15)
     variance=np.maximum(covariance[0,0]+2*h*covariance[0,2]+h*h*covariance[2,2],
                         covariance[1,1]+2*h*covariance[1,3]+h*h*covariance[3,3])
+    if len(covariance)==6:
+        a=acceleration_motion(h)[0]
+        variance=np.maximum(covariance[0,0]+2*h*covariance[0,2]+h*h*covariance[2,2]
+            +a*a*covariance[4,4]+2*a*covariance[0,4]+2*h*a*covariance[2,4],
+            covariance[1,1]+2*h*covariance[1,3]+h*h*covariance[3,3]
+            +a*a*covariance[5,5]+2*a*covariance[1,5]+2*h*a*covariance[3,5])
     return 2*np.sqrt(np.maximum(0.,variance))+.025*horizon*horizon
+
+
+def obstacle_positions(track,times):
+    t=np.asarray(times)+track.get('prediction_age',0.)
+    positions=np.asarray(track['center'])+t[...,None]*np.asarray(track['velocity'])
+    acceleration=np.asarray(track.get('acceleration',[0.,0.]))
+    if np.any(acceleration):positions+=acceleration_motion(t)[0][...,None]*acceleration
+    return positions
 
 
 def collision_segments(start,end,begin,finish,tracks,radius):
     for track in tracks:
-        velocity = np.asarray(track['velocity'])
-        age = track.get('age', 0.)
-        a=np.asarray(start)-track['center']-(np.asarray(begin)+track.get('prediction_age',0.))[:,None]*velocity
-        b=np.asarray(end)-track['center']-(np.asarray(finish)+track.get('prediction_age',0.))[:,None]*velocity
+        a=np.asarray(start)-obstacle_positions(track,begin)
+        b=np.asarray(end)-obstacle_positions(track,finish)
+        acceleration=np.asarray(track.get('acceleration',[0.,0.]))
         d=b-a
         f = np.clip(-np.sum(a*d, axis=1)/np.maximum(1e-12, np.sum(d*d, axis=1)), 0., 1.)
         uncertainty=prediction_uncertainty(track,finish)
+        uncertainty+=np.linalg.norm(acceleration)*(np.asarray(finish)-np.asarray(begin))**2/8
         broad=np.linalg.norm(a+f[:,None]*d,axis=1)
         bound=np.linalg.norm(track['extent']) if 'extent' in track else track['radius']
         if not np.any(broad<=radius+bound+uncertainty):
@@ -301,7 +328,7 @@ class DetourPlanner:
             from intramural_mission.response import predict_motion
             models=self.c.get('response_models',[(self.c.get('response_delay',.2),self.c.get('response_tau',.15))])
             endpoints=[max(models,key=sum)]
-            if any(t['moving'] and np.linalg.norm(t['velocity'])>.08 for t in tracks):
+            if any(t['moving'] for t in tracks):
                 fastest=min(models,key=sum)
                 if fastest!=endpoints[0]:endpoints.append(fastest)
             predict_started=time.monotonic()
@@ -340,7 +367,7 @@ class DetourPlanner:
                 for scale in (1.,.8,.6):
                     proposal=retimed(scale)
                     if remaining_seconds(proposal,first,last)>=.9*remaining_seconds(plan,first,last):continue
-                    fast,arrival=preview(proposal,progress,speed,3.)
+                    fast,arrival=preview(proposal,progress,speed)
                     if collision(fast,arrival,tracks,radius) or not executable(proposal,progress):
                         if time.monotonic()-began>.06:break
                         continue
@@ -355,7 +382,7 @@ class DetourPlanner:
                     break
                 else:self.restore_confirm=None
             else:self.restore_confirm=None
-            if request.get('alternative_route',request.get('bypassing')) and not executable(plan,progress):
+            if (tracks or request.get('alternative_route',request.get('bypassing'))) and not executable(plan,progress):
                 report.update(blocked=True,execution_failure=True,reason='EXECUTION_CONFLICT')
                 for scale in (.8,.6,.4,.2,.1):
                     proposal=retimed(scale)
@@ -365,7 +392,8 @@ class DetourPlanner:
                             reason='RETIME_READY')
                         break
                     if time.monotonic()-began>.06:break
-            return dict(report, seconds=time.monotonic()-began)
+            if report['plan'] is not None or not report['blocked'] or not tracks:
+                return dict(report, seconds=time.monotonic()-began)
         report.update(blocked=True, reason='PREDICTED_CONFLICT')
         self.restore_confirm=None
         # The braking prefix remains physical even if the desired path turns away.
@@ -376,7 +404,9 @@ class DetourPlanner:
         if not report['imminent'] and executable(plan,progress,horizon=.3):
             # Reserve a checked continuation before search can consume the solve budget.
             report['continuation_until']=request['stamp']+age+.3
-        threat = min(tracks, key=lambda t: min(np.linalg.norm(samples-np.asarray(t['center']), axis=1)))
+            report['execution_failure']=False
+        threat=min(tracks,key=lambda t:float(np.min(obstacle_gap(
+            samples-obstacle_positions(t,times)+t['center'],t)-prediction_uncertainty(t,times))))
         reference = np.asarray(plan.points)
         lengths = np.asarray(plan.s)
         phase=request.get('phase',0)
@@ -391,12 +421,12 @@ class DetourPlanner:
         tangent = np.asarray(plan.tangent[blocked_index]); normal = np.array([-tangent[1], tangent[0]])
         distance = radius+threat['radius']+max(.12,float(prediction_uncertainty(threat,0.)))+.10
         winners = []
-        if any(t['velocity_observed'] and np.linalg.norm(t['velocity'])>.08 for t in tracks):
+        if any(t['velocity_observed'] and t['moving'] for t in tracks):
             # Compare slowing on the current line with detours using the same finish-time score.
             join=min(len(lengths)-1,int(np.searchsorted(lengths,progress+max(1.,speed*2.))))
             for scale in (.8,.6,.4,.2,.1):
                 proposal=retimed(scale,join)
-                points,arrival=preview(proposal,progress,speed,3.)
+                points,arrival=preview(proposal,progress,speed)
                 if not collision(points,arrival,tracks,radius) and executable(proposal,progress):
                     winners.append((remaining_seconds(proposal,start),0.,proposal,progress,0,lengths[join],scale,lengths[join]))
                     break
@@ -500,7 +530,7 @@ class DetourPlanner:
                                for key in ('lower_pole', 'upper_pole')):
                             reject('topology')
                             continue
-                        points, arrival = preview(proposal, start_s, speed, 3.)
+                        points, arrival = preview(proposal, start_s, speed)
                         if collision(points, arrival, tracks, radius):
                             reject('timed_collision')
                             continue
