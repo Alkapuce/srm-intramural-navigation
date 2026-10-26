@@ -40,8 +40,8 @@ def generate_launch_description():
                 output="screen",
             ),
             Node(
-                package="ros_gz_bridge",
-                executable="parameter_bridge",
+                package="intramural_sim",
+                executable="sensor_bridge",
                 namespace=ns,
                 parameters=[{"config_file": str(folder / "bridge.yaml")}],
                 output="screen",

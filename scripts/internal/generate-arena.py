@@ -74,6 +74,7 @@ if c.get('avoidance_actor',False):
     ET.SubElement(actor.find('link'),'gravity').text='false'
     plugin=Path(get_package_prefix('intramural_sim'))/'lib/libintramural_drive.so'
     actor.append(ET.fromstring(f'<plugin filename="{plugin}" name="intramural::Drive"><topic>/{ns}/acceptance/obstacle_velocity</topic><delay>0</delay><tau>{c["actor_tau"]}</tau><acceleration>{c["actor_acceleration"]}</acceleration></plugin>'))
+    actor.append(ET.fromstring(f'<plugin filename="ignition-gazebo-odometry-publisher-system" name="ignition::gazebo::systems::OdometryPublisher"><odom_frame>world</odom_frame><robot_base_frame>movable_obstacle</robot_base_frame><odom_topic>/{ns}/acceptance/obstacle_odometry</odom_topic><odom_publish_frequency>50</odom_publish_frequency><dimensions>2</dimensions></plugin>'))
 # Painted parking and crossing marks have no collision geometry.
 for name, p, size in [
     ("parking", c["parking"], (c["robot_length"] + 0.2, c["robot_width"] + 0.2, 0.002)),
@@ -172,8 +173,8 @@ if c.get('avoidance_actor',False):
     bridges += [dict(ros_topic_name=f'/{ns}/acceptance/obstacle_velocity',
         gz_topic_name=f'/{ns}/acceptance/obstacle_velocity',ros_type_name='geometry_msgs/msg/Twist',
         gz_type_name='ignition.msgs.Twist',direction='ROS_TO_GZ'),
-        dict(ros_topic_name=f'/{ns}/acceptance/world_poses',gz_topic_name='/world/default/pose/info',
-        ros_type_name='tf2_msgs/msg/TFMessage',gz_type_name='ignition.msgs.Pose_V',direction='GZ_TO_ROS')]
+        dict(ros_topic_name=f'/{ns}/acceptance/obstacle_odometry',gz_topic_name=f'/{ns}/acceptance/obstacle_odometry',
+        ros_type_name='nav_msgs/msg/Odometry',gz_type_name='ignition.msgs.Odometry',direction='GZ_TO_ROS')]
     (out/'bridge.yaml').write_text(yaml.safe_dump(bridges))
 res = c["map_resolution"]
 width = math.ceil((xmax - xmin) / res) + 2

@@ -47,6 +47,7 @@ if [[ "${INTRAMURAL_NATIVE:-0}" == 1 ]] || ! command -v docker >/dev/null 2>&1; 
   fi
 fi
 args=(--rm --init -i --network host --ipc host --ulimit core=0 --user "$(id -u):$(id -g)"
+  -e INTRAMURAL_IMAGE -e "INTRAMURAL_IMAGE_ID=$(docker image inspect --format '{{.Id}}' "$INTRAMURAL_IMAGE")"
   -e "INTRAMURAL_SOURCE_OVERLAY=${INTRAMURAL_SOURCE_OVERLAY:-1}" -e OPENBLAS_NUM_THREADS
   -e HOME=/work/cache/home -e ROS_LOG_DIR=/work/nav_ws/log/runtime
   -e "MESA_D3D12_DEFAULT_ADAPTER_NAME=${INTRAMURAL_GPU_ADAPTER:-NVIDIA}"
