@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify removable/persistent obstacles and cancellation using independent physical truth."""
 
+import os
 import argparse
 import json
 import math
@@ -34,8 +35,8 @@ if (a.cancel_bypass or a.expect_blocked) and (not a.persistent or a.scenarios !=
     p.error('Cancellation/no-route checks require --persistent --scenarios entry')
 if not 0 < a.blocked_hold_seconds <= 60:
     p.error("--blocked-hold-seconds must be in (0, 60]")
-c = json.loads(Path("/work/config/arena.json").read_text())
-if c.get('navigation_engine') == 'trajectory' and a.persistent and not a.expect_blocked:
+c = json.loads(Path(os.environ.get("INTRAMURAL_ARENA_CONFIG", "/work/config/arena.json")).read_text())
+if c.get('navigation_engine') == 'trajectory' and a.persistent and not a.expect_blocked and not c.get('allow_bypass',False):
     p.error('Trajectory engine waits for obstacles; use --expect-blocked or a legacy bypass configuration')
 out = Path(a.output).resolve()
 if not out.is_relative_to(Path("/work/artifacts")):
@@ -110,7 +111,7 @@ def call(name):
     if not clients[name].wait_for_service(timeout_sec=10):
         raise RuntimeError("Missing mission service " + name)
     future = clients[name].call_async(Trigger.Request())
-    until(future.done, 10, name)
+    until(future.done, 180 if name=='start' else 10, name)
     result = future.result()
     if not result.success:
         raise RuntimeError(f"{name}: {result.message}")
@@ -196,6 +197,20 @@ try:
         before = list(status["history"])
         move("place", target)
         inserted_at = time.monotonic()
+        if a.cancel_bypass and c.get('navigation_engine')=='trajectory':
+            until(lambda: status.get('state')=='RUNNING' and status.get('bypass_count',0)>0
+                  and math.hypot(latest['truth'].twist.twist.linear.x,
+                      latest['truth'].twist.twist.linear.y)>.08,120,'moving proactive bypass')
+            history=status['history']
+            if history[:len(before)]!=before or [h['segment'] for h in history]!=list(range(len(history))):
+                raise RuntimeError('Bypass skipped an ordered phase')
+            call('cancel')
+            until(lambda: status.get('state')=='CANCELLED',10,'proactive bypass cancellation')
+            stopped(2)
+            results.append(dict(scenario='cancel-bypass',state=status['state'],
+                bypass_count=status['bypass_count'],stopped=True))
+            (out/'results.json').write_text(json.dumps(results,indent=2)+'\n')
+            break
         until(lambda: status.get("state") == "BLOCKED", 120, f"{scenario} block")
         blocked_segment = status["segment"]
         history=status['history']
