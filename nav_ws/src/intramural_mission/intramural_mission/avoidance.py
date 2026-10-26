@@ -428,10 +428,16 @@ class DetourPlanner:
         reference = np.asarray(plan.points)
         lengths = np.asarray(plan.s)
         phase=request.get('phase',0)
-        join_limit=plan.gates[min(phase+1,len(plan.gates)-1)][1]
+        join_phase=min(phase+1,len(plan.gates)-1)
+        if len(plan.gates)==10 and join_phase in (3,7):
+            cross=reference[plan.gates[join_phase][1]]
+            if collision([cross,cross],[0.,0.],tracks,radius):
+                # Move the blocked shared joint and reconnect inside its successor, before reaching it.
+                join_phase+=1
+        join_limit=plan.gates[join_phase][1]
         original=request.get('original_plan') or plan
         original_start=0 if phase==0 else original.gates[phase-1][1]
-        original_end=original.gates[min(phase+1,len(original.gates)-1)][1]
+        original_end=original.gates[min(join_phase,len(original.gates)-1)][1]
         original_corridor=cKDTree(np.asarray(original.points)[original_start:original_end+1])
         start = min(len(lengths)-2, int(np.searchsorted(lengths, progress)))
         end = min(join_limit+1,len(lengths), int(np.searchsorted(lengths, progress+self.c.get('bypass_max_deviation', 1.1)*4)))
@@ -564,6 +570,7 @@ class DetourPlanner:
             duration, gap, proposal, start_s, side, join_s, scale, rejoin = best
             report.update(plan=proposal, progress=start_s, side=side, join_s=join_s,
                           rejoin_progress=rejoin,
+                          rejoin_phase=int(np.searchsorted([plan.s[i] for _,i in plan.gates],join_s)),
                           scale=scale, expected_seconds=float(duration), reason='DETOUR_READY' if side else 'YIELD_READY',
                           start_pose=pose.tolist(), source_progress=progress)
         report['seconds'] = time.monotonic()-began
