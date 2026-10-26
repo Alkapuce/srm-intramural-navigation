@@ -51,6 +51,6 @@ scripts/verify-avoidance.sh --suite gazebo --cases 1 --case-offset 12 --gui --ou
 
 诊断查看 `mission/status` 中的 `behavior`、`obstacle_version`、`route_id`、`original_progress`、`bypass_count` 和 `avoidance`；后者含求解时间、速度倍率、接回位置和拒绝原因。被接受的替代路线保存为运行目录中的 `route-<id>.json`。关闭开关并重新生成配置可回到挡停行为；基线恢复以冻结版本和对应个人地图配置为准。
 
-目前已有低速有效响应与停车日志，完整的高速、正反向及侧向无遮挡制动样本仍需现场补采。使用 `scripts/measure-response.sh plan --axis both --levels 0.5 1.0 1.5 --repeats 2` 先检查采集序列；真正执行仍需现有车辆限幅、操作者和停机条件。正式当前上限之外的速度不得靠修改工具绕过。软件验收不能代替 NUC 性能测量和现场静态、动态绕行验收。
+目前已有低速有效响应与停车日志，完整的高速、正反向及侧向无遮挡制动样本仍需现场补采。使用 `scripts/measure-response.sh plan --axis both --levels 0.5 1.0 1.5 2.0 --repeats 2 --seconds 0.8` 先检查采集序列；真正执行仍需现有车辆限幅、操作者和停机条件。计划上限沿用当前 candidate；录制仍受个人车辆限幅和原 1.5 米调试区域约束，不会修改车辆限幅。软件验收不能代替 NUC 性能测量和现场静态、动态绕行验收。
 
 搜索代价参考 [Nav2 Smac 2D 的净空代价设计](https://api.nav2.org/nav2-humble/html/smac__planner__2d_8cpp_source.html)，在项目已有 A* 中实现；力驱动使用 Fortress 的 [ExternalWorldWrenchCmd 世界坐标力接口](https://gazebosim.org/api/gazebo/6/gz_2sim_2components_2ExternalWorldWrenchCmd_8hh.html)。本轮保留现有控制器和最终速度所有权。
