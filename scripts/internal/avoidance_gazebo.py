@@ -64,6 +64,25 @@ def motion_timing(measurements):
         scope='Source-stamped physical position differences; whole run includes starting and final stop confirmation')
 
 
+def channel_agreement(measurements,history,config):
+    trace=np.asarray(measurements)
+    if np.linalg.norm(trace[0,1:]-config['parking'])>2*config['parking_tolerance']:
+        return dict(passed=True,scope='Start-here begins away from home; regular entry/return comparison not applicable')
+    entry=trace[trace[:,0]<=history[1]['sim_time'],1:]
+    returning=trace[trace[:,0]>=history[9]['sim_time'],1:][::-1]
+    def arc(points):return np.r_[0.,np.cumsum(np.linalg.norm(np.diff(points,axis=0),axis=1))]
+    a,b=arc(entry),arc(returning)
+    # Different C2 handoff locations meet the loop; compare the shared stem before those joints.
+    length=min(a[-1],b[-1])-.6
+    distance=np.arange(0.,max(0.,length),.025)
+    separation=np.linalg.norm(np.column_stack([np.interp(distance,a,entry[:,k])-
+        np.interp(distance,b,returning[:,k]) for k in (0,1)]),axis=1)
+    maximum=float(max(separation,default=math.inf))
+    return dict(passed=length>.2 and maximum<2*config['max_tracking_error'],
+        compared_length_m=float(length),max_ordered_separation_m=maximum,
+        scope='Independent truth, ordered distance from home, return reversed; twice the unchanged tracking tolerance')
+
+
 def response_agreement(measurements, commands, config):
     """Replay the observed serial command sequence in an independent planar integrator."""
     actual,commands=np.asarray(measurements),np.asarray(commands)
@@ -119,7 +138,7 @@ def verify_faults(root,out,config):
         wire_break_scope='Unprotected simulated MCU must retain motion until communication is restored; this is a boundary reproduction, not physical disconnect safety')
 
 
-def verify(root, out, count, offset=0, baseline=False, gui=False):
+def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.):
     import rclpy
     from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
     from nav_msgs.msg import Odometry
@@ -133,6 +152,7 @@ def verify(root, out, count, offset=0, baseline=False, gui=False):
     c.update(json.loads((root/'config/navigation-profiles.json').read_text())['candidate'])
     c.update(allow_bypass=not baseline,
              simulation_drive='response',navigation_profile='candidate')
+    c['max_speed']*=speed_scale
     c['drive_acceleration_limit']=c['max_acceleration']
     c['avoidance_actor']=True
     c.update(actor_acceleration=2.,actor_tau=.08)
@@ -147,7 +167,7 @@ def verify(root, out, count, offset=0, baseline=False, gui=False):
         env=env,stdout=log,stderr=subprocess.STDOUT)
     rclpy.init();node=rclpy.create_node('avoidance_physical_acceptance',parameter_overrides=[Parameter('use_sim_time',value=True)])
     status={};truth={};commands=[];path=[];guard_ms=[];controller_ms=[];planner_ms=[];planner_seen=set()
-    current=[];actuation=[];measurements=[];actor_trace=[];actor_state={};progress_clock=[];switches=[];bypass_seen={}
+    current=[];actuation=[];measurements=[];lidar_origins=[];actor_trace=[];actor_state={};progress_clock=[];switches=[];bypass_seen={};scene_moves=[]
     obstacle=None;last_obstacle=None;minimum=math.inf;static_minimum=math.inf;last_pose=None;sim_stamps=[]
     def state(msg):
         nonlocal status
@@ -172,6 +192,9 @@ def verify(root, out, count, offset=0, baseline=False, gui=False):
         q=msg.pose.pose.orientation
         truth['yaw']=math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
         measurements.append([msg.header.stamp.sec+msg.header.stamp.nanosec/1e9,p.x,p.y])
+        v=np.asarray([q.x,q.y,q.z]);offset=np.asarray(c['lidar_pose'][:3])
+        origin=np.asarray([p.x,p.y,p.z])+offset+2*np.cross(v,np.cross(v,offset)+q.w*offset)
+        lidar_origins.append([truth['stamp'],*origin.tolist()])
         current.append(xy.tolist());sim_stamps.append(msg.header.stamp.sec+msg.header.stamp.nanosec/1e9)
         previous=xy if last_pose is None else last_pose
         for f in (0.,.25,.5,.75,1.):
@@ -225,11 +248,25 @@ def verify(root, out, count, offset=0, baseline=False, gui=False):
         if not future.result().success:raise RuntimeError(f'{name}: {future.result().message}')
     def move(point):
         nonlocal obstacle
+        # Removing an actor preserves its physical coasting; active-scene placement remains centimeter-checked.
+        tolerance=(.01+1.5**2/(2*c['actor_acceleration'])+1.5*c['actor_tau']
+            if list(point)==c['obstacle_initial'] else .01)
+        def at_target():
+            return bool(actor_state.get('stamp',-math.inf)>node.get_clock().now().nanoseconds/1e9-.15
+                and np.linalg.norm(actor_state['position']-point)<tolerance)
+        if at_target():
+            obstacle=np.asarray(point)
+            return
         req=f'name: "movable_obstacle", position: {{x: {point[0]}, y: {point[1]}, z: {c["obstacle_size"][2]/2}}}, orientation: {{w: 1}}'
         result=subprocess.run(['ign','service','-s','/world/default/set_pose','--reqtype','ignition.msgs.Pose',
             '--reptype','ignition.msgs.Boolean','--timeout','3000','--req',req],text=True,capture_output=True,timeout=5)
-        if result.returncode or 'true' not in result.stdout:
-            raise RuntimeError(f'Obstacle move not acknowledged: rc={result.returncode}, stdout={result.stdout!r}, stderr={result.stderr!r}')
+        # A service reply may be lost after the idempotent move was applied; truth is the acknowledgement.
+        deadline=time.monotonic()+1.
+        while not at_target() and time.monotonic()<deadline:time.sleep(.01)
+        scene_moves.append(dict(point=list(point),tolerance_m=tolerance,
+            actual=actor_state['position'].tolist(),returncode=result.returncode,stdout=result.stdout,stderr=result.stderr,observed=at_target()))
+        if not at_target():
+            raise RuntimeError(f'Obstacle did not reach target: rc={result.returncode}, stdout={result.stdout!r}, stderr={result.stderr!r}')
         obstacle=np.asarray(point)
     results=[];failure=None
     try:
@@ -259,7 +296,7 @@ def verify(root, out, count, offset=0, baseline=False, gui=False):
                     preparation=dict(state=status.get('state'),speed=truth.get('speed'),command=commands[-1])
                     if preparation['state']!='PREPARED' or preparation['speed']>.03 or any(abs(v)>1e-6 for v in preparation['command']):
                         raise RuntimeError(f'Preparation moved the vehicle: {preparation}')
-            current.clear();commands.clear();actuation.clear();measurements.clear();actor_trace.clear();progress_clock.clear()
+            current.clear();commands.clear();actuation.clear();measurements.clear();lidar_origins.clear();actor_trace.clear();progress_clock.clear()
             minimum=math.inf;static_minimum=math.inf;last_pose=None;last_obstacle=None
             begin_wall=time.monotonic();begin_sim=sim_stamps[-1]
             call('start_here' if entry=='start_here' else 'start')
@@ -358,6 +395,8 @@ def verify(root, out, count, offset=0, baseline=False, gui=False):
                 minimum_dynamic_clearance=None if not math.isfinite(minimum) else minimum)
             row['ordered_turns']=ordered_turns(measurements,status['history'],route,c)
             row['passed'] &= row['ordered_turns']['passed']
+            row['channel_agreement']=channel_agreement(measurements,status['history'],c)
+            row['passed'] &= row['channel_agreement']['passed']
             row['motion_timing']=motion_timing(measurements)
             row['route_switches']=[s for s in switches if s['run_id']==run_id]
             row['response']=response_agreement(measurements,actuation,c)
@@ -375,7 +414,7 @@ def verify(root, out, count, offset=0, baseline=False, gui=False):
                 continue
             results.append(row);(out/f'run-{index:02}.json').write_text(json.dumps(dict(result=row,truth=current),indent=2)+'\n')
             (out/f'inputs-{index:02}.json').write_text(json.dumps(dict(transport_world=actuation,
-                measured_positions=measurements,obstacle_poses=actor_trace))+'\n')
+                measured_positions=measurements,measured_lidar_origins=lidar_origins,obstacle_poses=actor_trace))+'\n')
             (out/'cases.json').write_text(json.dumps(results,indent=2)+'\n');print(json.dumps(row),flush=True)
             if not row['passed']:raise RuntimeError(f'Run failed independent acceptance: {row}')
             actor_velocity([0.,0.]);move(c['obstacle_initial']);obstacle=None
@@ -384,7 +423,7 @@ def verify(root, out, count, offset=0, baseline=False, gui=False):
         (out/'failure.json').write_text(json.dumps(dict(error=failure,status=status),indent=2)+'\n')
         (out/'failed-truth.json').write_text(json.dumps(current)+'\n')
         (out/'failed-inputs.json').write_text(json.dumps(dict(transport_world=actuation,
-            measured_positions=measurements,obstacle_poses=actor_trace))+'\n')
+            measured_positions=measurements,measured_lidar_origins=lidar_origins,obstacle_poses=actor_trace))+'\n')
     finally:
         executor.shutdown();reader.join(timeout=5.);node.destroy_node();rclpy.shutdown()
         process.send_signal(signal.SIGINT)
@@ -393,6 +432,7 @@ def verify(root, out, count, offset=0, baseline=False, gui=False):
             process.kill();process.wait();failure=failure or 'Arena forced exit'
         log.close()
     report=dict(passed=failure is None and process.returncode==0 and len(results)==count,
+        speed_scale=speed_scale,scene_moves=scene_moves,
         requested_runs=count,completed_runs=len(results),failure=failure,exit_code=process.returncode,
         control_p99_ms=float(np.percentile(controller_ms,99)) if controller_ms else None,
         guard_p99_ms=float(np.percentile(guard_ms,99)) if guard_ms else None,cases=results,

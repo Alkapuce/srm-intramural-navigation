@@ -11,6 +11,14 @@ oracle=importlib.util.module_from_spec(spec);spec.loader.exec_module(oracle)
 class PhysicalOracleTests(unittest.TestCase):
     config=dict(robot_radius=.29,obstacle_size=[.5,.5,1.])
 
+    def test_entry_and_return_must_use_the_same_ordered_channel(self):
+        config=dict(parking=[0.,0.],parking_tolerance=.08,max_tracking_error=.3)
+        trace=[[0.,0.,0.],[1.,1.,1.],[2.,2.,1.],[3.,2.,1.],[4.,1.,1.],[5.,0.,0.]]
+        history=[dict(sim_time=0.)for _ in range(10)];history[1]['sim_time']=2.;history[9]['sim_time']=3.
+        self.assertTrue(oracle.channel_agreement(trace,history,config)['passed'])
+        trace[4][2]=-1.
+        self.assertFalse(oracle.channel_agreement(trace,history,config)['passed'])
+
     def test_loop_order_rejects_swapped_loops_with_the_same_final_winding(self):
         import numpy as np
         lo=np.column_stack((np.cos(np.linspace(np.pi/2,5*np.pi/2,5)),

@@ -206,6 +206,7 @@ def main():
     parser.add_argument('--case-offset',type=int,default=0,help='Start at a named Gazebo matrix index for development')
     parser.add_argument('--baseline',action='store_true',help='Gazebo nominal runs with avoidance disabled, otherwise identical configuration')
     parser.add_argument('--gui',action='store_true',help='Show the physical Gazebo acceptance scene')
+    parser.add_argument('--speed-scale',type=float,choices=(.5,.75,1.),default=1.,help='Gazebo speed fraction of unchanged candidate limit')
     args=parser.parse_args();out=args.output if args.output.is_absolute() else ROOT/args.output
     out=out.resolve()
     if not out.is_relative_to(ROOT/'artifacts') or out==ROOT/'artifacts' or out.exists():parser.error('Choose a new directory inside project artifacts/')
@@ -214,6 +215,7 @@ def main():
         parser.error('Gazebo indices must be within 0..61; 60=start-here, 61=prepare')
     if args.baseline and (args.suite!='gazebo' or args.case_offset+(args.cases or 60)>10):
         parser.error('--baseline requires a nominal Gazebo subset of at most ten runs')
+    if args.speed_scale!=1. and args.suite!='gazebo':parser.error('--speed-scale applies only to Gazebo')
     out.mkdir(parents=True)
     sources=list((ROOT/'nav_ws/src/intramural_mission/intramural_mission').glob('*.py'))
     sources+=list((ROOT/'nav_ws/src/intramural_base/intramural_base').glob('*.py'))
@@ -240,7 +242,7 @@ def main():
         elif suite=='model':report=models(folder,args.cases or 300)
         else:
             from avoidance_gazebo import verify,verify_faults
-            report=verify(ROOT,folder,args.cases or 60,args.case_offset,args.baseline,args.gui)
+            report=verify(ROOT,folder,args.cases or 60,args.case_offset,args.baseline,args.gui,args.speed_scale)
             if args.cases is None:
                 report['faults']=verify_faults(ROOT,folder/'faults',folder/'arena.json')
                 report['passed'] &= report['faults']['passed']
