@@ -106,6 +106,7 @@ def models(out, count):
 
 
 def replay(out, archive):
+    from avoidance_shadow import recorded_body_pose
     import rosbag2_py
     from rclpy.serialization import deserialize_message
     from rosidl_runtime_py.utilities import get_message
@@ -129,9 +130,7 @@ def replay(out, archive):
             if name=='/livox/lidar':scans.append((source,message))
             elif name=='/livox/imu':imu+=1
             else:
-                p,q=message.pose.pose.position,message.pose.pose.orientation
-                yaw=math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
-                poses.append([source,p.x,p.y,yaw])
+                poses.append([source,*recorded_body_pose(message,c['lidar_pose'])])
         history=np.asarray(poses)
         # The recording supplies a reference only; planner output never changes later observations.
         reference=[history[0,1:3].tolist()];reference_stamps=[history[0,0]]
@@ -190,7 +189,8 @@ def replay(out, archive):
         from avoidance_replay import raw_chain
         vehicle=archive/'cache/vehicle-20261015'
         if not (vehicle/'point-lio.yaml').exists():vehicle=ROOT/'cache/replay-vehicle'
-        row['raw_chain']=raw_chain(ROOT,session,folder,vehicle)
+        row['raw_chain']=raw_chain(ROOT,session,folder,vehicle,shadow=dict(config=shadow_config,
+            grid=grid,plan=shadow_plan,stamps=reference_stamps))
         row['passed']=row['passed'] and row['raw_chain']['passed']
         rows.append(row);save(out/'results.json',dict(passed=all(x['passed'] for x in rows),sessions=rows))
         print(json.dumps(row),flush=True)

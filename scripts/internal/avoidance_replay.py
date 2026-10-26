@@ -10,7 +10,7 @@ import numpy as np
 import yaml
 
 
-def raw_chain(root, session, out, vehicle):
+def raw_chain(root, session, out, vehicle, shadow=None):
     import rclpy
     from rclpy.executors import SingleThreadedExecutor
     from rclpy.qos import qos_profile_sensor_data
@@ -24,7 +24,9 @@ def raw_chain(root, session, out, vehicle):
     from intramural_mission.livox_adapter import LivoxAdapter
     from intramural_mission.adapter import Adapter
     from ament_index_python.packages import get_package_prefix
-    config=json.loads((session/'map/arena.json').read_text());config['allow_bypass']=False
+    config=dict(shadow['config']) if shadow else json.loads((session/'map/arena.json').read_text())
+    config['allow_bypass']=shadow is not None
+    if shadow:config.update(navigation_engine='trajectory',raw_collision_follow_path=True)
     config_file=out/'arena.json';config_file.write_text(json.dumps(config)+'\n')
     rclpy.init(domain_id=92,args=['--ros-args','-p','use_sim_time:=true','-p','localization:=sensors',
         '-p','motion_permitted:=false','-p',f'arena_config:={config_file}',
@@ -74,7 +76,7 @@ def raw_chain(root, session, out, vehicle):
     device=out/'sim-tty'
     start('sim_mcu',[str(Path(get_package_prefix('intramural_base'))/'lib/intramural_base/sim_mcu'),'--device-file',str(device),
         '--ros-args','-r','__ns:=/intramural_robot'])
-    failure=None;exits=[]
+    failure=None;exits=[];live=None;shadow_report=None
     try:
         due=time.monotonic()+8
         while time.monotonic()<due:
@@ -83,6 +85,10 @@ def raw_chain(root, session, out, vehicle):
         if not device.exists():raise RuntimeError('Private pseudo-terminal unavailable')
         ros_node('intramural_base','serial_bridge','serial_bridge',dict(simulation=True,device_file=str(device),
             calibration=str(root/'config/base-sim.json')))
+        if shadow:
+            from avoidance_shadow import RawShadow
+            live=RawShadow(peer,config,shadow['grid'],shadow['plan'],shadow['stamps'],out)
+            if not live.worker.ready.wait(timeout=5):raise RuntimeError('Shadow planner startup timed out')
         player=start('bag_play',['ros2','bag','play',str(session/'bag'),'--clock','--rate','1.0',
             '--delay','1.0','--topics','/livox/lidar','/livox/imu'])
         deadline=time.monotonic()+90
@@ -96,8 +102,14 @@ def raw_chain(root, session, out, vehicle):
         if counts['odometry']<10 or counts['converted_scan']<10 or counts['registered_scan']<10 or counts['map_transforms']<5:
             raise RuntimeError('Insufficient real processing output: '+str(counts))
         if counts['serial_frames']<100 or nonzero:raise RuntimeError('Standby serial path did not remain zero')
+        if live:
+            shadow_report=live.report()
+            if not shadow_report['passed']:raise RuntimeError('Insufficient live raw shadow planning: '+str(shadow_report))
     except Exception as error:failure=str(error)
     finally:
+        if live:
+            peer.destroy_timer(live.timer)
+            live.close()
         guard.stop()
         # Serial exits before the simulator and localization publishers.
         ordering=[p for p in processes if Path(p.args[0]).name=='serial_bridge']
@@ -113,7 +125,7 @@ def raw_chain(root, session, out, vehicle):
         for node in (guard,converter,peer):node.destroy_node()
         rclpy.shutdown()
         for file in logs:file.close()
-    report=dict(passed=failure is None,failure=failure,counts=counts,exits=exits,nonzero_transport=len(nonzero),
+    report=dict(passed=failure is None,failure=failure,counts=counts,exits=exits,nonzero_transport=len(nonzero),live_shadow=shadow_report,
         scope='1x raw Livox + IMU through Point-LIO, small_gicp and private zero-command PTY; no recorded TF/odometry injection')
     (out/'raw-chain.json').write_text(json.dumps(report,indent=2)+'\n')
     (out/'raw-odometry.json').write_text(json.dumps(poses)+'\n')
