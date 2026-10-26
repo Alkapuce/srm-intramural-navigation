@@ -17,7 +17,7 @@ from intramural_mission.bypass import winding
 
 
 class FieldGeometryTest(unittest.TestCase):
-    def run_field(self, ambiguous=False, blocked=False, short=False, parking=None, response=False, wrong_map=False):
+    def run_field(self, ambiguous=False, blocked=False, short=False, parking=None, response=False, wrong_map=False,bypass=None):
         root=Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(dir=root/'cache') as temp:
             source=Path(temp)/'map';source.mkdir();out=Path(temp)/'configured'
@@ -31,6 +31,7 @@ class FieldGeometryTest(unittest.TestCase):
             (source/'prior.pcd').write_bytes(b'FIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\nDATA binary\n'+raw)
             (source/'occupancy.json').write_text(json.dumps({'floor_plane':{'z_equals_ax_by_c':[0.,0.,0.]}}))
             config=json.loads((root/'config/arena.json').read_text());config['lidar_pose']=[0.]*6
+            if bypass is not None:config['allow_bypass']=not bypass
             config['optimized_route']=dict(shape=[20.,20.,.5],entry_angle=0.,transition_scale=1.25)
             (source/'arena.json').write_text(json.dumps(config))
             Image.fromarray(np.full((300,300),205 if blocked else 254,dtype=np.uint8)).save(source/'map.pgm')
@@ -42,6 +43,7 @@ class FieldGeometryTest(unittest.TestCase):
             command=[sys.executable,str(root/'scripts/internal/field_geometry.py'),
                 '--map-config',str(source),'--output',str(out),'--profile','safe']
             if parking is not None:command += ['--parking-here']
+            if bypass is not None:command += ['--allow-bypass' if bypass else '--no-bypass']
             if response:
                 model=Path(temp)/'response.json'
                 model.write_text(json.dumps(dict(eligible_for_model=True,clock='source',response_delay=.09,response_tau=.08)))
@@ -57,6 +59,9 @@ class FieldGeometryTest(unittest.TestCase):
             self.assertEqual((source/'prior.pcd').read_bytes().split(b'DATA binary\n',1)[1],raw)
             if report['passed']:
                 actual=json.loads((out/'arena.json').read_text())
+                self.assertEqual(actual['allow_bypass'],False if bypass is None else bypass)
+                self.assertEqual(json.loads((out/'manifest.json').read_text())['obstacle_policy'],
+                    'predictive_detour' if actual['allow_bypass'] else 'stop_and_wait')
                 frozen=json.loads((out/'route-plan.json').read_text())
                 route=[];previous=0
                 for name,index in frozen['gates']:
@@ -120,6 +125,10 @@ class FieldGeometryTest(unittest.TestCase):
 
     def test_rotated_pair_complete_ordered_route_and_immutable_source(self):
         self.assertTrue(self.run_field()['passed'])
+
+    def test_explicit_bypass_switch_rebuilds_the_configuration(self):
+        self.assertTrue(self.run_field(bypass=True)['passed'])
+        self.assertTrue(self.run_field(bypass=False)['passed'])
 
     def test_ambiguous_three_poles_refuse_automatic_selection(self):
         self.assertFalse(self.run_field(ambiguous=True)['passed'])

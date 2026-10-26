@@ -176,6 +176,9 @@ def main():
     parking.add_argument('--parking-here',action='store_true',help='Capture current localized vehicle position as start and return position')
     parser.add_argument('--profile',choices=['safe','candidate','gold-reference'],default='candidate')
     parser.add_argument('--response-model',type=Path)
+    bypass=parser.add_mutually_exclusive_group()
+    bypass.add_argument('--allow-bypass',dest='bypass',action='store_const',const=True,default=None)
+    bypass.add_argument('--no-bypass',dest='bypass',action='store_const',const=False)
     args = parser.parse_args()
     profiles=json.loads((Path(__file__).resolve().parents[2]/'config/navigation-profiles.json').read_text())
     profile=profiles[args.profile].copy()
@@ -221,7 +224,7 @@ def main():
         config.update(lower_pole=lower, upper_pole=upper, parking=args.parking,mission_variant='figure8',
             loop_radius=math.dist(lower,upper)/2, pole_radius=max(config['pole_radius'],*(p['radius_bound_m'] for p in poles)),
             continuous_corners=True,
-            bypass_speed=.2, allow_bypass=config.get('allow_bypass',False), minimum_clearance=.02,
+            bypass_speed=.2, allow_bypass=config.get('allow_bypass',False) if args.bypass is None else args.bypass, minimum_clearance=.02,
             raw_zero_intensity_min_range_m=.15,
             raw_collision_follow_path=True,
             raw_collision_min_points=3,
@@ -288,6 +291,7 @@ def main():
                 manifest['physical_validation']='pending' if args.profile!='gold-reference' else 'reference_configuration_only'
                 manifest.update(field_geometry_source='automatic geometric pole extraction from source point cloud',
                     field_geometry_verified=True, motion_permitted=False,start_permitted=False,
+                    obstacle_policy='predictive_detour' if config['allow_bypass'] else 'stop_and_wait',
                     source_map=str(source),source_pcd_sha256=report['source_pcd_sha256'],
                     field_geometry_method='two_isolated_vertical_objects_plus_full_route_grid_check',
                     purpose='Field figure-eight candidate; explicit drive and mission start still required')
