@@ -73,7 +73,7 @@ actor=box(
 if c.get('avoidance_actor',False):
     ET.SubElement(actor.find('link'),'gravity').text='false'
     plugin=Path(get_package_prefix('intramural_sim'))/'lib/libintramural_drive.so'
-    actor.append(ET.fromstring(f'<plugin filename="{plugin}" name="intramural::Drive"><topic>/{ns}/acceptance/obstacle_velocity</topic><delay>0</delay><tau>{c["actor_tau"]}</tau><acceleration>{c["actor_acceleration"]}</acceleration></plugin>'))
+    actor.append(ET.fromstring(f'<plugin filename="{plugin}" name="intramural::Drive"><topic>/{ns}/acceptance/obstacle_velocity</topic><scripted_actor>true</scripted_actor><delay>0</delay><tau>{c["actor_tau"]}</tau><acceleration>{c["actor_acceleration"]}</acceleration></plugin>'))
     actor.append(ET.fromstring(f'<plugin filename="ignition-gazebo-odometry-publisher-system" name="ignition::gazebo::systems::OdometryPublisher"><odom_frame>world</odom_frame><robot_base_frame>movable_obstacle</robot_base_frame><odom_topic>/{ns}/acceptance/obstacle_odometry</odom_topic><odom_publish_frequency>50</odom_publish_frequency><dimensions>2</dimensions></plugin>'))
 # Painted parking and crossing marks have no collision geometry.
 for name, p, size in [

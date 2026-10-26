@@ -22,14 +22,25 @@ def aligned_clearance(measurements, actors, config):
     a=np.column_stack([np.interp(t,robot[:,0],robot[:,k]) for k in (1,2)])
     b=np.column_stack([np.interp(t,actor[:,0],actor[:,k]) for k in (1,2)])
     index=np.clip(np.searchsorted(actor[:,0],t)-1,0,len(actor)-2)
-    jumps=np.linalg.norm(np.diff(actor[:,1:],axis=0),axis=1)>np.maximum(.3,4*np.diff(actor[:,0]))
-    gaps=np.linalg.norm(np.maximum(np.abs(a-b)-np.asarray(config['obstacle_size'][:2])/2,0.),axis=1)-config['robot_radius']
+    jumps=np.linalg.norm(np.diff(actor[:,1:3],axis=0),axis=1)>np.maximum(.3,4*np.diff(actor[:,0]))
+    yaw=np.interp(t,actor[:,0],np.unwrap(actor[:,3])) if actor.shape[1]>3 else np.zeros(len(t))
+    gaps=box_clearance(a-b,yaw,config)
     valid=~jumps[index]
     speed=np.linalg.norm(np.diff(a-b,axis=0),axis=1)/dt
     speed[~(valid[:-1]&valid[1:])]=0.
     # The Lipschitz bound covers a closest approach between adjacent grid samples.
-    bound=np.r_[speed,speed[-1] if len(speed) else 0.]*dt/2+.0003
+    rotation=np.abs(np.diff(yaw))/dt*np.linalg.norm(np.asarray(config['obstacle_size'][:2])/2)
+    rotation[~(valid[:-1]&valid[1:])]=0.
+    total=speed+rotation
+    bound=np.r_[total,total[-1] if len(total) else 0.]*dt/2+.0003
     return float(min((gaps-bound)[valid])) if np.any(valid) else math.inf
+
+
+def box_clearance(relative,yaw,config):
+    relative=np.asarray(relative);co,si=np.cos(yaw),np.sin(yaw)
+    local=np.stack((co*relative[...,0]+si*relative[...,1],
+                    -si*relative[...,0]+co*relative[...,1]),axis=-1)
+    return np.linalg.norm(np.maximum(np.abs(local)-np.asarray(config['obstacle_size'][:2])/2,0.),axis=-1)-config['robot_radius']
 
 
 def ordered_turns(measurements,history,nominal,config):
@@ -209,7 +220,7 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.)
             old=actual_obstacle if last_obstacle is None or np.linalg.norm(actual_obstacle-last_obstacle)>.3 else last_obstacle
             for f in (0.,.25,.5,.75,1.):
                 relative=previous+f*(xy-previous)-(old+f*(actual_obstacle-old))
-                gap=np.linalg.norm(np.maximum(np.abs(relative)-np.array(c['obstacle_size'][:2])/2,0.))-c['robot_radius']
+                gap=box_clearance(relative,actor_state.get('yaw',0.),c)
                 minimum=min(minimum,float(gap))
         last_pose=xy.copy();last_obstacle=None if actual_obstacle is None else actual_obstacle.copy()
     ns='/'+c['namespace']+'/'
@@ -223,9 +234,11 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.)
     node.create_subscription(Twist,ns+'cmd_vel_transport',transport,10)
     def actor_pose(message):
         p=message.pose.pose.position
+        q=message.pose.pose.orientation
+        yaw=math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
         stamp=message.header.stamp.sec+message.header.stamp.nanosec/1e9
-        actor_state.update(position=np.array([p.x,p.y]),stamp=stamp)
-        actor_trace.append([stamp,p.x,p.y])
+        actor_state.update(position=np.array([p.x,p.y]),stamp=stamp,yaw=yaw)
+        actor_trace.append([stamp,p.x,p.y,yaw])
     node.create_subscription(Odometry,ns+'acceptance/obstacle_odometry',actor_pose,qos_profile_sensor_data)
     actor_command=node.create_publisher(Twist,ns+'acceptance/obstacle_velocity',10)
     def actor_velocity(velocity):
@@ -384,7 +397,7 @@ def verify(root, out, count, offset=0, baseline=False, gui=False,speed_scale=1.)
             if kind=='dynamic' and reference_motion is not None and actor_trace:
                 actors=np.asarray(actor_trace);times=actors[:,0]-motion_start
                 nominal=np.column_stack([np.interp(times,reference_motion[:,0],reference_motion[:,k]) for k in (1,2)])
-                gaps=np.linalg.norm(np.maximum(np.abs(nominal-actors[:,1:])-np.asarray(c['obstacle_size'][:2])/2,0.),axis=1)-c['robot_radius']
+                gaps=box_clearance(nominal-actors[:,1:3],actors[:,3],c)
                 nominal_gap=float(np.min(gaps))
             passed=(turns==[1,-1] and len(status['history'])==10 and parked<c['parking_tolerance']
                     and (kind!='static' or status['bypass_count']>0) and min(minimum,static_minimum)>0

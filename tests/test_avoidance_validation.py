@@ -52,6 +52,14 @@ class PhysicalOracleTests(unittest.TestCase):
         self.assertLess(oracle.aligned_clearance([[0.,-1.,0.],[1.,1.,0.]],
             [[0.,0.,0.],[1.,0.,0.]],self.config),0.)
 
+    def test_actual_box_orientation_and_rotation_sweep(self):
+        import math
+        actor=[[0.,0.,0.,math.pi/4],[1.,0.,0.,math.pi/4]]
+        self.assertAlmostEqual(oracle.aligned_clearance([[0.,.4,.4],[1.,.4,.4]],actor,self.config),.025685,delta=.001)
+        self.assertLess(oracle.aligned_clearance([[0.,.55,0.],[1.,.55,0.]],actor,self.config),0.)
+        self.assertLess(oracle.aligned_clearance([[0.,.6,0.],[1.,.6,0.]],
+            [[0.,0.,0.,0.],[1.,0.,0.,math.pi/2]],self.config),0.)
+
     def test_scene_teleport_does_not_invent_a_sweep_through_the_robot(self):
         self.assertGreater(oracle.aligned_clearance([[0.,0.,0.],[1.,0.,0.]],
             [[0.,2.,0.],[.49,2.,0.],[.5,-2.,0.],[1.,-2.,0.]],self.config),1.4)

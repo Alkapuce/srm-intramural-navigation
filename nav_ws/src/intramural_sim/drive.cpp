@@ -21,6 +21,8 @@ class Drive : public ignition::gazebo::System,
   ignition::math::Vector3d command;
   std::deque<std::pair<double, ignition::math::Vector3d>> queue;
   double delay{.09}, tau{.06}, acceleration{3.5}, mass{1.};
+  bool scriptedActor{false};
+  ignition::math::Matrix3d inertia;
 public:
   void Configure(const ignition::gazebo::Entity &entity,
                  const std::shared_ptr<const sdf::Element> &sdf,
@@ -38,6 +40,12 @@ public:
     delay = sdf->Get<double>("delay", .09).first;
     tau = sdf->Get<double>("tau", .06).first;
     acceleration = sdf->Get<double>("acceleration", 3.5).first;
+    scriptedActor = sdf->Get<bool>("scripted_actor", false).first;
+    if (scriptedActor) {
+      auto inertial = ecm.Component<ignition::gazebo::components::Inertial>(link.Entity());
+      if (!inertial) throw std::runtime_error("Scripted actor requires inertia");
+      inertia = inertial->Data().MassMatrix().Moi();
+    }
     if (!std::isfinite(delay+tau+acceleration+mass) || delay<0 || tau<=0 || acceleration<=0 || mass<=0)
       throw std::runtime_error("Finite positive drive response required");
     node.Subscribe(sdf->Get<std::string>("topic"), &Drive::Command, this);
@@ -60,11 +68,18 @@ public:
     auto pose = link.WorldPose(ecm);
     auto velocity = link.WorldLinearVelocity(ecm);
     if (!pose || !velocity) return;
-    auto desired = pose->Rot().RotateVector(applied);
+    auto desired = scriptedActor ? applied : pose->Rot().RotateVector(applied);
     auto a = (desired-*velocity)/tau;
     a.Z(0.);
     if (a.Length()>acceleration) a *= acceleration/a.Length();
-    link.AddWorldForce(ecm, mass*a);
+    if (scriptedActor) {
+      // Actor spin decays through torque; setting angular velocity would discard translational forces.
+      auto omega = link.WorldAngularVelocity(ecm).value_or(ignition::math::Vector3d::Zero);
+      auto torque = pose->Rot().RotateVector(inertia*pose->Rot().RotateVectorReverse(omega))*(-1./tau);
+      link.AddWorldWrench(ecm, mass*a, torque);
+    } else {
+      link.AddWorldForce(ecm, mass*a);
+    }
     // No command watchdog: transport-disconnect behaviour remains observable.
   }
 };
