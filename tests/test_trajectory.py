@@ -81,6 +81,21 @@ def rollout(c, delay=0.2, tau=0.15, gain=1.0, noise=0.0, seed=0, plan=None):
 
 
 class TrajectoryTests(unittest.TestCase):
+    def test_worker_roundtrip_preserves_cached_plan_and_tracker_motion(self):
+        import pickle
+        c=dict(BASE,**PROFILES['candidate'])
+        plan=RoutePlan.build(segments(c),c)
+        plan.sample(.5)
+        restored=pickle.loads(pickle.dumps(plan))
+        self.assertEqual(restored,plan)
+        before,after=OmniTracker(plan,c),OmniTracker(restored,c)
+        for index in range(20):
+            pose=plan.sample(index*.01)[0]
+            a,detail_a=before.step(pose,0.,.025,stamp=index*.025)
+            b,detail_b=after.step(pose,0.,.025,stamp=index*.025)
+            np.testing.assert_array_equal(a,b)
+            self.assertEqual(detail_a,detail_b)
+
     def test_parking_holds_zero_through_jitter_and_uses_distinct_pose_window(self):
         c=dict(BASE,**PROFILES['candidate'],parking=[2.,0.],route_speed_scale=1.)
         plan=RoutePlan.build([('RETURN',[[float(x),0.] for x in np.linspace(0.,2.,81)])],c)

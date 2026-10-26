@@ -1,26 +1,41 @@
 """Executable latency prefix for raw-cloud sweeps, independent of ROS transports."""
 
 import math
+from statistics import median
 import numpy as np
+
+
+def _response_models(limits):
+    recorded=list(limits.get('response_models',[]));stress=list(limits.get('response_stress_models',[]))
+    if any(len(m)!=2 or not all(math.isfinite(v) and v>=0 for v in m) for m in recorded+stress):
+        raise ValueError('Finite nonnegative delay/tau pairs required')
+    tau=limits['response_tau'] if 'response_tau' in limits else median([m[1] for m in recorded]) if recorded else .15
+    models=[(limits.get('response_delay',.2),tau)]+recorded
+    if limits.get('require_stress_models',True):models+=stress
+    if any(not all(math.isfinite(v) and v>=0 for v in m) for m in models):
+        raise ValueError('Finite nonnegative delay/tau pairs required')
+    return models
 
 
 def response_horizon(limits):
     """Bound coasting displacement with delay plus the first-order stopping tail."""
-    recorded = list(limits.get('response_models', []))
-    stress = list(limits.get('response_stress_models', []))
-    if any(len(m) != 2 or not all(math.isfinite(v) and v >= 0 for v in m) for m in recorded+stress):
-        raise ValueError('Finite nonnegative delay/tau pairs required')
-    tau = limits.get('response_tau', float(np.median([m[1] for m in recorded])) if recorded else .15)
-    models = [(limits.get('response_delay', .2), tau)] + recorded
-    if limits.get('require_stress_models', True):models += stress
-    if any(not all(math.isfinite(v) and v >= 0 for v in m) for m in models):
-        raise ValueError('Finite nonnegative delay/tau pairs required')
-    return max(delay + tau for delay, tau in models)
+    return max(delay+tau for delay,tau in _response_models(limits))
+
+
+def stopping_horizon(limits,speed):
+    """Distance/speed for a delayed first-order drive with an identified force limit."""
+    models=_response_models(limits)
+    horizon=max(delay+tau for delay,tau in models)
+    acceleration=limits.get('drive_acceleration_limit')
+    if acceleration is None:return horizon
+    if not math.isfinite(acceleration) or acceleration<=0:raise ValueError('Positive drive acceleration limit required')
+    return max(horizon,*(delay+speed/(2*acceleration)+acceleration*tau*tau/(2*speed)
+        if speed>acceleration*tau else delay+tau for delay,tau in models))
 
 
 def collision_reach(limits, speed, sensor_age=0.):
     """Cover stopping plus the observed sensor pipeline and the 40/100 Hz command ticks."""
-    horizon = response_horizon(limits) + max(limits.get('pose_update_period', .1), sensor_age) + .035
+    horizon = stopping_horizon(limits,speed) + max(limits.get('pose_update_period', .1), sensor_age) + .035
     return max(.35, speed * horizon) + limits.get('minimum_clearance', .02)
 
 
@@ -41,9 +56,11 @@ def compensate_motion(points, stamps, history, reference_time):
         p = np.stack([np.interp(t, times, poses[:, k]) for k in range(3)], axis=-1)
         # Only extrapolate the short unpublished tail of the latest 10 Hz odometry.
         return p + np.maximum(0., np.asarray(t)-times[-1])[..., None] * ((poses[-1]-poses[-2])/(times[-1]-times[-2]))
-    source, target = sample(stamps), sample(reference_time)
-    co, si = np.cos(source[:, 2]), np.sin(source[:, 2])
-    world = np.column_stack((co*points[:, 0]-si*points[:, 1], si*points[:, 0]+co*points[:, 1])) + source[:, :2]
+    # Instantaneous scans share one pose; do not interpolate and evaluate trig per point.
+    source=sample(stamps[0] if len(stamps) and np.all(stamps==stamps[0]) else stamps)
+    target=sample(reference_time)
+    co, si = np.cos(source[..., 2]), np.sin(source[..., 2])
+    world = np.column_stack((co*points[:, 0]-si*points[:, 1], si*points[:, 0]+co*points[:, 1])) + source[..., :2]
     delta = world-target[:2]
     co, si = math.cos(target[2]), math.sin(target[2])
     return np.column_stack((co*delta[:, 0]+si*delta[:, 1], -si*delta[:, 0]+co*delta[:, 1]))

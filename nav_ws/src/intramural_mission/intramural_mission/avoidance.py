@@ -1,31 +1,36 @@
 """Bounded, ordered detours; the raw-cloud guard never depends on this planner."""
 from dataclasses import replace
+from dataclasses import asdict
+import json
+import hashlib
 import math
 import multiprocessing as mp
 import queue
 import time
 import numpy as np
-from scipy.ndimage import label
+from scipy.ndimage import label,binary_dilation
 from scipy.optimize import linear_sum_assignment
-from scipy.interpolate import make_interp_spline
 from scipy.spatial import cKDTree
 from intramural_mission.bypass import entry_path, winding
-from intramural_mission.route import line
 from intramural_mission.trajectory import RoutePlan
-from intramural_mission.safety import response_horizon
+from intramural_mission.route import quintic_curve
+from intramural_mission.safety import response_horizon,stopping_horizon
 
 
 class ObstacleTracker:
     def __init__(self):
         self.tracks, self.stamp, self.serial = [], -math.inf, 0
 
-    def update(self, points, stamp, weights=None):
+    def update(self, points, stamp, weights=None,sensor_position=None,point_times=None):
         points = np.asarray(points, dtype=float).reshape(-1, 2)
         weights = np.ones(len(points)) if weights is None else np.asarray(weights)
+        point_times=np.full(len(points),stamp) if point_times is None else np.asarray(point_times,dtype=float)
         if not math.isfinite(stamp) or not np.isfinite(points).all():
             raise ValueError('Finite timestamped obstacle points required')
         if weights.shape != (len(points),) or not np.isfinite(weights).all() or np.any(weights <= 0):
             raise ValueError('Positive observation support counts required')
+        if point_times.shape!=(len(points),) or not np.isfinite(point_times).all() or np.any(point_times>stamp+.01):
+            raise ValueError('Observation source times must precede the prediction reference')
         if stamp <= self.stamp:
             return self.snapshot(self.stamp)
         self.stamp = stamp
@@ -39,66 +44,140 @@ class ObstacleTracker:
                 raise ValueError('Obstacle observations exceed local planning window')
             occupied = np.zeros(shape, bool)
             occupied[tuple(cells.T)] = True
-            groups, count = label(occupied, np.ones((3, 3)))
+            # Join scan gaps narrower than the vehicle, including partially visible box faces.
+            groups, count = label(binary_dilation(occupied), np.ones((3, 3)))
             ids = groups[tuple(cells.T)]
             for i in range(1, count+1):
                 cluster = points[ids == i]
                 if sum(weights[ids == i]) >= 3:
                     center = (cluster.min(axis=0)+cluster.max(axis=0))/2
-                    clusters.append((center, float(max(np.linalg.norm(cluster-center, axis=1)))+.025))
+                    clusters.append((center, float(max(np.linalg.norm(cluster-center, axis=1)))+.025,
+                                     (cluster.max(axis=0)-cluster.min(axis=0))/2+.025,
+                                     float(np.average(point_times[ids==i],weights=weights[ids==i]))))
         self.tracks = [t for t in self.tracks if stamp-t['seen'] <= .6]
         for t in self.tracks:
             dt = stamp-t['stamp']
             f = np.eye(4); f[:2, 2:] = np.eye(2)*dt
             g = np.vstack((np.eye(2)*dt*dt/2, np.eye(2)*dt))
             t['x'] = f@t['x']
-            t['p'] = f@t['p']@f.T + .3**2*g@g.T
+            t['p'] = f@t['p']@f.T + 2.**2*g@g.T
             t['stamp'] = stamp
+            t['dt']=dt
         used = set()
         if self.tracks and clusters:
-            costs = np.array([[np.linalg.norm(t['x'][:2]-c[0]) for c in clusters] for t in self.tracks])
+            costs = np.array([[np.linalg.norm(t['x'][:2]-(stamp-c[3])*t['x'][2:]-c[0]) for c in clusters] for t in self.tracks])
             rows, cols = linear_sum_assignment(costs)
             for i, j in zip(rows, cols):
                 t = self.tracks[i]
                 if costs[i, j] > .45 + 2*math.sqrt(max(np.diag(t['p'])[:2])):
                     continue
-                innovation = t['p'][:2, :2]+np.eye(2)*.02**2
-                k = np.linalg.solve(innovation, t['p'][:, :2].T).T
-                t['x'] += k@(clusters[j][0]-t['x'][:2])
-                h = np.eye(4); h[:, :2] -= k
+                extent=np.maximum(t['extent'],clusters[j][2])
+                lag=stamp-clusters[j][3]
+                measurement=np.hstack((np.eye(2),-lag*np.eye(2)))
+                expected=measurement@t['x']
+                center=np.clip(expected,clusters[j][0]+clusters[j][2]-extent,
+                    clusters[j][0]-clusters[j][2]+extent)
+                if sensor_position is not None:
+                    partial=clusters[j][2]<.5*extent
+                    face_center=clusters[j][0]+np.sign(clusters[j][0]-sensor_position)*(extent-clusters[j][2])
+                    center=np.where(partial,face_center,center)
+                old_inside=np.all(np.abs(clusters[j][0]-expected)+t['extent']<=clusters[j][2]+.04)
+                if old_inside and np.any(clusters[j][2]>t['extent']+.04):
+                    # Revealing another face changes the contour center without moving the object.
+                    t['x'][:2]+=center-expected
+                innovation = measurement@t['p']@measurement.T+np.eye(2)*.02**2
+                residual=center-measurement@t['x']
+                if float(residual@np.linalg.solve(innovation,residual))>9.:
+                    # A motion start is a velocity jump, not measurement noise to average away.
+                    dt=max(.01,clusters[j][3]-t['seen'])
+                    velocity=(center-t['measurement_center'])/dt
+                    t['x']=np.r_[center+lag*velocity,velocity]
+                    t['p']=np.diag([.1**2]*2+[2*.02**2/dt**2]*2)
+                    innovation=measurement@t['p']@measurement.T+np.eye(2)*.02**2
+                k = np.linalg.solve(innovation, (t['p']@measurement.T).T).T
+                t['x'] += k@(center-measurement@t['x'])
+                h = np.eye(4)-k@measurement
                 t['p'] = h@t['p']@h.T + k@(np.eye(2)*.02**2)@k.T
-                t.update(radius=clusters[j][1], seen=stamp, observations=t['observations']+1)
+                t.update(radius=float(np.linalg.norm(extent)), extent=extent, seen=clusters[j][3],measurement_center=center,
+                    observations=t['observations']+1)
+                if np.linalg.norm(t['x'][2:])>.08:t['moving_until']=stamp+.3
                 used.add(j)
-        for j, (center, radius) in enumerate(clusters):
+        for j, (center, radius, extent, source_time) in enumerate(clusters):
             if j not in used:
                 self.serial += 1
+                initial=np.diag([.02**2]*2+[.5**2]*2)
+                advance=np.eye(4);advance[:2,2:]=np.eye(2)*(stamp-source_time)
                 self.tracks.append(dict(id=self.serial, x=np.r_[center, 0., 0.],
-                    p=np.diag([.02**2]*2+[.5**2]*2), radius=radius, stamp=stamp, seen=stamp, observations=1))
+                    p=advance@initial@advance.T,
+                    radius=radius,extent=extent,stamp=stamp,seen=source_time,measurement_center=center,observations=1,moving_until=stamp))
         return self.snapshot(stamp)
 
     def snapshot(self, stamp):
         return [dict(id=t['id'], center=t['x'][:2].tolist(), velocity=t['x'][2:].tolist(),
-                     covariance=t['p'].tolist(), radius=t['radius'], age=max(0., stamp-t['seen']),
-                     moving=bool(t['observations']<3 or np.linalg.norm(t['x'][2:])>.08))
+                     covariance=t['p'].tolist(), radius=t['radius'], extent=t['extent'].tolist(), age=max(0., stamp-t['seen']),
+                     velocity_observed=t['observations']>=2,
+                     moving=bool(t['observations']<3 or stamp<t['moving_until']))
                 for t in self.tracks]
+
+
+def obstacle_gap(points, track):
+    delta=np.asarray(points)-track['center']
+    if 'extent' in track:
+        return np.linalg.norm(np.maximum(np.abs(delta)-track['extent'],0.),axis=-1)
+    return np.linalg.norm(delta,axis=-1)-track['radius']
+
+
+def segment_box_distance(a, b, extent):
+    """Exact distance from each swept center segment to an axis aligned contour."""
+    extent=np.asarray(extent);d=b-a;length2=np.maximum(1e-12,np.sum(d*d,axis=1))
+    distance=np.minimum(np.linalg.norm(np.maximum(np.abs(a)-extent,0.),axis=1),
+                        np.linalg.norm(np.maximum(np.abs(b)-extent,0.),axis=1))
+    for sign in ((-1,-1),(-1,1),(1,-1),(1,1)):
+        corner=extent*sign
+        fraction=np.clip(np.sum((corner-a)*d,axis=1)/length2,0.,1.)
+        distance=np.minimum(distance,np.linalg.norm(a+fraction[:,None]*d-corner,axis=1))
+    parallel=np.abs(d)<1e-12
+    safe=np.where(parallel,1.,d)
+    t0,t1=(-extent-a)/safe,(extent-a)/safe
+    lo=np.where(parallel,-np.inf,np.minimum(t0,t1)).max(axis=1)
+    hi=np.where(parallel,np.inf,np.maximum(t0,t1)).min(axis=1)
+    intersects=(np.maximum(0.,lo)<=np.minimum(1.,hi))&~np.any(parallel&(np.abs(a)>extent),axis=1)
+    return np.where(intersects,0.,distance)
 
 
 def collision(points, times, tracks, radius):
     """Sweep each interval against relative obstacle motion, including uncertain position."""
     p, times = np.asarray(points), np.asarray(times)
+    return collision_segments(p[:-1],p[1:],times[:-1],times[1:],tracks,radius)
+
+
+def prediction_uncertainty(track,horizon):
+    covariance=np.asarray(track['covariance'])
+    horizon=np.asarray(horizon)+track.get('prediction_age',0.)
+    if not track.get('moving',True):
+        return 2*math.sqrt(max(np.diag(covariance)[:2]))+.02*horizon
+    h=horizon if track.get('velocity_observed',True) else np.minimum(horizon,.15)
+    variance=np.maximum(covariance[0,0]+2*h*covariance[0,2]+h*h*covariance[2,2],
+                        covariance[1,1]+2*h*covariance[1,3]+h*h*covariance[3,3])
+    return 2*np.sqrt(np.maximum(0.,variance))+.025*horizon*horizon
+
+
+def collision_segments(start,end,begin,finish,tracks,radius):
     for track in tracks:
         velocity = np.asarray(track['velocity'])
         age = track.get('age', 0.)
-        relative = p-np.asarray(track['center'])-(times+age)[:, None]*velocity
-        a, d = relative[:-1], np.diff(relative, axis=0)
+        a=np.asarray(start)-track['center']-(np.asarray(begin)+track.get('prediction_age',0.))[:,None]*velocity
+        b=np.asarray(end)-track['center']-(np.asarray(finish)+track.get('prediction_age',0.))[:,None]*velocity
+        d=b-a
         f = np.clip(-np.sum(a*d, axis=1)/np.maximum(1e-12, np.sum(d*d, axis=1)), 0., 1.)
-        covariance = np.asarray(track['covariance'])
-        horizon = times[1:]+age
-        variance = max(np.diag(covariance)[:2]) + horizon**2*max(np.diag(covariance)[2:])
-        uncertainty = 2*np.sqrt(np.maximum(0., variance)) + .025*horizon**2
-        if not track.get('moving', True):
-            uncertainty = 2*math.sqrt(max(np.diag(covariance)[:2]))+.02*horizon
-        if np.any(np.linalg.norm(a+f[:, None]*d, axis=1) <= radius+track['radius']+uncertainty):
+        uncertainty=prediction_uncertainty(track,finish)
+        broad=np.linalg.norm(a+f[:,None]*d,axis=1)
+        bound=np.linalg.norm(track['extent']) if 'extent' in track else track['radius']
+        if not np.any(broad<=radius+bound+uncertainty):
+            continue
+        gap=(segment_box_distance(a,b,track['extent']) if 'extent' in track
+             else np.linalg.norm(a+f[:, None]*d,axis=1)-track['radius'])
+        if np.any(gap <= radius+uncertainty):
             return True
     return False
 
@@ -119,7 +198,6 @@ def splice(plan, progress, bridge, join_s, limits, clearance, initial_speed):
     j = min(len(plan.points)-1, int(np.searchsorted(plan.s, join_s)))
     points = list(plan.points[:i])+[tuple(p) for p in bridge]+list(plan.points[j+1:])
     shift = len(bridge)-(j-i+1)
-    end = i+len(bridge)-1
     gates = []
     for phase, index in plan.gates:
         if index < i:
@@ -136,6 +214,30 @@ def splice(plan, progress, bridge, join_s, limits, clearance, initial_speed):
         begin = index
     if len(route) == 10 and i < plan.gates[0][1]:
         route[-1] = ('RETURN', list(reversed(route[0][1])))
+        from intramural_mission.route import line
+        route[-1][1].extend(line(route[-1][1][-1],plan.points[-1],limits['path_spacing'])[1:])
+        left,right=route[-2][1],route[-1][1]
+        # Smoothed entry/exit gates differ; reversing entry also needs a smooth lower-exit joint.
+        li,rj=len(left)-1,0
+        distance=0.
+        while li>2 and distance<.6:
+            distance+=math.dist(left[li],left[li-1]);li-=1
+        distance=0.
+        while rj<len(right)-3 and distance<.6:
+            distance+=math.dist(right[rj],right[rj+1]);rj+=1
+        def direction_curvature(a,b,d):
+            u,v=np.asarray(b)-a,np.asarray(d)-b
+            curvature=2*(u[0]*v[1]-u[1]*v[0])/max(1e-9,np.linalg.norm(u)*np.linalg.norm(v)*np.linalg.norm(u+v))
+            tangent=(u+v)/max(1e-9,np.linalg.norm(u+v))
+            return tangent,float(curvature)
+        u,ka=direction_curvature(left[li-1],left[li],left[li+1])
+        v,kb=direction_curvature(right[rj-1],right[rj],right[rj+1])
+        joint=quintic_curve(left[li],right[rj],u,v,ka,kb,limits['path_spacing'])
+        if min(clearance(joint))<=limits.get('execution_clearance',0.):
+            raise ValueError('Return joint has insufficient static clearance')
+        middle=len(joint)//2
+        route[-2]=(route[-2][0],left[:li]+joint[:middle+1])
+        route[-1]=('RETURN',joint[middle:]+right[rj+1:])
     updated = RoutePlan.build(route, limits, clearance)
     speeds = np.asarray(updated.speed).copy()
     start_s = updated.s[i]
@@ -152,8 +254,14 @@ class DetourPlanner:
         self.c, self.grid = config, grid
         self.map = GridMap(grid, config)
         self.tracker = ObstacleTracker()
+        self.prediction_seconds = .025
+        self.attempt = 0
+        self.restore_confirm=None
+        row,col=np.mgrid[:grid.info.height,:grid.info.width]
+        xy=np.column_stack(((col.ravel()+.5)*self.map.res,(row.ravel()+.5)*self.map.res))
+        self.grid_points=xy@np.array([[self.map.co,self.map.si],[-self.map.si,self.map.co]])+self.map.origin
 
-    def observations(self, points, stamp, weights=None):
+    def observations(self, points, stamp, weights=None,sensor_position=None,point_times=None):
         points = np.asarray(points, dtype=float).reshape(-1, 2)
         weights = np.ones(len(points)) if weights is None else np.asarray(weights)
         if len(points):
@@ -165,63 +273,175 @@ class DetourPlanner:
             selected[valid] = self.map.distance[row[valid], col[valid]] > .10
             points = points[selected]
             weights = weights[selected]
-        return self.tracker.update(points, stamp, weights)
+            if point_times is not None:point_times=np.asarray(point_times)[selected]
+        return self.tracker.update(points, stamp, weights,sensor_position,point_times)
 
     def solve(self, request):
         began = time.monotonic()
-        tracks = self.observations(request['points'], request['stamp'], request.get('weights'))
+        offsets=request.get('point_offsets')
+        source=request.get('source_stamp',request['stamp'])
+        point_times=(np.full(len(request['points']),source) if offsets is None else source+np.asarray(offsets)*1e-9)
+        tracks = self.observations(request['points'], request['stamp'], request.get('weights'),request.get('sensor_position'),point_times)
         plan, progress = request['plan'], request['progress']
         pose, velocity = np.asarray(request['pose']), np.asarray(request['velocity'])
+        switch_delay=max(0.,request.get('pose_age',0.))+.08
+        pose=pose+velocity*switch_delay+.5*np.asarray(request.get('acceleration',[0.,0.]))*.08**2
         speed = float(np.linalg.norm(velocity))
         radius = self.c['robot_radius']+self.c.get('minimum_clearance', .02)
         samples, times = preview(plan, progress, speed)
         age = max(0., request.get('observation_age', 0.))
         for t in tracks:
             t['age'] += age
-        report = dict(stamp=request['stamp'], route_id=plan.route_id, tracks=tracks,
-                      plan=None, blocked=False, reason='', side=0, rejected={})
+            t['prediction_age'] = age
+        report = dict(stamp=request['stamp'], route_id=plan.route_id, run_id=request.get('run_id'),tracks=tracks,
+                      plan=None, blocked=False, imminent=False,reason='', side=0, rejected={})
         def reject(reason):
             report['rejected'][reason] = report['rejected'].get(reason, 0)+1
-        if not collision(samples, times, tracks, radius):
+        def executable(proposal, start_s, horizon=2.):
+            from intramural_mission.response import predict_motion
+            models=self.c.get('response_models',[(self.c.get('response_delay',.2),self.c.get('response_tau',.15))])
+            endpoints=[max(models,key=sum)]
+            if any(t['moving'] and np.linalg.norm(t['velocity'])>.08 for t in tracks):
+                fastest=min(models,key=sum)
+                if fastest!=endpoints[0]:endpoints.append(fastest)
+            predict_started=time.monotonic()
+            predictions=predict_motion(proposal,self.c,pose,velocity,request.get('command',velocity),
+                request.get('acceleration',[0.,0.]),start_s,horizon=horizon,models=endpoints)
+            if horizon>=2.:self.prediction_seconds=.5*self.prediction_seconds+.5*(time.monotonic()-predict_started)
+            for actual,timing,brakes,brake_times,error in predictions:
+                if (error>self.c['max_tracking_error']
+                        or min(self.map.clearance(brakes.reshape(-1,2),include_poles=not self.c.get('pole_clearance_from_map',False)))<=self.c.get('execution_clearance',0.)
+                        or collision(actual,timing,tracks,radius)
+                        or collision_segments(brakes[:,:-1].reshape(-1,2),brakes[:,1:].reshape(-1,2),
+                            brake_times[:,:-1].ravel(),brake_times[:,1:].ravel(),tracks,radius)):
+                    return False
+            return True
+
+        def remaining_seconds(proposal, first, end=None):
+            return float(np.sum((np.diff(proposal.s)/np.maximum(.05,
+                (np.asarray(proposal.speed)[:-1]+np.asarray(proposal.speed)[1:])/2))[first:end]))
+
+        restore=request.get('restore_plan')
+        nominal=restore if restore is not None and restore.points==plan.points else plan
+        first=int(np.searchsorted(plan.s,progress))
+        last=min(len(plan.s)-1,int(np.searchsorted(plan.s,progress+max(1.,speed*3.))))
+        def retimed(scale, end=last):
+            speeds=np.asarray(plan.speed).copy()
+            # Always scale the unmodified profile; repeated observations must not ratchet it down.
+            speeds[first:end+1]=np.asarray(nominal.speed)[first:end+1]*scale
+            speeds[first]=speed
+            return replace(plan,speed=tuple(speeds),route_id=hashlib.sha256(
+                plan.route_id.encode()+speeds.tobytes()).hexdigest()[:20])
+
+        if not tracks or (not request.get('path_blocked') and not collision(samples, times, tracks, radius)):
+            if nominal is not plan:
+                previous=self.restore_confirm
+                self.restore_confirm=None
+                for scale in (1.,.8,.6):
+                    proposal=retimed(scale)
+                    if remaining_seconds(proposal,first,last)>=.9*remaining_seconds(plan,first,last):continue
+                    fast,arrival=preview(proposal,progress,speed,3.)
+                    if collision(fast,arrival,tracks,radius) or not executable(proposal,progress):
+                        if time.monotonic()-began>.06:break
+                        continue
+                    key=request.get('run_id'),plan.route_id,nominal.route_id,scale
+                    count=(previous[1]+int(request['stamp']>previous[2]) if previous and previous[0]==key else 1)
+                    self.restore_confirm=key,count,request['stamp']
+                    if count>=2:
+                        complete=np.allclose(proposal.speed[first+1:],nominal.speed[first+1:])
+                        return dict(report,plan=proposal,progress=progress,side=0,rejoin_progress=progress,join_s=progress,
+                            scale=scale,expected_seconds=remaining_seconds(proposal,first),
+                            reason='RESTORE_READY' if complete else 'RETIME_READY',seconds=time.monotonic()-began)
+                    break
+                else:self.restore_confirm=None
+            else:self.restore_confirm=None
+            if request.get('alternative_route',request.get('bypassing')) and not executable(plan,progress):
+                report.update(blocked=True,execution_failure=True,reason='EXECUTION_CONFLICT')
+                for scale in (.8,.6,.4,.2,.1):
+                    proposal=retimed(scale)
+                    if executable(proposal,progress):
+                        report.update(plan=proposal,progress=progress,side=0,join_s=plan.s[last],
+                            rejoin_progress=plan.s[last],scale=scale,expected_seconds=remaining_seconds(proposal,first),
+                            reason='RETIME_READY')
+                        break
+                    if time.monotonic()-began>.06:break
             return dict(report, seconds=time.monotonic()-began)
         report.update(blocked=True, reason='PREDICTED_CONFLICT')
+        self.restore_confirm=None
         # The braking prefix remains physical even if the desired path turns away.
-        coast = np.stack((pose, pose+velocity*response_horizon(self.c)))
-        if collision(coast, [0., response_horizon(self.c)], tracks, radius):
-            report['reason'] = 'STOPPING_PREFIX_CONFLICT'
+        stop_horizon=stopping_horizon(self.c,speed)
+        coast = np.stack((pose, pose+velocity*stop_horizon))
+        if collision(coast, [0., stop_horizon], tracks, radius):
+            report.update(imminent=True,reason='STOPPING_PREFIX_CONFLICT')
+        if not report['imminent'] and executable(plan,progress,horizon=.3):
+            # Reserve a checked continuation before search can consume the solve budget.
+            report['continuation_until']=request['stamp']+age+.3
         threat = min(tracks, key=lambda t: min(np.linalg.norm(samples-np.asarray(t['center']), axis=1)))
         reference = np.asarray(plan.points)
         lengths = np.asarray(plan.s)
+        phase=request.get('phase',0)
+        join_limit=plan.gates[min(phase+1,len(plan.gates)-1)][1]
+        original=request.get('original_plan') or plan
+        original_start=0 if phase==0 else original.gates[phase-1][1]
+        original_end=original.gates[min(phase+1,len(original.gates)-1)][1]
+        original_corridor=cKDTree(np.asarray(original.points)[original_start:original_end+1])
         start = min(len(lengths)-2, int(np.searchsorted(lengths, progress)))
-        end = min(len(lengths), int(np.searchsorted(lengths, progress+self.c.get('bypass_max_deviation', 1.1)*4)))
+        end = min(join_limit+1,len(lengths), int(np.searchsorted(lengths, progress+self.c.get('bypass_max_deviation', 1.1)*4)))
         blocked_index = start+int(np.argmin(np.linalg.norm(reference[start:end]-threat['center'], axis=1)))
         tangent = np.asarray(plan.tangent[blocked_index]); normal = np.array([-tangent[1], tangent[0]])
-        covariance = np.asarray(threat['covariance'])
-        distance = radius+threat['radius']+max(.12,
-            2*math.sqrt(max(np.diag(covariance)[:2])+4*max(np.diag(covariance)[2:]))+.10)
+        distance = radius+threat['radius']+max(.12,float(prediction_uncertainty(threat,0.)))+.10
         winners = []
-        for offset in (.6, 1.2, 2.):
-            join = min(len(lengths)-2, int(np.searchsorted(lengths, lengths[blocked_index]+offset)))
+        if any(t['velocity_observed'] and np.linalg.norm(t['velocity'])>.08 for t in tracks):
+            # Compare slowing on the current line with detours using the same finish-time score.
+            join=min(len(lengths)-1,int(np.searchsorted(lengths,progress+max(1.,speed*2.))))
+            for scale in (.8,.6,.4,.2,.1):
+                proposal=retimed(scale,join)
+                points,arrival=preview(proposal,progress,speed,3.)
+                if not collision(points,arrival,tracks,radius) and executable(proposal,progress):
+                    winners.append((remaining_seconds(proposal,start),0.,proposal,progress,0,lengths[join],scale,lengths[join]))
+                    break
+                if time.monotonic()-began>.05:break
+        attempt=self.attempt
+        self.attempt+=1
+        offsets=(.6,1.2,2.)
+        offsets=offsets[attempt//2%3:]+offsets[:attempt//2%3]
+        for offset in offsets:
+            if time.monotonic()-began > .07:
+                break
+            join = min(join_limit,len(lengths)-2, int(np.searchsorted(lengths, lengths[blocked_index]+offset)))
             if join <= start+2:
                 continue
-            for side in (-1, 1):
-                if time.monotonic()-began > .080:
+            corridor_tree = cKDTree(reference[start:join+1])
+            def clearance(p):
+                p = np.asarray(p)
+                gap = self.map.clearance(p, include_poles=not self.c.get('pole_clearance_from_map', False))
+                for track in tracks:
+                    # Search the observed contour; arrival-time uncertainty is checked on timed candidates.
+                    uncertainty=prediction_uncertainty(track,0.)
+                    gap = np.minimum(gap, obstacle_gap(p,track)-radius-uncertainty)
+                corridor = np.maximum(corridor_tree.query(p)[0],original_corridor.query(p)[0])
+                return np.minimum(gap, self.c.get('bypass_max_deviation', 1.1)-corridor)
+            margin=self.c.get('bypass_max_deviation',1.1)+self.map.res
+            region=reference[start:join+1]
+            local=np.all((self.grid_points>=region.min(axis=0)-margin)&
+                         (self.grid_points<=region.max(axis=0)+margin),axis=1)
+            free_mask=np.zeros(len(self.grid_points),bool)
+            free_mask[local]=clearance(self.grid_points[local])>self.c['path_spacing']/2
+            free_mask=free_mask.reshape(self.map.free.shape)
+            delta=pose-self.map.origin
+            col=math.floor((self.map.co*delta[0]+self.map.si*delta[1])/self.map.res)
+            row=math.floor((-self.map.si*delta[0]+self.map.co*delta[1])/self.map.res)
+            # The exact continuous start can be clear while its cell center is too close.
+            if 0<=row<free_mask.shape[0] and 0<=col<free_mask.shape[1] and clearance([pose])[0]>.0125:
+                free_mask[row,col]=True
+            for side in ((-1,1) if attempt%2==0 else (1,-1)):
+                if winners and time.monotonic()-began+self.prediction_seconds+.012 > .070:
                     break
                 waypoint = np.asarray(threat['center'])+normal*side*distance
-                corridor_tree = cKDTree(reference[start:join+1])
-                # Future moving occupants are checked in time; current geometry seeds the search.
-                def clearance(p):
-                    p = np.asarray(p)
-                    gap = self.map.clearance(p, include_poles=not self.c.get('pole_clearance_from_map', False))
-                    for track in tracks:
-                        gap = np.minimum(gap, np.linalg.norm(p-track['center'], axis=1)-radius-track['radius'])
-                    # Restrict search to this occurrence of the ordered corridor.
-                    corridor = corridor_tree.query(p)[0]
-                    return np.minimum(gap, self.c.get('bypass_max_deviation', 1.1)-corridor)
                 legs = []
                 waypoints = [pose, waypoint-tangent*.35, waypoint+tangent*.35, reference[join]]
                 for a, b in zip(waypoints, waypoints[1:]):
-                    leg = entry_path(self.c, a, b, self.grid, clearance)
+                    leg = entry_path(self.c, a, b, self.grid, free_mask=free_mask)
                     if leg is None:
                         reject('search')
                         break
@@ -241,22 +461,40 @@ class DetourPlanner:
                     direction = velocity/max(speed, 1e-9) if speed > .08 else (vertices[1]-vertices[0])/np.linalg.norm(vertices[1]-vertices[0])
                     terminal = np.asarray(plan.tangent[join])
                     k = plan.curvature[join]
-                    spline = make_interp_spline(ss, vertices, k=5, bc_type=(
-                        [(1, direction), (2, np.asarray(request.get('acceleration', [0., 0.]))/max(.1, speed**2))],
-                        [(1, terminal), (2, k*np.array([-terminal[1], terminal[0]]))]))
-                    bridge = spline(np.linspace(0., ss[-1], max(8, math.ceil(ss[-1]/.025))))
-                    if min(clearance(bridge)) <= .0125:
+                    vectors=np.diff(vertices,axis=0)
+                    vectors/=np.linalg.norm(vectors,axis=1)[:,None]
+                    middle=vectors[:-1]+vectors[1:]
+                    middle/=np.maximum(1e-9,np.linalg.norm(middle,axis=1))[:,None]
+                    directions=np.vstack((direction,middle,terminal))
+                    incoming=np.asarray(request.get('acceleration',[0.,0.]))
+                    ka=float(np.dot(incoming,[-direction[1],direction[0]]))/max(.1,speed**2) if speed>.08 else 0.
+                    for tension in (1.,.5,.25):
+                        curves=[quintic_curve(a,b,directions[n]*tension,directions[n+1]*tension,
+                            ka*tension if n==0 else 0.,k*tension if n==len(vertices)-2 else 0.,.025)
+                            for n,(a,b) in enumerate(zip(vertices,vertices[1:]))]
+                        bridge=np.asarray([p for n,curve in enumerate(curves) for p in curve[1 if n else 0:]])
+                        if (min(clearance(bridge))>.0125 and
+                                min(self.map.clearance(bridge,include_poles=not self.c.get('pole_clearance_from_map',False)))>=self.c.get('execution_clearance',0.)):break
+                    else:
                         reject('smooth_clearance')
                         continue
                     for scale in (1., .8, .6):
+                        if time.monotonic()-began>.065:
+                            break
                         limits = dict(self.c)
-                        proposal, start_s = splice(plan, progress, bridge, lengths[join], limits,
-                            lambda p: self.map.clearance(p, include_poles=not self.c.get('pole_clearance_from_map', False)), speed)
+                        try:
+                            proposal, start_s = splice(plan, progress, bridge, lengths[join], limits,
+                                lambda p: self.map.clearance(p, include_poles=not self.c.get('pole_clearance_from_map', False)), speed)
+                        except ValueError:
+                            reject('return_joint')
+                            continue
                         speeds = np.asarray(proposal.speed).copy()
                         first = np.searchsorted(proposal.s, start_s)
                         last = first+len(bridge)
                         speeds[first:last] *= scale
-                        proposal = replace(proposal, speed=tuple(speeds))
+                        speeds[first] = speed
+                        proposal = replace(proposal, speed=tuple(speeds), route_id=hashlib.sha256(
+                            proposal.route_id.encode()+speeds.tobytes()).hexdigest()[:20])
                         # Full-route topology is checked in addition to local gate ownership.
                         if any(winding(proposal.points, self.c[key]) != winding(plan.points, self.c[key])
                                for key in ('lower_pole', 'upper_pole')):
@@ -266,25 +504,10 @@ class DetourPlanner:
                         if collision(points, arrival, tracks, radius):
                             reject('timed_collision')
                             continue
-                        from intramural_mission.response import predict_motion
-                        predictions = predict_motion(proposal, self.c, pose, velocity,
-                            request.get('command', velocity), request.get('acceleration', [0., 0.]), start_s)
-                        valid = True
-                        for actual, timing, tails, error in predictions:
-                            # A stop tail is swept as well as the normally executed motion.
-                            for f in (0., .5, 1.):
-                                swept = actual+f*(tails-actual)
-                                if (error > self.c['max_tracking_error']
-                                    or min(self.map.clearance(swept, include_poles=not self.c.get('pole_clearance_from_map', False))) <= 0
-                                    or collision(swept, timing+f*response_horizon(self.c), tracks, radius)):
-                                    valid = False
-                                    break
-                            if not valid:
-                                break
-                        if not valid:
+                        if not executable(proposal,start_s):
                             reject('response')
                             continue
-                        duration = np.sum(np.linalg.norm(np.diff(bridge, axis=0), axis=1)/np.maximum(.05, np.asarray(proposal.speed)[first+1:last]))
+                        duration = remaining_seconds(proposal,first)
                         rejoin = proposal.s[min(len(proposal.s)-1, first+len(bridge)-1)]
                         winners.append((duration, -float(min(clearance(bridge))), proposal, start_s, side, lengths[join], scale, rejoin))
                         break
@@ -293,23 +516,28 @@ class DetourPlanner:
             duration, gap, proposal, start_s, side, join_s, scale, rejoin = best
             report.update(plan=proposal, progress=start_s, side=side, join_s=join_s,
                           rejoin_progress=rejoin,
-                          scale=scale, expected_seconds=float(duration), reason='DETOUR_READY',
+                          scale=scale, expected_seconds=float(duration), reason='DETOUR_READY' if side else 'YIELD_READY',
                           start_pose=pose.tolist(), source_progress=progress)
         report['seconds'] = time.monotonic()-began
         return report
 
 
-def _work(config, grid, incoming, outgoing):
+def _work(config, grid, incoming, outgoing, ready):
     planner = DetourPlanner(config, grid)
+    ready.set()
     while True:
         request = incoming.get()
         if request is None:
             return
+        started=time.monotonic()
         try:
             result = planner.solve(request)
+            if result['plan'] is not None:result['plan_json']=json.dumps(asdict(result['plan']))
         except (ValueError, IndexError, FloatingPointError) as error:
             result = dict(stamp=request['stamp'], route_id=request['plan'].route_id,
+                          run_id=request.get('run_id'),
                           plan=None, blocked=True, reason=str(error), tracks=[], seconds=0.)
+        result['seconds']=time.monotonic()-started
         outgoing.put(result)
 
 
@@ -317,7 +545,8 @@ class PlanningWorker:
     def __init__(self, config, grid):
         context = mp.get_context('spawn')
         self.incoming, self.outgoing = context.Queue(1), context.Queue(1)
-        self.process = context.Process(target=_work, args=(config, grid, self.incoming, self.outgoing), daemon=True)
+        self.ready=context.Event()
+        self.process = context.Process(target=_work, args=(config, grid, self.incoming, self.outgoing,self.ready), daemon=True)
         self.process.start()
         self.busy = False
         self.pending = None
@@ -348,5 +577,10 @@ class PlanningWorker:
             # The worker owns no device; terminating it must never delay a final zero.
             self.process.terminate()
             self.process.join(timeout=1.)
+            if self.process.is_alive():
+                self.process.kill()
+                self.process.join(timeout=1.)
+        self.incoming.cancel_join_thread()
+        self.outgoing.cancel_join_thread()
         self.incoming.close()
         self.outgoing.close()

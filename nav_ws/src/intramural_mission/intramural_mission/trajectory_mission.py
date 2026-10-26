@@ -5,6 +5,7 @@ import math
 import time
 import uuid
 import hashlib
+import gc
 from pathlib import Path
 import numpy as np
 import rclpy
@@ -15,14 +16,16 @@ from geometry_msgs.msg import Twist, PoseStamped
 from nav_msgs.msg import OccupancyGrid, Path as RosPath
 from std_msgs.msg import String, Bool
 from std_srvs.srv import Trigger
-from tf2_ros import Buffer, TransformListener
+from tf2_ros import Buffer, TransformListener, TransformException
 from intramural_base.runtime import run
 from intramural_mission.planning import compile_route, GridMap
 from intramural_mission.trajectory import OmniTracker, RoutePlan, Progress
-from intramural_mission.avoidance import PlanningWorker
+from intramural_mission.avoidance import PlanningWorker, collision, preview
+from intramural_mission.proximity import obstacle_on_path
 from intramural_mission.route import line
+from intramural_mission.recording import StatusLog
 from intramural_mission.hazards import first_blocked
-from intramural_mission.safety import executable_path, response_horizon, collision_reach
+from intramural_mission.safety import executable_path, response_horizon, stopping_horizon, collision_reach
 
 
 class TrajectoryMission(Node):
@@ -55,6 +58,7 @@ class TrajectoryMission(Node):
         self.tracker = None
         self.route = []
         self.plan = None
+        self.original_plan,self.original_progress=None,0.
         self.report = {}
         self.detail = {}
         self.clear_since = None
@@ -68,8 +72,12 @@ class TrajectoryMission(Node):
         self.observation = None
         self.submitted_stamp = -math.inf
         self.avoidance = {}
+        self.channel_side,self.channel_cost,self.channel_at=0,math.inf,0.
         self.bypass_count = 0
         self.bypassing = False
+        self.execution_blocked = False
+        self.predictive_stop=False
+        self.speed_restore=None
         self.rejoin_progress = 0.
         self.source_hashes = {
             p.name: hashlib.sha256(p.read_bytes()).hexdigest()
@@ -116,11 +124,15 @@ class TrajectoryMission(Node):
         self.costmap_at = time.monotonic()
 
     def receive_map(self, msg):
+        changed=self.static_map is None or self.static_map.info!=msg.info or self.static_map.data!=msg.data
         if self.static_map is not None and self.state in ("STARTING", "RUNNING", "BLOCKED"):
             old = self.static_map
             if old.info != msg.info or old.data != msg.data:
                 self.stop("FAULT", "STATIC_MAP_CHANGED")
         self.static_map = msg
+        if self.c.get('allow_bypass',False) and changed:
+            if self.worker:self.worker.close()
+            self.worker=PlanningWorker(self.c,msg)
 
     def receive_guard(self, msg):
         self.guard = json.loads(msg.data)
@@ -136,38 +148,86 @@ class TrajectoryMission(Node):
             return
         now = self.get_clock().now().nanoseconds/1e9
         result = self.worker.poll()
-        if result and result['route_id'] == self.plan.route_id and now-result['stamp'] < .5:
+        if result and result.get('run_id')==self.run_id and result['route_id'] == self.plan.route_id and now-result['stamp'] < .5:
+            plan_json=result.pop('plan_json',None)
+            if result['seconds']>.08:
+                result.update(plan=None,reason='PLANNING_TIMEOUT')
             candidate = result.pop('plan')
-            previous = self.avoidance
+            accepted=False
             self.avoidance = result
+            if result.get('execution_failure') or result['reason']!='PLANNING_TIMEOUT':
+                self.execution_blocked=bool(result.get('execution_failure'))
             if candidate is not None:
                 progress = Progress(candidate)
                 progress.s = result['progress']
                 error = progress.project(self.pose, self.c['max_speed']*.5+.12, self.c['max_tracking_error'])
-                changed_side = self.bypassing and result['side'] != previous.get('side', result['side'])
-                worthwhile = result['expected_seconds'] < .9*previous.get('expected_seconds', math.inf)
-                if error < self.c['max_tracking_error'] and (not changed_side or worthwhile or self.raw_hazard):
+                changed_side = bool(result['side']) and self.bypassing and result['side'] != self.channel_side
+                worthwhile = result['expected_seconds'] < .9*max(0.,self.channel_cost-(now-self.channel_at))
+                samples,times=preview(candidate,progress.s,float(np.linalg.norm(self.tracker.velocity)))
+                tracks=[dict(t,prediction_age=max(0.,now-result['stamp']),
+                    age=t['age']+max(0.,now-result['stamp']-t.get('prediction_age',0.))) for t in result['tracks']]
+                fresh=not collision(samples,times,tracks,self.c['robot_radius']+self.c.get('minimum_clearance',.02))
+                if self.observation is not None:
+                    fresh &= not obstacle_on_path(np.asarray(self.observation['points']).reshape(-1,2)-self.pose,
+                        np.vstack((self.pose,samples))-self.pose,math.inf,
+                        self.c['robot_radius']+self.c.get('minimum_clearance',.02))
+                if fresh and error < self.c['max_tracking_error'] and (not changed_side or worthwhile or result.get('blocked')):
+                    if result['reason'] in ('YIELD_READY','RETIME_READY') and self.speed_restore is None:
+                        self.speed_restore=self.plan
+                    elif result['reason']=='RESTORE_READY' or result['side']:
+                        self.speed_restore=None
                     self.plan = candidate
+                    self.execution_blocked=False
+                    self.predictive_stop=False
+                    accepted=True
                     self.tracker.plan, self.tracker.progress = candidate, progress
-                    self.bypass_count += 1
-                    self.bypassing = True
-                    self.rejoin_progress = result['rejoin_progress']
+                    if result['side']:
+                        self.bypass_count += 1
+                        self.bypassing = True
+                        self.channel_side,self.channel_cost,self.channel_at=result['side'],result['expected_seconds'],now
+                    self.rejoin_progress = (max(self.rejoin_progress,result['rejoin_progress'])
+                        if not result['side'] and self.bypassing else result['rejoin_progress'])
                     self.held_horizon = 0.
-                    self.path_pub.publish(self.make_path(candidate.points))
-                    self.bypass_pub.publish(Bool(data=True))
+                    if result['side']:
+                        self.path_pub.publish(self.make_path(candidate.points))
+                    self.bypass_pub.publish(Bool(data=self.bypassing))
                     self.tracker.speed_scale = 1.
-            elif result.get('blocked'):
-                self.tracker.speed_scale = .6
-            else:
-                self.tracker.speed_scale = 1.
+                    if hasattr(self,'log'):
+                        from dataclasses import asdict
+                        (Path(self.log.name).parent/f'route-{candidate.route_id}.json').write_text(
+                            (plan_json if plan_json is not None else json.dumps(asdict(candidate)))+'\n')
+            self.tracker.speed_scale = 1.
+            if not result.get('blocked') and result['reason']!='PLANNING_TIMEOUT':self.predictive_stop=False
+            if accepted or not result.get('blocked'):
+                self.continuation_until=0.
+            elif result['reason']!='PLANNING_TIMEOUT':
+                self.continuation_until=result.get('continuation_until',0.)
+            if result.get('blocked') and not accepted:
+                self.predictive_stop=now>=getattr(self,'continuation_until',0.)
+            if (self.execution_blocked or self.predictive_stop) and self.state!='BLOCKED':
+                self.blocked_count+=1
+                self.stop('BLOCKED','TRAJECTORY_INFEASIBLE' if self.execution_blocked else 'PREDICTED_COLLISION')
+        if getattr(self,'continuation_until',0.) and now>=self.continuation_until and self.state=='RUNNING':
+            self.predictive_stop=True
+            self.blocked_count+=1
+            self.stop('BLOCKED','PREDICTION_EXPIRED')
         if self.bypassing and self.tracker.progress.s >= self.rejoin_progress:
             self.bypassing = False
             self.bypass_pub.publish(Bool(data=False))
         if self.observation is not None and self.observation['stamp'] > self.submitted_stamp:
             self.submitted_stamp = self.observation['stamp']
-            self.worker.submit(dict(points=self.observation['points'], stamp=self.observation['stamp'],
+            self.worker.submit(dict(run_id=self.run_id,points=self.observation['points'], stamp=self.observation['stamp'],
+                sensor_position=self.observation.get('sensor_position'),
+                source_stamp=self.observation.get('source_stamp',self.observation['stamp']),
+                point_offsets=self.observation.get('point_offsets'),
                 weights=self.observation.get('weights'),
                 observation_age=max(0.,now-self.observation['stamp']), plan=self.plan,
+                pose_age=max(0.,self.pose_age),
+                original_plan=self.original_plan,phase=self.tracker.progress.phase,
+                bypassing=self.bypassing,
+                alternative_route=self.bypass_count>0,
+                path_blocked=self.raw_hazard and self.guard.get('route_id')==self.plan.route_id,
+                restore_plan=self.speed_restore,
                 progress=self.tracker.progress.s, pose=self.pose, velocity=self.tracker.velocity,
                 command=self.tracker.command, acceleration=self.tracker.acceleration))
 
@@ -181,6 +241,7 @@ class TrajectoryMission(Node):
             and now - self.costmap_at < 0.7
             and now - self.guard_at < 0.5
             and self.guard.get("sensors_fresh", False)
+            and (not self.c.get('allow_bypass',False) or (self.worker is not None and self.worker.ready.is_set()))
         )
 
     def start(self, request, response, from_here=False, prepare_only=False):
@@ -235,6 +296,10 @@ class TrajectoryMission(Node):
             response.message = str(exc)
             return response
         self.tracker = OmniTracker(self.plan, self.c)
+        self.original_plan,self.original_progress=self.plan,0.
+        # Route compilation loads additional long-lived objects after process startup.
+        gc.collect()
+        gc.freeze()
         if prepare_only:
             self.prepared_pose = list(self.pose)
             self.state, self.reason = 'PREPARED', 'ROUTE_PREPARED'
@@ -245,11 +310,14 @@ class TrajectoryMission(Node):
             response.success = True
             response.message = f'Route prepared in {self.report.get("planning_seconds",0.):.2f}s; run srm-nav start'
             return response
-        if self.c.get('allow_bypass', False):
-            if self.worker:
-                self.worker.close()
+        if self.c.get('allow_bypass', False) and self.worker is None:
             self.worker = PlanningWorker(self.c, self.static_map)
         self.bypass_count, self.bypassing = 0, False
+        self.execution_blocked=False
+        self.predictive_stop=False
+        self.continuation_until=0.
+        self.speed_restore=None
+        self.channel_side,self.channel_cost,self.channel_at=0,math.inf,0.
         self.avoidance = {}
         self.run += 1
         self.run_id = uuid.uuid4().hex
@@ -306,7 +374,7 @@ class TrajectoryMission(Node):
         from dataclasses import asdict
 
         (out / "route.json").write_text(json.dumps(asdict(self.plan), indent=2) + "\n")
-        self.log = (out / "status.jsonl").open("w", buffering=1)
+        self.log = StatusLog(out / "status.jsonl")
 
     def stop(self, state=None, reason=""):
         if state:
@@ -331,14 +399,12 @@ class TrajectoryMission(Node):
             response.message = "Cancel before reset"
             return response
         self.stop("IDLE")
-        if self.worker:
-            self.worker.close()
-            self.worker = None
         self.history = []
         self.index = -1
         self.reason = ""
         self.plan = None
         self.input_failure.clear()
+        self.original_plan,self.original_progress=None,0.
         self.tracker = None
         if hasattr(self, 'log'):
             self.log.close()
@@ -365,12 +431,15 @@ class TrajectoryMission(Node):
 
     def future(self):
         i = max(0, int(np.searchsorted(self.plan.s, self.tracker.progress.s)) - 1)
-        return self.plan.points[i:]
+        end=min(len(self.plan.points),int(np.searchsorted(self.plan.s,
+            self.tracker.progress.s+max(1.,3*self.c['max_speed'])))+1)
+        return self.plan.points[i:end]
 
     def publish_collision(self):
         if self.plan:
             future = self.future()
-            self.collision_pub.publish(self.make_path(future))
+            if self.collision_pub.get_subscription_count():
+                self.collision_pub.publish(self.make_path(future))
             self.trajectory_pub.publish(
                 String(
                     data=json.dumps(
@@ -384,6 +453,7 @@ class TrajectoryMission(Node):
                             command=(self.tracker.command@np.array([[math.cos(self.yaw),-math.sin(self.yaw)],
                                 [math.sin(self.yaw),math.cos(self.yaw)]])).tolist() if self.state=='RUNNING' else [0.,0.],
                             reference_progress=self.tracker.progress.s,
+                            original_progress=self.original_progress,
                         )
                     )
                 )
@@ -409,9 +479,11 @@ class TrajectoryMission(Node):
             reach = max(reach, self.held_horizon)
         self.held_horizon = reach
         swept = np.asarray(executable_path(np.asarray(self.future())-self.pose,
-                                           self.tracker.velocity,response_horizon(self.c))) + self.pose
+                                           self.tracker.velocity,stopping_horizon(self.c,speed))) + self.pose
         return (
-            (self.raw_hazard and self.guard.get('route_id',self.plan.route_id)==self.plan.route_id)
+            self.execution_blocked
+            or self.predictive_stop
+            or (self.raw_hazard and self.guard.get('route_id',self.plan.route_id)==self.plan.route_id)
             or first_blocked(
                 swept,
                 0,
@@ -430,6 +502,14 @@ class TrajectoryMission(Node):
         )
 
     def update_phase(self):
+        if self.original_plan is not None:
+            phase=self.tracker.progress.phase
+            left=0 if phase==0 else self.plan.gates[phase-1][1]
+            right=self.plan.gates[phase][1]
+            a=0 if phase==0 else self.original_plan.gates[phase-1][1]
+            b=self.original_plan.gates[phase][1]
+            fraction=np.clip((self.tracker.progress.s-self.plan.s[left])/max(1e-9,self.plan.s[right]-self.plan.s[left]),0.,1.)
+            self.original_progress=max(self.original_progress,float(self.original_plan.s[a]+fraction*(self.original_plan.s[b]-self.original_plan.s[a])))
         while self.index < self.tracker.progress.phase:
             self.index += 1
             self.history.append(
@@ -444,6 +524,7 @@ class TrajectoryMission(Node):
         now = time.monotonic()
         dt = min(0.1, now - self.last_tick)
         self.last_tick = now
+        self.pose_problem=''
         try:
             t = self.tf.lookup_transform("map", "base_footprint", rclpy.time.Time())
             self.pose_stamp = t.header.stamp.sec + t.header.stamp.nanosec / 1e9
@@ -455,7 +536,13 @@ class TrajectoryMission(Node):
             )
             if not all(math.isfinite(v) for v in self.pose + [self.yaw]):
                 raise ValueError("Nonfinite localization")
-        except Exception:
+        except TransformException as error:
+            # One failed lookup does not invalidate the last snapshot before its existing age limit.
+            self.pose_problem=str(error)
+            self.pose_age=self.get_clock().now().nanoseconds/1e9-self.pose_stamp if self.pose is not None else math.inf
+            if abs(self.pose_age)>=.25:self.pose=None
+        except Exception as error:
+            self.pose_problem=str(error)
             self.pose_age = math.inf
             self.pose = None
         if self.tracker and abs(self.pose_age) < 0.25:
@@ -467,7 +554,7 @@ class TrajectoryMission(Node):
                 self.enable_pub.publish(Bool(data=True))
             elif now-self.starting_at > 1.0:
                 self.input_failure=dict(tf_age=self.pose_age,costmap_age=now-self.costmap_at,
-                    guard_age=now-self.guard_at,guard=self.guard)
+                    guard_age=now-self.guard_at,guard=self.guard,tf_problem=self.pose_problem)
                 self.stop("FAULT", "LOCALIZATION_OR_SENSOR_STALE")
         if self.state == "CANCELLING":
             if (
@@ -486,7 +573,7 @@ class TrajectoryMission(Node):
                 self.update_phase()
             if not self.ready():
                 self.input_failure=dict(tf_age=self.pose_age,costmap_age=now-self.costmap_at,
-                    guard_age=now-self.guard_at,guard=self.guard)
+                    guard_age=now-self.guard_at,guard=self.guard,tf_problem=self.pose_problem)
                 self.stop("FAULT", "LOCALIZATION_OR_SENSOR_STALE")
             elif self.obstacle():
                 if self.state != "BLOCKED":
@@ -545,17 +632,24 @@ class TrajectoryMission(Node):
             blocked_count=self.blocked_count,
             bypass_count=self.bypass_count,
             bypassing=self.bypassing,
+            original_progress=self.original_progress,
+            behavior=(self.state if self.state!='RUNNING' else 'DETOUR' if self.bypassing
+                else 'YIELD' if self.speed_restore is not None else 'CRUISE'),
+            obstacle_version=self.avoidance.get('stamp'),
             avoidance=self.avoidance,
             raw_lidar_hazard=self.raw_hazard,
             elapsed_sim_seconds=stamp - self.started if self.started else 0.0,
             smoothed_transitions=bool(self.report.get("transition_scale")),
             engine="trajectory",
             tracking=self.detail,
-            control_tick_ms=(time.monotonic() - now) * 1000,
+            control_tick_ms=getattr(self,'previous_tick_ms',0.),
+            control_compute_ms=(time.monotonic()-now)*1000,
         )
-        self.status_pub.publish(String(data=json.dumps(report)))
+        encoded=json.dumps(report)
+        self.status_pub.publish(String(data=encoded))
         if hasattr(self, "log"):
-            self.log.write(json.dumps(report) + "\n")
+            self.log.write(encoded + "\n")
+        self.previous_tick_ms=(time.monotonic()-now)*1000
 
 
 def main():

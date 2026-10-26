@@ -21,6 +21,18 @@ class RoutePlan:
     gates: tuple
     clearance: tuple
 
+    def __post_init__(self):
+        # NumPy scalar reducers held the queue feeder's GIL while control waited to resume.
+        for name in ('points','tangent'):
+            object.__setattr__(self,name,tuple(tuple(map(float,row)) for row in getattr(self,name)))
+        for name in ('s','curvature','speed','clearance'):
+            object.__setattr__(self,name,tuple(map(float,getattr(self,name))))
+
+    def __getstate__(self):
+        state=self.__dict__.copy()
+        state.pop('_arrays',None)
+        return state
+
     @cached_property
     def _arrays(self):
         return tuple(np.asarray(v) for v in (self.points,self.s,self.tangent,self.speed))
@@ -255,6 +267,7 @@ class OmniTracker:
         desired = reference * tangent + feedback
         # Invert the fitted velocity lag for the reference acceleration, before bounded correction.
         _, next_tangent, next_reference = self.plan.sample(ahead + max(.05,reference)*.05)
+        next_reference *= self.speed_scale
         feedforward_acceleration = (next_reference*next_tangent-reference*tangent)/.05
         feedforward_acceleration *= min(1., self.limits['max_acceleration']/max(1e-9,np.linalg.norm(feedforward_acceleration)))
         desired += self.response_tau * feedforward_acceleration

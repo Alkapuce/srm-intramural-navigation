@@ -5,15 +5,18 @@ import math
 import numpy as np
 from intramural_base.transport import CommandPolicy
 from intramural_mission.trajectory import OmniTracker
-from intramural_mission.safety import response_horizon
+from intramural_mission.safety import response_horizon,stopping_horizon
 
 
 class Plant:
-    def __init__(self, pose, delay, tau, dt=.025):
+    def __init__(self, pose, delay, tau, dt=.025, acceleration_limit=None):
         if not all(math.isfinite(v) for v in (delay,tau,dt)) or min(delay,tau) < 0 or dt <= 0:
             raise ValueError("Invalid simulated response")
         self.pose, self.velocity = np.array(pose,dtype=float), np.zeros(2)
         self.dt, self.tau = dt,tau
+        if acceleration_limit is not None and (not math.isfinite(acceleration_limit) or acceleration_limit<=0):
+            raise ValueError('Positive drive acceleration limit required')
+        self.acceleration_limit=acceleration_limit
         self.queue = deque(np.zeros(2) for _ in range(round(delay/dt)))
 
     def step(self, command):
@@ -23,16 +26,19 @@ class Plant:
         self.queue.append(u.copy())
         applied = self.queue.popleft()
         alpha = 1. if self.tau == 0 else 1-math.exp(-self.dt/self.tau)
-        self.velocity += alpha*(applied-self.velocity)
+        change=alpha*(applied-self.velocity)
+        if self.acceleration_limit is not None:
+            change*=min(1.,self.acceleration_limit*self.dt/max(1e-9,np.linalg.norm(change)))
+        self.velocity += change
         self.pose += self.velocity*self.dt
 
 
-def predict_motion(plan, limits, pose, velocity, command, acceleration, progress, horizon=3.):
+def predict_motion(plan, limits, pose, velocity, command, acceleration, progress, horizon=2., models=None):
     """Production tracker and transport from a moving boundary, including stop tails."""
-    models = limits.get('response_models', [(limits.get('response_delay', .2), limits.get('response_tau', .15))])
+    models = models or limits.get('response_models', [(limits.get('response_delay', .2), limits.get('response_tau', .15))])
     trajectories = []
     for delay, tau in models:
-        plant = Plant(pose, delay, tau)
+        plant = Plant(pose, delay, tau, acceleration_limit=limits.get('drive_acceleration_limit'))
         plant.velocity = np.asarray(velocity).copy()
         plant.queue = deque(np.asarray(command).copy() for _ in plant.queue)
         tracker = OmniTracker(plan, limits)
@@ -43,18 +49,42 @@ def predict_motion(plan, limits, pose, velocity, command, acceleration, progress
         policy = CommandPolicy([[1, 0], [0, 1]], limits['max_speed'], limits['max_acceleration'], limits['max_speed'])
         policy.enabled, policy.last_tick = True, -plant.dt
         policy.previous = tuple(command)
-        points, tails, errors = [plant.pose.copy()], [plant.pose+plant.velocity*response_horizon(limits)], []
+        points, velocities, sent_commands, errors = [plant.pose.copy()], [plant.velocity.copy()], [], []
+        observed,source_stamp=plant.pose.copy(),0.
         for i in range(math.ceil(horizon/plant.dt)):
             t = i*plant.dt
-            u, detail = tracker.step(plant.pose, 0., plant.dt, stamp=t)
+            if t-source_stamp>=limits.get('pose_update_period',.1)-1e-9:
+                observed,source_stamp=plant.pose.copy(),t
+            u, detail = tracker.step(observed, 0., plant.dt, pose_age=t-source_stamp, stamp=source_stamp)
             policy.receive(*u, 0., now=t)
             sent, _ = policy.tick(t)
+            sent_commands.append(sent[:2])
             plant.step(sent[:2])
             points.append(plant.pose.copy())
-            tails.append(plant.pose+plant.velocity*response_horizon(limits))
+            velocities.append(plant.velocity.copy())
             errors.append(detail['error'])
-        trajectories.append((np.asarray(points), np.arange(len(points))*plant.dt,
-                             np.asarray(tails), max(errors, default=0.)))
+        # Batch a zero-command branch at every future state, retaining its actual delay queue.
+        positions,brake_velocity=np.asarray(points).copy(),np.asarray(velocities).copy()
+        braking=[positions.copy()];offsets=[0.];commands=np.asarray(sent_commands)
+        count=len(points);delay_steps=round(delay/plant.dt)
+        force=plant.acceleration_limit
+        duration=delay+5*tau+(float(max(np.linalg.norm(brake_velocity,axis=1)))/force if force else 0.)
+        steps=max(2,math.ceil(duration/plant.dt));alpha=1. if tau==0 else 1-math.exp(-plant.dt/tau)
+        for j in range(steps):
+            if j<delay_steps:
+                indices=np.arange(count)+j-delay_steps
+                u=commands[np.clip(indices,0,len(commands)-1)].copy()
+                u[indices<0]=command
+            else:u=np.zeros_like(brake_velocity)
+            change=alpha*(u-brake_velocity)
+            if force is not None:
+                change*=np.minimum(1.,force*plant.dt/np.maximum(1e-9,np.linalg.norm(change,axis=1)))[:,None]
+            brake_velocity+=change;positions+=brake_velocity*plant.dt
+            if j%2==1 or j==steps-1:
+                braking.append(positions.copy());offsets.append((j+1)*plant.dt)
+        timing=np.arange(count)*plant.dt
+        trajectories.append((np.asarray(points),timing,np.stack(braking,axis=1),
+            timing[:,None]+np.asarray(offsets),max(errors,default=0.)))
     return trajectories
 
 
@@ -67,7 +97,7 @@ def predict_execution(plan, c, measured, plant_response=None, required_clearance
         # Recorded response predicts normal driving; collision latency is a separate bound.
         plant_response = np.median(models,axis=0) if models else (c.get("response_delay",.2),c.get("response_tau",.15))
     delay,tau = plant_response
-    plant = Plant(plan.points[0],delay,tau)
+    plant = Plant(plan.points[0],delay,tau,acceleration_limit=c.get('drive_acceleration_limit'))
     tracker = OmniTracker(plan,c)
     policy = CommandPolicy([[1,0],[0,1]],c["max_speed"],c["max_acceleration"],c["max_speed"])
     policy.enabled,policy.last_tick = True,-plant.dt
@@ -98,7 +128,7 @@ def predict_execution(plan, c, measured, plant_response=None, required_clearance
         for i,key in enumerate(("lower_pole","upper_pole")):
             a,b = previous-c[key],plant.pose-c[key]
             turns[i] += math.atan2(a[0]*b[1]-a[1]*b[0],np.dot(a,b))
-        coast = plant.velocity*coast_horizon
+        coast = plant.velocity*stopping_horizon(c,np.linalg.norm(plant.velocity))
         sweep = plant.pose + np.linspace(0.,1.,max(2,math.ceil(np.linalg.norm(coast)/(.5*measured.res))))[:,None]*coast
         clearances = measured.clearance(sweep)
         gap = float(clearances[0])

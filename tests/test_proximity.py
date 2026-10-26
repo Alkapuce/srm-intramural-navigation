@@ -18,6 +18,24 @@ from intramural_mission.route import curve_speed_limit, arc, line
 
 
 class ProximityTests(unittest.TestCase):
+    def test_sweep_pruning_matches_independent_point_segment_distances(self):
+        rng=np.random.default_rng(20261026)
+        for _ in range(100):
+            route=np.vstack(([0.,0.],np.cumsum(rng.normal(0.,.15,(15,2)),axis=0)))
+            points=rng.uniform(-2.,2.,(150 if _%2 else 600,2));reach=rng.uniform(.1,1.5);radius=.29
+            points=points[np.linalg.norm(points,axis=1)>radius+.01]
+            hits=np.linalg.norm(points,axis=1)<radius;travelled=0.
+            for a,b in zip(route,route[1:]):
+                length=np.linalg.norm(b-a)
+                if travelled>=reach:break
+                d=(b-a)*min(1.,(reach-travelled)/length)
+                for i,p in enumerate(points):
+                    t=max(0.,min(1.,float(np.dot(p-a,d)/np.dot(d,d))))
+                    hits[i] |= np.linalg.norm(p-a-t*d)<radius
+                travelled+=length
+            for support in (1,3):
+                self.assertEqual(obstacle_on_path(points,route,reach,radius,support),np.count_nonzero(hits)>=support)
+
     def test_old_scan_is_compensated_and_checks_the_full_future_body(self):
         from livox_ros_driver2.msg import CustomMsg, CustomPoint
         from intramural_mission.livox_adapter import convert
@@ -28,7 +46,7 @@ class ProximityTests(unittest.TestCase):
             c=dict(lidar_pose=[0.]*6,robot_radius=.29,minimum_clearance=.02,max_speed=2.,max_acceleration=3.5,
                 braking_acceleration=.2,bypass_speed=.2,raw_collision_min_points=3,
                 navigation_engine='trajectory',raw_collision_follow_path=True,response_delay=.1,response_tau=.09)
-            m=N(c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
+            m=N(atomic_command=False,c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
                 motion_permitted=True,enabled=True,bypassing=False,output=[1.6,0.],body_velocity=[1.7,0.],
                 odom_history=[(9.9,-.17,0.,0.),(10.,0.,0.,0.),(10.1,.17,0.,0.),(10.2,.34,0.,0.)],
                 collision_pose_stamp=10.2,last_motion_direction=(1.6,0.),body_path=lambda:path,mode='sensors',
@@ -49,7 +67,7 @@ class ProximityTests(unittest.TestCase):
             braking_acceleration=.2,bypass_speed=.2,raw_collision_min_points=3,
             navigation_engine='trajectory',raw_collision_follow_path=True,
             response_delay=.1,response_tau=.09)
-        m=N(c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
+        m=N(atomic_command=False,c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
             motion_permitted=True,enabled=True,bypassing=False,output=[1.6,0.],body_velocity=[1.6,0.],
             last_motion_direction=(1.6,0.),raw_near_points=np.array([[2.,-.02],[2.,0.],[2.,.02]]),
             body_path=lambda:line([0.,0.],[3.,0.],.05),mode='sensors',
@@ -72,7 +90,7 @@ class ProximityTests(unittest.TestCase):
             c=dict(lidar_pose=[0.]*6,robot_radius=.29,minimum_clearance=.02,max_speed=1.7,
                 max_acceleration=3.,braking_acceleration=.2,bypass_speed=.2,
                 raw_collision_min_points=3,raw_collision_follow_path=True)
-            m=N(c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
+            m=N(atomic_command=False,c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
                 motion_permitted=True,enabled=True,bypassing=False,output=[.6,-.8],
                 last_motion_direction=(.6,-.8),body_path=lambda:path,mode='sensors',
                 touch=lambda k:None,get_clock=lambda:N(now=lambda:N(nanoseconds=0)),
@@ -105,7 +123,7 @@ class ProximityTests(unittest.TestCase):
             raw_collision_follow_path=True,continuous_corners=True,lateral_acceleration=.5,
             parking_tolerance=.12)
         path=line([0.,0.],[6.,0.],.05)
-        m=N(c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
+        m=N(atomic_command=False,c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
             motion_permitted=True,enabled=True,bypassing=False,output=[0.,0.],
             last_motion_direction=(0.,0.),raw_near_points=np.array([[.8,-.04],[.8,0.],[.8,.04]]),
             body_path=lambda:path,mode='sensors',pub=N(publish=lambda v:None),
@@ -153,7 +171,7 @@ class ProximityTests(unittest.TestCase):
             braking_acceleration=.2,bypass_speed=.2,raw_collision_min_points=3,
             raw_collision_follow_path=True,continuous_corners=True,lateral_acceleration=.4)
         route=line([0.,0.],[.15,0.],.05)+line([.15,0.],[.15,.7],.05)[1:]
-        m=N(c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
+        m=N(atomic_command=False,c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
             motion_permitted=True,enabled=True,bypassing=False,output=[0.,0.],
             last_motion_direction=(.55,0.),raw_near_points=np.empty((0,2)),body_path=lambda:route,
             mode='sensors',pub=N(publish=transmit),hazard_pub=N(publish=lambda v:None),
@@ -174,7 +192,7 @@ class ProximityTests(unittest.TestCase):
 
     def test_faster_tracking_does_not_shorten_conservative_braking_sweep(self):
         now=time.monotonic();cmd=Twist();cmd.linear.x=.5
-        m=N(c=dict(robot_radius=.29,minimum_clearance=.02,max_speed=.5,max_acceleration=.6,
+        m=N(atomic_command=False,c=dict(robot_radius=.29,minimum_clearance=.02,max_speed=.5,max_acceleration=.6,
                    braking_acceleration=.2,bypass_speed=.2,raw_collision_min_points=3),
             cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
             motion_permitted=True,enabled=True,bypassing=False,output=[.5,0.],
@@ -186,7 +204,11 @@ class ProximityTests(unittest.TestCase):
         self.assertEqual(m.output,[0.,0.])
 
     def test_raw_controller_zero_ros_topic_reaches_final_stop_without_a_timer_tick(self):
-        config=Path(__file__).resolve().parents[1]/'config/arena.json'
+        import json, tempfile
+        original=Path(__file__).resolve().parents[1]/'config/arena.json'
+        config_file=tempfile.NamedTemporaryFile(mode='w',suffix='.json',dir=original.parent.parent/'cache')
+        config=Path(config_file.name)
+        config_file.write(json.dumps(dict(json.loads(original.read_text()),navigation_engine='legacy')));config_file.flush()
         rclpy.init(domain_id=78,args=['--ros-args','-p',f'arena_config:={config}','-p','localization:=sensors'])
         guard=Adapter();peer=rclpy.create_node('controller_zero_observer')
         for timer in guard.timers:timer.cancel()
@@ -203,7 +225,7 @@ class ProximityTests(unittest.TestCase):
             self.assertEqual(guard.output,[0.,0.])
             self.assertEqual((received[-1].linear.x,received[-1].linear.y),(0.,0.))
         finally:
-            peer.destroy_node();guard.destroy_node();rclpy.shutdown()
+            peer.destroy_node();guard.destroy_node();rclpy.shutdown();config_file.close()
 
     def test_field_rejects_isolated_scan_hits_but_stops_for_supported_obstacle(self):
         route=[[0.,0.],[.15,0.],[.3,0.],[.5,0.]]
@@ -222,7 +244,7 @@ class ProximityTests(unittest.TestCase):
         def transmit(msg):
             policy.receive(msg.linear.x,msg.linear.y,msg.angular.z,now)
             sent.append(policy.tick(now)[0])
-        m=N(c=dict(robot_radius=.29,max_speed=.4,max_acceleration=.2,bypass_speed=.2),
+        m=N(atomic_command=False,c=dict(robot_radius=.29,max_speed=.4,max_acceleration=.2,bypass_speed=.2),
             cmd=Twist(),last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
             motion_permitted=True,enabled=True,bypassing=False,output=[.3,0.],
             last_motion_direction=(.3,0.),raw_near_points=np.empty((0,2)),mode='sensors',
@@ -237,7 +259,7 @@ class ProximityTests(unittest.TestCase):
     def test_raw_controller_stop_clears_a_smoothed_old_direction_immediately(self):
         policy=CommandPolicy([[1.,0.],[0.,1.]],.4,.2,.4)
         policy.enabled=True;policy.previous=(.3,0.);policy.last_tick=0.
-        m=N(cmd=Twist(),output=[.3,0.],pub=N(publish=lambda msg:policy.receive(msg.linear.x,msg.linear.y,0.,.01)))
+        m=N(atomic_command=False,cmd=Twist(),output=[.3,0.],pub=N(publish=lambda msg:policy.receive(msg.linear.x,msg.linear.y,0.,.01)))
         Adapter.controller_command(m,Twist())
         self.assertEqual(m.output,[0.,0.])
         self.assertEqual(policy.previous,(0.,0.))
@@ -259,10 +281,10 @@ class ProximityTests(unittest.TestCase):
         path=RosPath();path.header.frame_id='map'
         for x,y in [[0.,0.],[.15,0.],[.3,.15],[.3,.5]]:
             p=PoseStamped();p.pose.position.x=x;p.pose.position.y=y;path.poses.append(p)
-        tf=N(header=N(stamp=N(sec=0,nanosec=0)),transform=N(translation=N(x=0.,y=0.),rotation=N(w=1.,x=0.,y=0.,z=0.)))
+        tf=N(header=N(stamp=N(sec=0,nanosec=0)),transform=N(atomic_command=False,translation=N(x=0.,y=0.),rotation=N(w=1.,x=0.,y=0.,z=0.)))
         c=dict(robot_radius=.29,minimum_clearance=.02,max_speed=.4,max_acceleration=.2,bypass_speed=.2,raw_collision_follow_path=True)
         cmd=Twist();cmd.linear.x=.4;commands=[]
-        m=N(c=c,cmd=cmd,mode='sensors',enabled=True,motion_permitted=True,bypassing=False,
+        m=N(atomic_command=False,c=c,cmd=cmd,mode='sensors',enabled=True,motion_permitted=True,bypassing=False,
             output=[.4,0.],last_motion_direction=(.4,0.),collision_path=path,path_tf=N(lookup_transform=lambda *a:tf),
             get_clock=lambda:N(now=lambda:N(nanoseconds=0)),pub=N(publish=commands.append),
             hazard_pub=N(publish=lambda v:None),diagnostic=N(publish=lambda v:None))
@@ -294,7 +316,7 @@ class ProximityTests(unittest.TestCase):
         msg.fields=[PointField(name=k,offset=i*4,datatype=7,count=1) for i,k in enumerate(('x','y','z','intensity'))]
         msg.data=array('B',np.array([[-.004,-.1144,.039,0.],[-.004,-.1144,.039,1.],[.5,0.,.3,0.]],dtype='<f4').tobytes())
         c=dict(lidar_pose=[.15,-.15,.22,0.,0.,0.],robot_radius=.29,raw_zero_intensity_min_range_m=.15)
-        m=N(c=c,mode='sensors',touch=lambda k:None,get_clock=lambda:N(now=lambda:N(nanoseconds=0)))
+        m=N(atomic_command=False,c=c,mode='sensors',touch=lambda k:None,get_clock=lambda:N(now=lambda:N(nanoseconds=0)))
         Adapter.lidar(m,msg)
         np.testing.assert_allclose(m.raw_near_points,[[.146,-.2644],[.65,-.15]],atol=1e-6)
         del c['raw_zero_intensity_min_range_m']
@@ -308,7 +330,7 @@ class ProximityTests(unittest.TestCase):
             c=dict(robot_radius=.29,max_speed=.2,bypass_speed=.2,max_acceleration=.2)
             if minimum is not None:c['minimum_clearance']=minimum
             cmd=Twist();cmd.linear.x=.2
-            m=N(c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},
+            m=N(atomic_command=False,c=c,cmd=cmd,last={k:now for k in ['command','odom','lidar','imu']},
                 last_tick=now-.025,motion_permitted=True,enabled=True,bypassing=False,
                 output=[.2,0.],last_motion_direction=(.2,0.),raw_near_points=np.array([point]),mode='sensors',
                 pub=N(publish=commands.append),hazard_pub=N(publish=hazards.append),diagnostic=N(publish=lambda msg:None))

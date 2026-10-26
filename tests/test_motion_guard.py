@@ -12,6 +12,19 @@ from intramural_mission.adapter import Adapter
 
 
 class MotionGuardTests(unittest.TestCase):
+    def test_delayed_old_snapshot_cannot_clear_a_newer_atomic_command(self):
+        import json
+        fresh_path=object();command=Twist();command.linear.x=.3
+        guard=N(atomic_command=True,snapshot_stamp=10.,mission_state='RUNNING',
+            mission_context=('current','new'),cmd=command,collision_path=fresh_path,
+            get_clock=lambda:N(now=lambda:N(nanoseconds=10_000_000_000)))
+        for run,stamp in [('old',10.1),('current',9.9)]:
+            message=N(data=json.dumps(dict(run_id=run,route_id='old',stamp=stamp,
+                points=[[0.,0.],[1.,0.]],pose=[0.,0.,0.],pose_stamp=8.,command=[0.,0.])))
+            Adapter.receive_trajectory(guard,message)
+            self.assertIs(guard.collision_path,fresh_path)
+            self.assertIs(guard.cmd,command)
+
     def test_offset_lidar_points_are_checked_in_body_frame(self):
         cloud = PointCloud2(height=1, width=4, point_step=12, row_step=48)
         cloud.fields = [PointField(name=k, offset=i*4, datatype=7, count=1)
@@ -30,6 +43,7 @@ class MotionGuardTests(unittest.TestCase):
         cmd.linear.y = 1.0
         cmd.angular.z = 1.0
         m = N(
+            atomic_command=False,
             enabled=True, bypassing=False, motion_permitted=True,
             cmd=cmd,
             last={k: 10.0 for k in ["command", "odom", "lidar", "imu"]},

@@ -24,6 +24,53 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TrajectorySafetyTests(unittest.TestCase):
+    def test_missing_tf_lookup_keeps_only_the_still_fresh_snapshot(self):
+        from tf2_ros import LookupException
+        c=json.loads((ROOT/'config/arena.json').read_text());c['allow_bypass']=False
+        with tempfile.TemporaryDirectory(dir=ROOT/'cache') as folder:
+            config=Path(folder)/'arena.json';config.write_text(json.dumps(c))
+            rclpy.init(domain_id=89,args=['--ros-args','-p',f'arena_config:={config}'])
+            node=TrajectoryMission()
+            try:
+                t=TransformStamped();t.header.stamp=node.get_clock().now().to_msg();t.transform.rotation.w=1.
+                node.tf=N(lookup_transform=lambda *args:t);node.tick();pose=node.pose.copy()
+                def missing(*args):raise LookupException('Injected missing transform')
+                node.tf=N(lookup_transform=missing);node.tick()
+                self.assertEqual(node.pose,pose);self.assertLess(node.pose_age,.25)
+                node.pose_stamp-=.3;node.tick()
+                self.assertIsNone(node.pose);self.assertGreaterEqual(node.pose_age,.25)
+                self.assertIn('Injected missing',node.pose_problem)
+            finally:node.destroy_node();rclpy.shutdown()
+
+    def test_old_planner_results_and_expired_continuation_cannot_keep_motion(self):
+        from collections import deque
+        c=json.loads((ROOT/'config/arena.json').read_text());c['allow_bypass']=False
+        with tempfile.TemporaryDirectory(dir=ROOT/'cache') as folder:
+            config=Path(folder)/'arena.json';config.write_text(json.dumps(c))
+            rclpy.init(domain_id=89,args=['--ros-args','-p',f'arena_config:={config}'])
+            node=TrajectoryMission();replies=deque()
+            node.worker=N(poll=lambda:replies.popleft() if replies else None)
+            node.plan=RoutePlan.build([('RETURN',[[float(x),0.] for x in np.linspace(0.,2.,41)])],c)
+            node.tracker=OmniTracker(node.plan,c);node.tracker.command=np.array([.4,0.])
+            node.pose=[0.,0.];node.run_id='current';node.state='RUNNING'
+            now=node.get_clock().now().nanoseconds/1e9
+            base=dict(stamp=now,route_id=node.plan.route_id,run_id='current',plan=None,
+                blocked=True,imminent=False,reason='PREDICTED_CONFLICT',seconds=.01,tracks=[])
+            try:
+                for changes in (dict(run_id='previous'),dict(stamp=now-1.),dict(route_id='previous')):
+                    replies.append(dict(base,**changes));node.update_avoidance()
+                    self.assertEqual(node.state,'RUNNING');self.assertEqual(node.avoidance,{})
+                replies.append(dict(base,continuation_until=now+1.));node.update_avoidance()
+                self.assertEqual(node.state,'RUNNING');self.assertFalse(node.predictive_stop)
+                node.continuation_until=now-1.;node.update_avoidance()
+                self.assertEqual(node.state,'BLOCKED');np.testing.assert_array_equal(node.tracker.command,[0.,0.])
+                node.state='RUNNING';node.continuation_until=0.
+                replies.append(dict(base,plan=node.plan,seconds=.09,continuation_until=now+10.))
+                node.update_avoidance()
+                self.assertEqual(node.state,'BLOCKED');self.assertEqual(node.avoidance['reason'],'PLANNING_TIMEOUT')
+            finally:
+                node.worker=None;node.destroy_node();rclpy.shutdown()
+
     def test_parking_window_completes_without_restarting_correction(self):
         from intramural_mission.planning import GridMap
         c=json.loads((ROOT/'config/arena.json').read_text())
@@ -297,6 +344,7 @@ class TrajectorySafetyTests(unittest.TestCase):
                 a.receive_trajectory(String(data=json.dumps(path)))
                 np.testing.assert_allclose(a.body_path(),[[0.,0.],[1.,0.]],atol=1e-12)
                 path['pose_stamp']-=1.
+                path['stamp']+=.0001
                 a.receive_trajectory(String(data=json.dumps(path)))
                 self.assertIsNone(a.body_path())
                 path['pose_stamp']+=1.
