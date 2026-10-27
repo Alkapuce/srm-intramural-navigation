@@ -505,7 +505,9 @@ class DetourPlanner:
         offsets=(.6,1.2,2.)
         offsets=offsets[attempt//2%3:]+offsets[:attempt//2%3]
         for offset in offsets:
-            if time.monotonic()-began > .07:
+            elapsed=time.monotonic()-began
+            # Preserve a verified winner before building another grid that cannot be searched.
+            if elapsed > .07 or (winners and elapsed+self.prediction_seconds+.012 > .070):
                 break
             join = min(join_limit,len(lengths)-2, int(np.searchsorted(lengths, lengths[blocked_index]+offset)))
             if join <= start+2:
