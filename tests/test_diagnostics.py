@@ -7,6 +7,7 @@ import rclpy
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from std_msgs.msg import String
 from nav_msgs.msg import Path
+from builtin_interfaces.msg import Time
 from intramural_mission.diagnostics import Diagnostics
 
 
@@ -31,9 +32,10 @@ class DiagnosticsTests(unittest.TestCase):
             os.kill(diagnostics.process.pid,signal.SIGSTOP)
             os.waitid(os.P_PID,diagnostics.process.pid,os.WSTOPPED|os.WNOWAIT)
             begin=time.monotonic()
+            points=tuple((float(i),-float(i))for i in range(2000))
             for index in range(60):
                 diagnostics.publish('mission/status',String(data=str(index)+'x'*200000))
-                diagnostics.publish('mission/path',Path())
+                diagnostics.publish_path(points,Time(sec=12,nanosec=34))
             diagnostics.publish('mission/status',String(data='final'))
             self.assertLess(time.monotonic()-begin,.2)
             before=len(ticks);deadline=time.monotonic()+.1
@@ -45,6 +47,10 @@ class DiagnosticsTests(unittest.TestCase):
                 rclpy.spin_once(self.node,timeout_sec=.02)
             self.assertIn('final',states)
             self.assertTrue(paths)
+            self.assertEqual(paths[-1].header.frame_id,'map')
+            self.assertEqual(paths[-1].header.stamp,Time(sec=12,nanosec=34))
+            self.assertEqual(len(paths[-1].poses),2000)
+            self.assertEqual(paths[-1].poses[-1].pose.position.y,-1999.)
         finally:
             if diagnostics.process.is_alive():os.kill(diagnostics.process.pid,signal.SIGCONT)
             diagnostics.close()

@@ -93,7 +93,6 @@ class TrajectoryMission(Node):
         self.status_pub = "mission/status"
         self.enable_pub = self.create_publisher(Bool, "mission/enabled", q)
         self.command_pub = self.create_publisher(Twist, "cmd_vel_controller", 10)
-        self.path_pub = "mission/path"
         self.collision_pub = self.create_publisher(RosPath, "mission/collision_path", q)
         self.trajectory_pub = self.create_publisher(String, "mission/trajectory", q)
         self.bypass_pub = self.create_publisher(Bool, "mission/bypass", q)
@@ -218,12 +217,12 @@ class TrajectoryMission(Node):
                         if not result['side'] and self.bypassing else result['rejoin_progress'])
                     self.held_horizon = 0.
                     if result['side']:
-                        self.diagnostics.publish(self.path_pub, self.make_path(candidate.points))
+                        self.diagnostics.publish_path(candidate.points,self.get_clock().now().to_msg())
                     self.bypass_pub.publish(Bool(data=self.bypassing))
                     self.tracker.speed_scale = 1.
                     if hasattr(self,'log'):
                         from dataclasses import asdict
-                        (Path(self.log.name).parent/f'route-{candidate.route_id}.json').write_text(
+                        self.log.snapshot(Path(self.log.name).parent/f'route-{candidate.route_id}.json',
                             (plan_json if plan_json is not None else json.dumps(asdict(candidate)))+'\n')
             self.tracker.speed_scale = 1.
             feasible=(not result.get('blocked') and result['reason']!='PLANNING_TIMEOUT'
@@ -345,7 +344,7 @@ class TrajectoryMission(Node):
             self.state, self.reason = 'PREPARED', 'ROUTE_PREPARED'
             self.command_pub.publish(Twist())
             self.enable_pub.publish(Bool(data=False))
-            self.diagnostics.publish(self.path_pub, self.make_path(self.plan.points))
+            self.diagnostics.publish_path(self.plan.points,self.get_clock().now().to_msg())
             self.publish_collision()
             response.success = True
             response.message = f'Route prepared in {self.report.get("planning_seconds",0.):.2f}s; run srm-nav start'
@@ -378,7 +377,7 @@ class TrajectoryMission(Node):
             self.stop("FAULT", "RUN_RECORD_FAILED")
             response.message = str(exc)
             return response
-        self.diagnostics.publish(self.path_pub, self.make_path(self.plan.points))
+        self.diagnostics.publish_path(self.plan.points,self.get_clock().now().to_msg())
         self.update_phase()
         self.publish_collision()
         self.last_tick = time.monotonic()

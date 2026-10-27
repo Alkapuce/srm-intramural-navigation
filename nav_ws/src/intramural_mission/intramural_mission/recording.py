@@ -12,10 +12,16 @@ class StatusLog:
         self.closed=False
 
     def write(self,text):
+        self.submit(self.file.write,text)
+
+    def snapshot(self,path,text):
+        self.submit(path.write_text,text)
+
+    def submit(self,writer,text):
         if self.closed:raise ValueError('Status log is closed')
         while self.pending and self.pending[0].done():self.pending.popleft().result()
         if len(self.pending)>=256:raise OSError('Status log writer cannot keep up')
-        self.pending.append(self.executor.submit(self.file.write,text))
+        self.pending.append(self.executor.submit(writer,text))
 
     def close(self):
         if self.closed:return

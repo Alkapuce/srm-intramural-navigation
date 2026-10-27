@@ -10,6 +10,7 @@ def _publish(reader, namespace, domain, ready):
     from rclpy.signals import SignalHandlerOptions
     from std_msgs.msg import String
     from nav_msgs.msg import Path
+    from geometry_msgs.msg import PoseStamped
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     rclpy.init(domain_id=domain, signal_handler_options=SignalHandlerOptions.NO)
     node = rclpy.create_node('mission_diagnostics', namespace=namespace)
@@ -23,6 +24,15 @@ def _publish(reader, namespace, domain, ready):
             if packet is None:
                 break
             topic, serialized = packet
+            if topic=='mission/path' and isinstance(serialized,tuple):
+                points,sec,nanosec=serialized
+                message=Path();message.header.frame_id='map'
+                message.header.stamp.sec=sec;message.header.stamp.nanosec=nanosec
+                for x,y in points:
+                    pose=PoseStamped();pose.header=message.header
+                    pose.pose.position.x=x;pose.pose.position.y=y;pose.pose.orientation.w=1.
+                    message.poses.append(pose)
+                serialized=message
             publishers[topic].publish(serialized)
     except EOFError:
         pass
@@ -53,8 +63,14 @@ class Diagnostics:
 
     def publish(self, topic, message):
         from rclpy.serialization import serialize_message
-        self.check()
         serialized = serialize_message(message)
+        self.enqueue(topic,serialized)
+
+    def publish_path(self,points,stamp):
+        self.enqueue('mission/path',(points,stamp.sec,stamp.nanosec))
+
+    def enqueue(self,topic,serialized):
+        self.check()
         with self.condition:
             if self.closing:
                 raise RuntimeError('Diagnostic publisher closed')

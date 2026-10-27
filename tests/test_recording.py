@@ -11,8 +11,10 @@ class StatusLogTests(unittest.TestCase):
             path=Path(directory)/'status.jsonl';log=StatusLog(path)
             lines=[str(i)+' '+('x'*5000)+'\n' for i in range(100)]
             for line in lines:log.write(line)
+            snapshot=Path(directory)/'route.json';log.snapshot(snapshot,'{"route": 1}\n')
             log.close();log.close()
             self.assertEqual(path.read_text(),''.join(lines))
+            self.assertEqual(snapshot.read_text(),'{"route": 1}\n')
             with self.assertRaises(ValueError):log.write('late\n')
 
     @unittest.skipUnless(Path('/dev/full').exists(),'Requires the kernel ENOSPC test device')

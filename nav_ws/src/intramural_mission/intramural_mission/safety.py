@@ -49,23 +49,28 @@ def braking_paths(limits, velocity, command, history=(), reaction=0.):
     force=limits.get('drive_acceleration_limit')
     if force is not None and (not math.isfinite(force) or force<=0):
         raise ValueError('Positive drive acceleration limit required')
-    speed=max(math.hypot(*velocity),math.hypot(*command),float(np.linalg.norm(history[:,1:],axis=1).max()))
     paths=[];dt=.01
     for delay,tau in _response_models(limits):
-        duration=delay+reaction+8*tau+(speed/force if force else 0.)
-        steps=max(1,math.ceil(duration/dt));times=(np.arange(steps)+.5)*dt-delay
+        duration=delay+reaction
+        steps=math.ceil(duration/dt);widths=np.minimum(dt,np.maximum(0.,duration-np.arange(steps)*dt))
+        times=np.arange(steps)*dt+widths/2-delay
         indices=np.clip(np.searchsorted(history[:,0],times,side='right')-1,0,len(history)-1)
         inputs=history[indices,1:].copy()
         inputs[times>=0]=command;inputs[times>=reaction]=0.
         x=y=0.;vx,vy=map(float,velocity);path=[[0.,0.]]
-        alpha=1. if tau==0 else 1-math.exp(-dt/tau)
-        for j,(ux,uy) in enumerate(inputs):
+        for j,(ux,uy) in enumerate(inputs.tolist()):
+            step=float(widths[j])
+            alpha=1. if tau==0 else 1-math.exp(-step/tau)
             dx,dy=alpha*(ux-vx),alpha*(uy-vy)
-            scale=min(1.,force*dt/max(1e-12,math.hypot(dx,dy))) if force else 1.
+            scale=min(1.,force*step/max(1e-12,math.hypot(dx,dy))) if force else 1.
             nx,ny=vx+dx*scale,vy+dy*scale
-            x+=(vx+nx)*dt/2;y+=(vy+ny)*dt/2;vx,vy=nx,ny
-            # Once zero has reached the drive, deceleration is collinear; keep its full endpoint.
-            if times[j]<=reaction+dt or j==steps-1:path.append([x,y])
+            x+=(vx+nx)*step/2;y+=(vy+ny)*step/2;vx,vy=nx,ny
+            path.append([x,y])
+        # After zero reaches the drive, solve the collinear force-limited exponential tail exactly.
+        speed=math.hypot(vx,vy)
+        distance=(speed*speed/(2*force)+force*tau*tau/2
+                  if force and speed>force*tau else speed*tau)
+        if speed:path.append([x+vx*distance/speed,y+vy*distance/speed])
         paths.append(path)
     return paths
 
