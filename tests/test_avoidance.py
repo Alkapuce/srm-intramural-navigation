@@ -17,6 +17,12 @@ def send_fragmented_result(writer, ready, release, hold):
 
 
 class AvoidanceTests(unittest.TestCase):
+    def test_transfer_path_detects_a_local_loop_without_rejecting_a_hairpin(self):
+        from intramural_mission.avoidance import self_crossing
+        self.assertFalse(self_crossing([[0.,0.],[1.,0.],[1.,1.],[0.,1.]]))
+        self.assertTrue(self_crossing([[0.,0.],[1.,1.],[0.,1.],[1.,0.]]))
+        self.assertFalse(self_crossing([[0.,0.],[1.,0.]]))
+
     def test_continuous_start_clears_full_cell_squares_without_lowering_margins(self):
         import math
         from intramural_mission.avoidance import DetourPlanner

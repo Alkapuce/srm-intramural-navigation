@@ -263,6 +263,21 @@ def route_topology(plan,config,tracks,phase):
     return [(center,winding(plan.points,center)) for center in centers]
 
 
+def self_crossing(points):
+    points=np.asarray(points)
+    vectors=np.diff(points,axis=0)
+    if len(vectors)<3:return False
+    pairs=cKDTree((points[:-1]+points[1:])/2).query_pairs(
+        float(max(np.linalg.norm(vectors,axis=1))),output_type='ndarray')
+    pairs=pairs[pairs[:,1]>pairs[:,0]+1]
+    if not len(pairs):return False
+    a,b=pairs.T
+    delta=points[b]-points[a]
+    u,v=vectors[a],vectors[b]
+    return bool(np.any((np.cross(u,delta)*np.cross(u,delta+v)<0.)&
+                       (np.cross(v,-delta)*np.cross(v,u-delta)<0.)))
+
+
 def splice(plan, progress, bridge, join_s, limits, clearance, initial_speed):
     i = max(0, int(np.searchsorted(plan.s, progress, side='right'))-1)
     j = min(len(plan.points)-1, int(np.searchsorted(plan.s, join_s)))
@@ -689,6 +704,11 @@ class DetourPlanner:
                         except ValueError:
                             reject('return_joint')
                             continue
+                        if len(proposal.gates)==10 and any(self_crossing(proposal.points[a:b+1])
+                                for a,b in ((0,proposal.gates[0][1]),(proposal.gates[8][1],proposal.gates[9][1]))):
+                            # A local transfer loop is not one of the required ordered pole turns.
+                            reject('transfer_loop')
+                            break
                         speeds = np.asarray(proposal.speed).copy()
                         first = np.searchsorted(proposal.s, start_s)
                         last = first+len(bridge)
