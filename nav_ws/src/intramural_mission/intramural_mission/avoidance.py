@@ -97,7 +97,10 @@ class ObstacleTracker:
                 # Growing visible faces shift the center; translation beyond that growth remains observable.
                 growth=np.maximum(0.,clusters[j][2]-t['extent'])
                 shape_shift=np.clip(center-expected,-growth,growth)
+                if 'visible_side' in t:
+                    shape_shift=np.where(t['visible_side']!=0,t['visible_side']*growth,shape_shift)
                 t['x'][:2]+=shape_shift
+                t['motion_anchor']=t.get('motion_anchor',t['measurement_center']).copy()+shape_shift
                 t['measurement_center']+=shape_shift
                 innovation = measurement@t['p']@measurement.T+np.eye(2)*.02**2
                 residual=center-measurement@t['x']
@@ -117,8 +120,13 @@ class ObstacleTracker:
                     observations=t['observations']+1)
                 # A small derivative inside its own uncertainty is scan jitter, not motion evidence.
                 sigma=np.sqrt(np.maximum(0.,np.diag(t['p'])))
+                displacement=center-t['motion_anchor']
+                onset=(np.linalg.norm(displacement)>.02 and np.linalg.norm(t['x'][2:4])>.05
+                       and np.dot(t['x'][2:4],displacement)>0.)
+                if not onset:t['motion_anchor']+=.1*displacement
+                if sensor_position is not None:t['visible_side']=np.sign(clusters[j][0]-sensor_position)
                 if (np.linalg.norm(t['x'][2:4])>max(.08,max(sigma[2:4])) or
-                        np.linalg.norm(t['x'][4:])>max(.4,max(sigma[4:]))):t['moving_until']=stamp+.3
+                        np.linalg.norm(t['x'][4:])>max(.4,max(sigma[4:])) or onset):t['moving_until']=stamp+.3
                 used.add(j)
         for j, (center, radius, extent, source_time) in enumerate(clusters):
             if j not in used:
@@ -127,7 +135,9 @@ class ObstacleTracker:
                 advance=obstacle_transition(stamp-source_time)
                 self.tracks.append(dict(id=self.serial, x=np.r_[center, 0., 0.,0.,0.],
                     p=advance@initial@advance.T,
-                    radius=radius,extent=extent,stamp=stamp,seen=source_time,measurement_center=center,observations=1,moving_until=stamp,association_valid=True))
+                    radius=radius,extent=extent,stamp=stamp,seen=source_time,measurement_center=center,
+                    motion_anchor=center.copy(),observations=1,moving_until=stamp,association_valid=True))
+                if sensor_position is not None:self.tracks[-1]['visible_side']=np.sign(center-sensor_position)
         return self.snapshot(stamp)
 
     def snapshot(self, stamp):
@@ -349,12 +359,16 @@ class DetourPlanner:
         return [dict(track,shared_margin=self.c.get('minimum_clearance',.02))
                 for track in self.tracker.update(points,stamp,weights,sensor_position,point_times)]
 
-    def solve(self, request):
-        began = time.monotonic()
+    def observe_request(self, request):
         offsets=request.get('point_offsets')
         source=request.get('source_stamp',request['stamp'])
         point_times=(np.full(len(request['points']),source) if offsets is None else source+np.asarray(offsets)*1e-9)
-        tracks = self.observations(request['points'], request['stamp'], request.get('weights'),request.get('sensor_position'),point_times)
+        return self.observations(request['points'],request['stamp'],request.get('weights'),request.get('sensor_position'),point_times)
+
+    def solve(self, request):
+        began = time.monotonic()
+        for observation in request.get('observation_history',()):self.observe_request(observation)
+        tracks = self.observe_request(request)
         plan, progress = request['plan'], request['progress']
         pose, velocity = np.asarray(request['pose']), np.asarray(request['velocity'])
         switch_delay=max(0.,request.get('pose_age',0.))+.1
@@ -372,6 +386,9 @@ class DetourPlanner:
         for t in tracks:
             t['age'] += age
             t['prediction_age'] = age
+        # Uncertain motion must remain safe even if the observed contour stays where it is.
+        tracks += [dict(t,velocity=[0.,0.],acceleration=[0.,0.],moving=False,stationary_hypothesis=True)
+                   for t in tracks if t['moving'] and not t['motion_confident']]
         report = dict(stamp=request['stamp'], route_id=plan.route_id, run_id=request.get('run_id'),tracks=tracks,
                       plan=None, blocked=False, imminent=False,reason='', side=0, rejected={})
         models=self.c.get('response_models',[(self.c.get('response_delay',.2),self.c.get('response_tau',.15))])
@@ -390,8 +407,8 @@ class DetourPlanner:
                     or stopped_collision(brakes,brake_times,obstacles,radius)
                     for _,_,brakes,brake_times,_ in predictions)
             if unsafe_stop(initial,tracks):
-                stationary=[t for t in tracks if not (t['moving'] and t['motion_confident'])]
-                # Only observed moving threats permit a finite escape; static and unknown threats still stop.
+                stationary=[t for t in tracks if not t['moving']]
+                # Escape cannot override a stationary contour in the actual braking path.
                 if unsafe_stop(initial,stationary):
                     return dict(report,blocked=True,imminent=True,execution_failure=True,
                         reason='BRAKING_ENVELOPE_CONFLICT',seconds=time.monotonic()-began)
@@ -426,7 +443,7 @@ class DetourPlanner:
                 restore_index=max(0,int(np.searchsorted(timing,max(0.,escape_until-prediction_stamp),side='right'))-1)
                 checks=[(execution_tracks,np.arange(len(timing))>=restore_index)]
                 if escape_until:
-                    checks.append(([t for t in execution_tracks if not (t['moving'] and t['motion_confident'])],np.ones(len(timing),bool)))
+                    checks.append(([t for t in execution_tracks if not t['moving']],np.ones(len(timing),bool)))
                 for obstacles,eligible in checks:
                     if not np.any(eligible):
                         if escape_until:return False
@@ -576,7 +593,12 @@ class DetourPlanner:
             # The exact continuous start can be clear while its cell center is too close.
             if 0<=row<free_mask.shape[0] and 0<=col<free_mask.shape[1] and clearance([pose])[0]>.0125:
                 free_mask[row,col]=True
-            for side in ((-1,1) if attempt%2==0 else (1,-1)):
+            def side_clearance(side):
+                waypoint=np.asarray(threat['center'])+normal*side*distance
+                return float(min(self.map.clearance([waypoint-tangent*.35,waypoint+tangent*.35],
+                    include_poles=not self.c.get('pole_clearance_from_map',False))))
+            sides=sorted(((-1,1) if attempt%2==0 else (1,-1)),key=side_clearance,reverse=True)
+            for side in sides:
                 if winners and time.monotonic()-began+self.prediction_seconds+.012 > .070:
                     break
                 waypoint = np.asarray(threat['center'])+normal*side*distance
@@ -711,9 +733,16 @@ class PlanningWorker:
 
     def submit(self, request):
         # The queue feeder serializes later; freeze motion state before control changes it.
+        previous=self.pending
         self.pending = dict(request)
         for key in ('pose','velocity','command','acceleration'):
             if key in self.pending:self.pending[key]=tuple(map(float,self.pending[key]))
+        if previous is not None:
+            observations=list(previous.get('observation_history',()))
+            observations.append({key:previous[key] for key in
+                ('points','stamp','source_stamp','point_offsets','weights','sensor_position') if key in previous})
+            self.pending['observation_history']=[item for item in observations
+                if request['stamp']-.6<=item['stamp']<request['stamp']]
         self.dispatch()
 
     def dispatch(self):

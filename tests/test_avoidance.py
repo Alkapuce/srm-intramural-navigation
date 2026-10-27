@@ -94,13 +94,15 @@ class AvoidanceTests(unittest.TestCase):
         np.testing.assert_allclose(track['center'],[2.,0.],atol=.04)
 
     def test_gradually_revealed_face_does_not_look_like_translation(self):
-        for speed in (0.,1.):
+        for speed in (0.,1.,-1.):
             tracker=ObstacleTracker()
             for i in range(20):
                 width=min(.25,.02+i*.015)
                 cloud=[[2.+speed*i*.05+x,y]for x in np.linspace(-.25,-.25+2*width,9)
                        for y in(-.25,0.,.25)]
                 track=tracker.update(cloud,i*.05,sensor_position=[0.,0.])[0]
+                if i==7 and speed:
+                    self.assertAlmostEqual(track['velocity'][0],speed,delta=.2)
             self.assertAlmostEqual(track['velocity'][0],speed,delta=.12)
             self.assertLess(abs(track['velocity'][1]),.08)
             if speed==0.:self.assertFalse(track['acceleration_observed'])
@@ -202,6 +204,39 @@ class AvoidanceTests(unittest.TestCase):
         self.assertIsNone(expired['plan'],expired)
         self.assertEqual(expired['reason'],'ESCAPE_DEADLINE_EXPIRED')
         self.assertTrue(expired['blocked'])
+
+    def test_uncertain_motion_escape_checks_the_stationary_hypothesis_too(self):
+        import json
+        from pathlib import Path
+        from intramural_mission.avoidance import DetourPlanner,stopped_collision
+        from intramural_mission.response import predict_motion
+        c,grid,_,_=self.case()
+        c.update(json.loads((Path(__file__).resolve().parents[1]/'config/navigation-profiles.json').read_text())['candidate'])
+        c['drive_acceleration_limit']=c['max_acceleration']
+        plan=RoutePlan.build([('RETURN',[[float(x),0.]for x in np.linspace(-1.,5.,241)])],c)
+        planner=DetourPlanner(c,grid)
+        for i in range(16):
+            position=np.array([2.,-1.8])+np.array([0.,1.5])*(i-15)*.1
+            if i==15:position[0]-=.15
+            points=[position+[dx,dy]for dx in(-.1,0.,.1)for dy in(-.1,0.,.1)]
+            if i<15:planner.observations(points,i*.1)
+        result=planner.solve(dict(plan=plan,progress=1.,pose=[0.,0.],velocity=[1.9,0.],
+            command=[1.9,0.],acceleration=[0.,0.],points=points,stamp=1.5))
+        self.assertEqual(result['reason'],'ESCAPE_READY',result)
+        self.assertFalse(result['tracks'][0]['motion_confident'])
+        stationary=[t for t in result['tracks']if not t['moving']]
+        self.assertTrue(stationary)
+        for prediction in result['escape_predictions']:
+            self.assertFalse(collision(prediction['points'],prediction['times'],result['tracks'],.31))
+        for _,_,brakes,times,_ in predict_motion(plan,c,[0.,0.],[1.9,0.],[1.9,0.],[0.,0.],1.,horizon=0.):
+            self.assertFalse(collision(brakes[0],times[0],stationary,.31))
+            self.assertFalse(stopped_collision(brakes,times,stationary,.31))
+        # A currently occupied braking path still refuses every escape hypothesis.
+        close_points=[[.35+dx,dy]for dx in(-.1,0.,.1)for dy in(-.1,0.,.1)]
+        denied=DetourPlanner(c,grid).solve(dict(plan=plan,progress=1.,pose=[0.,0.],velocity=[1.9,0.],
+            command=[1.9,0.],acceleration=[0.,0.],points=close_points,stamp=1.5))
+        self.assertEqual(denied['reason'],'BRAKING_ENVELOPE_CONFLICT')
+        self.assertIsNone(denied['plan'])
 
     def test_stopping_place_remains_occupied_when_an_actor_arrives_after_rest(self):
         from intramural_mission.avoidance import collision_segments,stopped_collision
@@ -353,6 +388,17 @@ class AvoidanceTests(unittest.TestCase):
         self.assertAlmostEqual(tracks[0]['center'][0],x,delta=.05)
         self.assertAlmostEqual(tracks[0]['velocity'][0],1.,delta=.25)
 
+    def test_delayed_motion_start_keeps_its_early_consistent_acceleration_occupancy(self):
+        tracker=ObstacleTracker()
+        for i in range(25):
+            source=i*.05;moving=max(0.,source-1.)
+            center=np.array([2.,0.])+np.array([-1.,-1.])/np.sqrt(2)*moving*moving
+            cloud=[center+[x,y]for x in(-.1,0.,.1)for y in(-.1,0.,.1)]
+            track=tracker.update(cloud,source+.1,sensor_position=[0.,0.],point_times=np.full(9,source))[0]
+            if i==23:
+                self.assertTrue(track['moving'])
+                self.assertLess(np.linalg.norm(track['velocity']),2*np.sqrt(max(np.diag(track['covariance'])[2:4])))
+
     def test_accelerating_motion_is_detected_before_the_braking_window_closes(self):
         tracker=ObstacleTracker()
         for i in range(25):
@@ -467,6 +513,27 @@ class AvoidanceTests(unittest.TestCase):
             self.assertFalse(results[-1].get('execution_failure',True))
         finally:worker.close()
         self.assertFalse(worker.process.is_alive())
+
+    def test_latest_worker_task_keeps_motion_observations_from_superseded_tasks(self):
+        import time
+        from intramural_mission.avoidance import PlanningWorker
+        c,grid,plan,_=self.case();worker=PlanningWorker(c,grid);results=[]
+        try:
+            self.assertTrue(worker.ready.wait(5.))
+            for i in range(8):
+                points=[[3.+.7*i*.05+x,2.+y]for x in(-.1,0.,.1)for y in(-.1,0.,.1)]
+                worker.submit(dict(plan=plan,progress=0.,pose=[0.,0.],velocity=[0.,0.],
+                    command=[0.,0.],acceleration=[0.,0.],points=points,stamp=1.+i*.05))
+            deadline=time.monotonic()+5.
+            while time.monotonic()<deadline and len(results)<2:
+                result=worker.poll()
+                if result is not None:results.append(result)
+                time.sleep(.002)
+            self.assertEqual([r['stamp']for r in results],[1.,1.35])
+            target=results[-1]['tracks'][0]
+            self.assertAlmostEqual(target['velocity'][0],.7,delta=.1)
+            self.assertTrue(target['motion_confident'])
+        finally:worker.close()
 
     def test_worker_finishes_current_brake_failure_without_redundant_candidate_search(self):
         import time
