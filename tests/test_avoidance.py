@@ -68,9 +68,9 @@ class AvoidanceTests(unittest.TestCase):
         self.assertNotEqual(result['plan'].points,slow.points)
 
     def test_return_cannot_change_sides_around_an_already_avoided_obstacle(self):
-        from intramural_mission.avoidance import route_topology
+        from intramural_mission.avoidance import DetourPlanner,route_topology
         from intramural_mission.bypass import winding
-        c,_,_,_=self.case()
+        c,grid,_,_=self.case()
         route=[('ENTER',[[0.,0.],[1.,1.],[2.,0.]])]
         previous=[2.,0.]
         for n,angle in enumerate(np.linspace(np.pi,3*np.pi,9)[1:]):
@@ -88,6 +88,20 @@ class AvoidanceTests(unittest.TestCase):
         self.assertFalse(all(winding(wrong.points,p)==v for p,v in constraints))
         self.assertTrue(all(winding(wrong.points,c[k])==winding(reference.points,c[k])
                             for k in ('lower_pole','upper_pole')))
+        planner=DetourPlanner(c,grid)
+        obstacle['id']=1
+        request=dict(run_id='first',plan=reference,phase=0,alternative_route=True)
+        self.assertEqual(planner.entry_constraints(request,[obstacle]),[])
+        request['phase']=1
+        historical=planner.entry_constraints(request,[])
+        self.assertEqual(len(historical),1)
+        self.assertTrue(all(winding(reference.points,p)==v for p,v in historical))
+        self.assertFalse(all(winding(wrong.points,p)==v for p,v in historical))
+        moved=dict(obstacle,center=[1.,-1.])
+        request['phase']=9
+        self.assertEqual(planner.entry_constraints(request,[moved]),historical)
+        request['run_id']='second'
+        self.assertEqual(planner.entry_constraints(request,[moved]),[])
         obstacle['center']=[1.,1.]
         self.assertEqual(len(route_topology(reference,c,[obstacle],9)),2)
         self.assertEqual(len(route_topology(reference,c,[obstacle],0)),2)

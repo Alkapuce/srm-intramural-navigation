@@ -340,6 +340,9 @@ class DetourPlanner:
         self.prediction_seconds = .025
         self.attempt = 0
         self.restore_confirm=None
+        self.entry_run=None
+        self.entry_obstacles={}
+        self.entry_topology=None
         row,col=np.mgrid[:grid.info.height,:grid.info.width]
         xy=np.column_stack(((col.ravel()+.5)*self.map.res,(row.ravel()+.5)*self.map.res))
         self.grid_points=xy@np.array([[self.map.co,self.map.si],[-self.map.si,self.map.co]])+self.map.origin
@@ -366,11 +369,31 @@ class DetourPlanner:
         point_times=(np.full(len(request['points']),source) if offsets is None else source+np.asarray(offsets)*1e-9)
         return self.observations(request['points'],request['stamp'],request.get('weights'),request.get('sensor_position'),point_times)
 
+    def entry_constraints(self, request, tracks):
+        if request.get('run_id')!=self.entry_run:
+            self.entry_run=request.get('run_id')
+            self.entry_obstacles={}
+            self.entry_topology=None
+        plan=request['plan']
+        if len(plan.gates)!=10:return []
+        if request.get('phase',0)==0:
+            if request.get('alternative_route'):
+                for track in tracks:self.entry_obstacles.setdefault(track['id'],dict(track))
+        elif self.entry_topology is None:
+            entry=np.asarray(plan.points[:plan.gates[0][1]+1])
+            radius=self.c['robot_radius']+self.c.get('minimum_clearance',.02)
+            # Moving or disappearing observations cannot erase the side actually chosen on entry.
+            self.entry_topology=[(t['center'],winding(plan.points,t['center']))
+                for t in self.entry_obstacles.values()
+                if min(obstacle_gap(entry,t))>radius+prediction_uncertainty(t,0.)]
+        return self.entry_topology or []
+
     def solve(self, request):
         began = time.monotonic()
         for observation in request.get('observation_history',()):self.observe_request(observation)
         tracks = self.observe_request(request)
         plan, progress = request['plan'], request['progress']
+        entry_topology=self.entry_constraints(request,tracks)
         pose, velocity = np.asarray(request['pose']), np.asarray(request['velocity'])
         switch_delay=max(0.,request.get('pose_age',0.))+.1
         current_pose=pose+velocity*max(0.,request.get('pose_age',0.))
@@ -550,7 +573,7 @@ class DetourPlanner:
         reference = np.asarray(plan.points)
         lengths = np.asarray(plan.s)
         phase=request.get('phase',0)
-        topology=route_topology(plan,self.c,tracks,phase)
+        topology=route_topology(plan,self.c,tracks,phase)+entry_topology
         join_phase=min(phase+1,len(plan.gates)-1)
         if len(plan.gates)==10 and join_phase<len(plan.gates)-1:
             cross=reference[plan.gates[join_phase][1]]
