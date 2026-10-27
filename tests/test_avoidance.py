@@ -116,6 +116,20 @@ class AvoidanceTests(unittest.TestCase):
         self.assertAlmostEqual(track['velocity'][0],2.,delta=.15)
         self.assertLess(abs(track['velocity'][1]),.1)
 
+    def test_losing_a_far_edge_does_not_hide_translation_away_from_the_sensor(self):
+        for speed in (0.,1.,-1.):
+            tracker=ObstacleTracker()
+            for i in range(16):
+                tracker.update([[2.+x,y]for x in(-.25,0.,.25)for y in(-.25,0.,.25)],
+                    i*.05,sensor_position=[0.,0.])
+            for i in range(1,5):
+                center=2.+speed*i*.05
+                cloud=[[center+x,y]for x in np.linspace(-.25,.25-.05*i,9)
+                       for y in(-.25,0.,.25)]
+                track=tracker.update(cloud,(15+i)*.05,sensor_position=[0.,0.])[0]
+            self.assertAlmostEqual(track['center'][0],center,delta=.04)
+            self.assertAlmostEqual(track['velocity'][0],speed,delta=.2)
+
     def test_noisy_static_observations_keep_bounded_position_and_velocity_estimates(self):
         tracker=ObstacleTracker();rng=np.random.default_rng(31);errors=[];speeds=[]
         for i in range(200):

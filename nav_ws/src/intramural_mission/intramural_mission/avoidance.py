@@ -91,7 +91,7 @@ class ObstacleTracker:
                 center=np.clip(expected,clusters[j][0]+clusters[j][2]-extent,
                     clusters[j][0]-clusters[j][2]+extent)
                 if sensor_position is not None:
-                    partial=clusters[j][2]<.5*extent
+                    partial=clusters[j][2]<extent
                     face_center=clusters[j][0]+np.sign(clusters[j][0]-sensor_position)*(extent-clusters[j][2])
                     center=np.where(partial,face_center,center)
                 # Growing visible faces shift the center; translation beyond that growth remains observable.
