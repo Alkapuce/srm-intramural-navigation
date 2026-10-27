@@ -1,0 +1,200 @@
+{
+  "scope": "Onboard-localization-scale effective response, not isolated mechanical parameters or independent physical speed calibration",
+  "command_mapping_gain": 1.0,
+  "axis_mapping_changed": false,
+  "models": [
+    {
+      "source": "baseline-18s554.jsonl",
+      "response_delay": 0.10474780388498589,
+      "response_tau": 0.008433087904684984,
+      "validation_rmse_m": 0.027723838862166422,
+      "validation_max_error_m": 0.03658087952619897,
+      "jacobian_condition": 10000.403713850614,
+      "identifiable": false,
+      "eligible_for_model": false,
+      "sha256": "93e383366d3d10002561997f3fdeba7db77b58096fb431f0aa2ba2f7cd2945fa"
+    },
+    {
+      "source": "corner-055.jsonl",
+      "response_delay": 0.06551704580266535,
+      "response_tau": 0.045058660030413394,
+      "validation_rmse_m": 0.019070567387429817,
+      "validation_max_error_m": 0.04109535109815792,
+      "jacobian_condition": 2058.859809001948,
+      "identifiable": false,
+      "eligible_for_model": false,
+      "sha256": "012bfabc796002bd706ccd33c565d12448657ebba6412eea32bcb693c213ed97"
+    },
+    {
+      "source": "entry-fault-trace.jsonl",
+      "response_delay": 0.09168461485123885,
+      "response_tau": 0.08902560958962843,
+      "validation_rmse_m": 0.01980757555708483,
+      "validation_max_error_m": 0.03533316721620987,
+      "jacobian_condition": 8.65056474980694,
+      "identifiable": true,
+      "eligible_for_model": true,
+      "sha256": "4644dd272610b404037570632f794ef6c974229c2aeb0dcb1e9a7e522c97ca89"
+    },
+    {
+      "source": "upper-fault-trace.jsonl",
+      "response_delay": 0.07021500063878677,
+      "response_tau": 0.054799099669173165,
+      "validation_rmse_m": 0.11618879432324335,
+      "validation_max_error_m": 0.14547819736079654,
+      "jacobian_condition": 361.27910279498917,
+      "identifiable": true,
+      "eligible_for_model": false,
+      "sha256": "71076920e229afeea33e23225ab4b6a6a4bb99d553a93ebf7a8f8e18000e94f4"
+    },
+    {
+      "source": "person-stops.jsonl",
+      "response_delay": 0.08984127804154006,
+      "response_tau": 0.029510894483599153,
+      "validation_rmse_m": 0.013233419478112933,
+      "validation_max_error_m": 0.029630844594994318,
+      "jacobian_condition": 6.362667852944074,
+      "identifiable": true,
+      "eligible_for_model": true,
+      "sha256": "02906d636b5ec6cc5790c78819a81018916e998f73eb3349d918f1ba595f4bb7"
+    },
+    {
+      "source": "early-stops.jsonl",
+      "response_delay": 0.1253824086583051,
+      "response_tau": 0.00584230356714818,
+      "validation_rmse_m": 0.025466901650427556,
+      "validation_max_error_m": 0.05028350534451365,
+      "jacobian_condition": 175.40764727713025,
+      "identifiable": false,
+      "eligible_for_model": false,
+      "sha256": "230698d6651bce245076697f95cb47dd7933847bcc7d519c164e6b0fc7daeec6"
+    },
+    {
+      "source": "later-stops.jsonl",
+      "response_delay": 0.07683024285400192,
+      "response_tau": 0.05243267286377716,
+      "validation_rmse_m": 0.017851753483344474,
+      "validation_max_error_m": 0.04479687875473582,
+      "jacobian_condition": 7.093821145963655,
+      "identifiable": true,
+      "eligible_for_model": true,
+      "sha256": "f3d751cbaf55daafe5cb623f92b1174b74b7c2ca4683aaced3da785e7498b650"
+    }
+  ],
+  "whole_record_validation": {
+    "response_delay": 0.03780073083495001,
+    "response_tau": 0.08813965816397976,
+    "isotropic_gain_for_analysis_only": 0.9613860659376332,
+    "held_out_passed": true,
+    "records": [
+      {
+        "source": "entry-fault-trace.jsonl",
+        "sha256": "4644dd272610b404037570632f794ef6c974229c2aeb0dcb1e9a7e522c97ca89",
+        "split": "training_whole_record",
+        "window_displacement_rmse_m": 0.034887556825315566,
+        "window_displacement_max_error_m": 0.13176696509660862,
+        "samples": 170,
+        "passed": true,
+        "source_clock_scope": "final cmd_vel topic receipt to reconstructed TF source time",
+        "speed_range_onboard_mps": [
+          0.0,
+          1.3684524969334073
+        ]
+      },
+      {
+        "source": "person-stops.jsonl",
+        "sha256": "02906d636b5ec6cc5790c78819a81018916e998f73eb3349d918f1ba595f4bb7",
+        "split": "training_whole_record",
+        "window_displacement_rmse_m": 0.010413530805996031,
+        "window_displacement_max_error_m": 0.05974507053986844,
+        "samples": 14200,
+        "passed": true,
+        "source_clock_scope": "final cmd_vel topic receipt to reconstructed TF source time",
+        "speed_range_onboard_mps": [
+          0.0,
+          1.5651117778201955
+        ]
+      },
+      {
+        "source": "baseline-18s554.jsonl",
+        "sha256": "93e383366d3d10002561997f3fdeba7db77b58096fb431f0aa2ba2f7cd2945fa",
+        "split": "held_out_whole_record",
+        "window_displacement_rmse_m": 0.011312903864322457,
+        "window_displacement_max_error_m": 0.04677779606807014,
+        "samples": 575,
+        "passed": true,
+        "source_clock_scope": "final cmd_vel topic receipt to reconstructed TF source time",
+        "speed_range_onboard_mps": [
+          0.02858399618381283,
+          0.7013483090533931
+        ]
+      },
+      {
+        "source": "corner-055.jsonl",
+        "sha256": "012bfabc796002bd706ccd33c565d12448657ebba6412eea32bcb693c213ed97",
+        "split": "held_out_whole_record",
+        "window_displacement_rmse_m": 0.012213110716929572,
+        "window_displacement_max_error_m": 0.04509839304388763,
+        "samples": 708,
+        "passed": true,
+        "source_clock_scope": "final cmd_vel topic receipt to reconstructed TF source time",
+        "speed_range_onboard_mps": [
+          0.02930792442906353,
+          0.6514273216506464
+        ]
+      },
+      {
+        "source": "early-stops.jsonl",
+        "sha256": "230698d6651bce245076697f95cb47dd7933847bcc7d519c164e6b0fc7daeec6",
+        "split": "held_out_whole_record",
+        "window_displacement_rmse_m": 0.00885773514692215,
+        "window_displacement_max_error_m": 0.03950758297257176,
+        "samples": 1204,
+        "passed": true,
+        "source_clock_scope": "final cmd_vel topic receipt to reconstructed TF source time",
+        "speed_range_onboard_mps": [
+          0.0,
+          0.5082880830417865
+        ]
+      },
+      {
+        "source": "later-stops.jsonl",
+        "sha256": "f3d751cbaf55daafe5cb623f92b1174b74b7c2ca4683aaced3da785e7498b650",
+        "split": "held_out_whole_record",
+        "window_displacement_rmse_m": 0.010674549711020956,
+        "window_displacement_max_error_m": 0.03806396751279523,
+        "samples": 1329,
+        "passed": true,
+        "source_clock_scope": "final cmd_vel topic receipt to reconstructed TF source time",
+        "speed_range_onboard_mps": [
+          0.0,
+          0.5564139492267021
+        ]
+      },
+      {
+        "source": "upper-fault-trace.jsonl",
+        "sha256": "71076920e229afeea33e23225ab4b6a6a4bb99d553a93ebf7a8f8e18000e94f4",
+        "split": "held_out_whole_record",
+        "window_displacement_rmse_m": 0.0384987789001864,
+        "window_displacement_max_error_m": 0.1565971808435851,
+        "samples": 180,
+        "passed": true,
+        "source_clock_scope": "final cmd_vel topic receipt to reconstructed TF source time",
+        "speed_range_onboard_mps": [
+          0.0035132394325897223,
+          1.3983166458565228
+        ]
+      }
+    ]
+  },
+  "stopping": {
+    "all_recorded_displacements_covered": true,
+    "supported_scope": "Observed onboard-coordinate velocities only; source traces lack calibrated world heading. Only the early-stops zero tail is a confirmed unobstructed sample in the present audit.",
+    "gaps": [
+      "No clean high-speed stopping tails near 1.0/1.5/2.0 in both body directions and lateral directions",
+      "Effective response delay/tau include sensing and transport; mechanical deceleration is not separately identified",
+      "1:1 command scale remains approved initial calibration, not independently measured physical speed"
+    ]
+  },
+  "physical_vehicle_acceptance": false
+}

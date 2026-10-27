@@ -109,15 +109,15 @@ scripts/run.sh python3 -m unittest discover -s /work/tests -v
 scripts/verify-stage34.sh --mode sensors --transport serial-sim --rounds 1 \
   --output /work/artifacts/recheck-sensors-01
 
-# 四处持续障碍绕行
-scripts/verify-stage6.sh --mode sensors --persistent \
-  --output /work/artifacts/recheck-bypass-01
+# 轨迹避障候选：模型、历史影子重放、刚体及故障验收
+scripts/verify-avoidance.sh --suite all \
+  --output artifacts/recheck-avoidance-01
 
 # 独立 build/install：完整构建、测试与传感器串口路线
 scripts/reproduce-candidate.sh --output /work/artifacts/reproduce-01
 ```
 
-`/work/artifacts/` 对应本机项目的 `artifacts/`。验收保存轨迹、结果、配置快照和子进程退出状态；无窗口模式仍需图形设备渲染雷达。其他故障、建图和诊断入口见[脚本索引](scripts/README.md)。
+`/work/artifacts/` 对应本机项目的 `artifacts/`。验收保存轨迹、结果、配置快照和子进程退出状态；无窗口模式仍需图形设备渲染雷达。其他故障、建图和诊断入口见[脚本索引](scripts/README.md)。高速整圈引擎的候选动态绕行、独立验收及已知限制见[轨迹避障说明](docs/architecture/trajectory-avoidance.md)，目前须显式启用。
 
 | 已验证场景 | 结果 |
 |---|---|

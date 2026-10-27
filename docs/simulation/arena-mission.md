@@ -149,11 +149,11 @@ scripts/arena-obstacle.sh park
 ```bash
 # 新旧引擎：移除后恢复原进度
 scripts/verify-stage6.sh --mode sensors --output /work/artifacts/stage6/removal-new
-# 持续障碍保持停车并取消；新引擎不自动绕行
+# 完全阻断走廊时保持停车并取消
 scripts/verify-stage6.sh --mode ideal --persistent --scenarios entry --expect-blocked --output /work/artifacts/stage6/no-route-new
 ```
 
-以下绕行细节仅适用于 `navigation_engine=legacy` 且 `allow_bypass=true` 的旧链配置。可用 `verify-stage6.sh --persistent` 验证整圈绕行，用 `--persistent --scenarios entry --cancel-bypass` 验证绕行中取消；当前整圈引擎不支持这些模式，会明确拒绝。
+以下绕行细节仅适用于 `navigation_engine=legacy` 且 `allow_bypass=true` 的旧链配置。可用 `verify-stage6.sh --persistent` 验证整圈绕行，用 `--persistent --scenarios entry --cancel-bypass` 验证绕行中取消。整圈引擎在 `allow_bypass=true` 时支持主动绕行及途中取消，统一验收入口和已知限制见[动态避障](../architecture/trajectory-avoidance.md)；关闭开关时仅支持挡停恢复和完全阻断检查。
 
 旧链遇到障碍先关闭运动使能、取消当前控制目标并停车。移除后沿当前有序分段恢复；持续阻挡 5 秒后，用实时局部代价地图的致命占用格规划受约束的 A* 绕行。规划使用赛道先验中的桩/边界、0.29 m 车体圆及 0.20 m 额外规划净空；候选路径距原始分段不超过 1.10 m，并受当前绕桩角度区域约束。交叉点被占用时，只能同时重设当前段终点和下一段起点，停车位不能迁移；整条候选路线绕数仍须为下桩 +1、上桩 −1。找不到路线则保持停车，不自动跳段。
 
