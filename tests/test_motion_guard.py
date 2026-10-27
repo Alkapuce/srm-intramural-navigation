@@ -1,6 +1,7 @@
 """Check final command safety independently of Nav2 behavior."""
 
 import math
+import json
 import numpy as np
 import unittest
 from types import SimpleNamespace as N
@@ -38,11 +39,12 @@ class MotionGuardTests(unittest.TestCase):
 
     def guard(self):
         output = []
+        diagnostics = []
         cmd = Twist()
         cmd.linear.x = 1.0
         cmd.linear.y = 1.0
         cmd.angular.z = 1.0
-        m = N(
+        m = N(get_clock=lambda:N(now=lambda:N(nanoseconds=10_000_000_000)), 
             atomic_command=False,
             enabled=True, bypassing=False, motion_permitted=True,
             cmd=cmd,
@@ -54,7 +56,8 @@ class MotionGuardTests(unittest.TestCase):
             hazard_pub=N(publish=lambda m: None),
             raw_near_points=np.empty((0, 2)),
             last_motion_direction=(0.0, 0.0),
-            diagnostic=N(publish=lambda m: None),
+            diagnostic=N(publish=diagnostics.append),
+            diagnostics=diagnostics,
             mode="sensors",
         )
         return m, output
@@ -96,6 +99,7 @@ class MotionGuardTests(unittest.TestCase):
         self.tick(m)
         self.assertAlmostEqual(math.hypot(*m.output), 0.6 * 0.025)
         self.assertEqual(output[-1].angular.z, 0.0)
+        self.assertEqual(json.loads(m.diagnostics[-1].data)['stamp'], 10.)
 
     def test_bypass_speed_and_close_obstacle_stop(self):
         m, output = self.guard()
