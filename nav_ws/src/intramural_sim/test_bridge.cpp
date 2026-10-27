@@ -16,8 +16,7 @@ int main(int argc, char ** argv)
     config.direction = direction;
     bridge->add_bridge(config);
     std::weak_ptr<intramural_sim::Bridge> lifetime = bridge;
-    bridge->close();
-    bridge.reset();
+    intramural_sim::close_bridge(bridge);
     if (!lifetime.expired()) {
       std::cerr << "Bridge retained after close" << std::endl;
       return 1;

@@ -13,8 +13,7 @@ int main(int argc, char ** argv)
     std::cerr << error.what() << std::endl;
     result = 1;
   }
-  bridge->close();
-  bridge.reset();
+  intramural_sim::close_bridge(bridge);
   // Join deferred signal handling before logger / DDS shared libraries are unloaded.
   rclcpp::shutdown();
   return result;

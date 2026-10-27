@@ -1,4 +1,6 @@
 #pragma once
+#include <chrono>
+#include <thread>
 #include <rclcpp/rclcpp.hpp>
 #include <ros_gz_bridge/ros_gz_bridge.hpp>
 
@@ -16,4 +18,15 @@ public:
     gz_node_.reset();
   }
 };
+
+inline void close_bridge(std::shared_ptr<Bridge> & bridge)
+{
+  auto node = bridge->get_node_base_interface()->get_shared_rcl_node_handle();
+  bridge->close();
+  bridge.reset();
+  // Transport callbacks must release ROS entities before DDS global destruction starts.
+  while (node.use_count() > 1) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+}
 }  // namespace intramural_sim
