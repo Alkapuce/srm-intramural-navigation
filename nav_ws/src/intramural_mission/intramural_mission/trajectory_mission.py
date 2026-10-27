@@ -25,6 +25,7 @@ from intramural_mission.avoidance import PlanningWorker, collision, preview
 from intramural_mission.proximity import obstacle_on_path
 from intramural_mission.route import line
 from intramural_mission.recording import StatusLog
+from intramural_mission.diagnostics import Diagnostics
 from intramural_mission.hazards import first_blocked
 from intramural_mission.safety import executable_path, response_horizon, stopping_horizon, collision_reach
 
@@ -89,13 +90,14 @@ class TrajectoryMission(Node):
         self.tf = Buffer(node=self)
         self.listener = TransformListener(self.tf, self)
         q = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self.status_pub = self.create_publisher(String, "mission/status", q)
+        self.status_pub = "mission/status"
         self.enable_pub = self.create_publisher(Bool, "mission/enabled", q)
         self.command_pub = self.create_publisher(Twist, "cmd_vel_controller", 10)
-        self.path_pub = self.create_publisher(RosPath, "mission/path", q)
+        self.path_pub = "mission/path"
         self.collision_pub = self.create_publisher(RosPath, "mission/collision_path", q)
         self.trajectory_pub = self.create_publisher(String, "mission/trajectory", q)
         self.bypass_pub = self.create_publisher(Bool, "mission/bypass", q)
+        self.diagnostics = Diagnostics(self.get_namespace(), self.context.get_domain_id())
         self.create_subscription(OccupancyGrid, "map", self.receive_map, q)
         self.create_subscription(
             OccupancyGrid, "local_costmap/costmap", self.receive_costmap, q
@@ -216,7 +218,7 @@ class TrajectoryMission(Node):
                         if not result['side'] and self.bypassing else result['rejoin_progress'])
                     self.held_horizon = 0.
                     if result['side']:
-                        self.path_pub.publish(self.make_path(candidate.points))
+                        self.diagnostics.publish(self.path_pub, self.make_path(candidate.points))
                     self.bypass_pub.publish(Bool(data=self.bypassing))
                     self.tracker.speed_scale = 1.
                     if hasattr(self,'log'):
@@ -343,7 +345,7 @@ class TrajectoryMission(Node):
             self.state, self.reason = 'PREPARED', 'ROUTE_PREPARED'
             self.command_pub.publish(Twist())
             self.enable_pub.publish(Bool(data=False))
-            self.path_pub.publish(self.make_path(self.plan.points))
+            self.diagnostics.publish(self.path_pub, self.make_path(self.plan.points))
             self.publish_collision()
             response.success = True
             response.message = f'Route prepared in {self.report.get("planning_seconds",0.):.2f}s; run srm-nav start'
@@ -376,7 +378,7 @@ class TrajectoryMission(Node):
             self.stop("FAULT", "RUN_RECORD_FAILED")
             response.message = str(exc)
             return response
-        self.path_pub.publish(self.make_path(self.plan.points))
+        self.diagnostics.publish(self.path_pub, self.make_path(self.plan.points))
         self.update_phase()
         self.publish_collision()
         self.last_tick = time.monotonic()
@@ -560,6 +562,7 @@ class TrajectoryMission(Node):
             )
 
     def tick(self):
+        self.diagnostics.check()
         now = time.monotonic()
         dt = min(0.1, now - self.last_tick)
         self.last_tick = now
@@ -685,10 +688,17 @@ class TrajectoryMission(Node):
             control_compute_ms=(time.monotonic()-now)*1000,
         )
         encoded=json.dumps(report)
-        self.status_pub.publish(String(data=encoded))
+        self.diagnostics.publish(self.status_pub, String(data=encoded))
         if hasattr(self, "log"):
             self.log.write(encoded + "\n")
         self.previous_tick_ms=(time.monotonic()-now)*1000
+
+    def destroy_node(self):
+        try:
+            self.diagnostics.close()
+        finally:
+            result = super().destroy_node()
+        return result
 
 
 def main():

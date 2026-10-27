@@ -5,6 +5,17 @@ from intramural_mission.avoidance import ObstacleTracker, collision, splice
 from intramural_mission.trajectory import RoutePlan
 
 
+def send_fragmented_result(writer, ready, release, hold):
+    import os, pickle, struct
+    payload=pickle.dumps(dict(stamp=3.,plan=None,data=b'x'*200000))
+    os.write(writer.fileno(),struct.pack('!i',len(payload))+payload[:1])
+    ready.set()
+    if not release.wait(5.):return
+    offset=1
+    while offset<len(payload):offset+=os.write(writer.fileno(),payload[offset:])
+    hold.wait(5.)
+
+
 class AvoidanceTests(unittest.TestCase):
     def test_safe_crawl_still_searches_a_faster_detour_when_recovery_is_blocked(self):
         from dataclasses import replace
@@ -507,6 +518,36 @@ class AvoidanceTests(unittest.TestCase):
         result=planner.solve(dict(plan=plan,progress=0.,pose=[0.,0.],velocity=[1.,0.],command=[1.,0.],
             acceleration=[0.,0.],points=points,stamp=.8))
         self.assertNotEqual(result['reason'],'BRAKING_ENVELOPE_CONFLICT',result)
+
+    def test_partial_result_frame_never_blocks_control_and_finishes_in_background(self):
+        import multiprocessing as mp
+        import queue,threading,time
+        from intramural_mission.avoidance import PlanningWorker
+        context=mp.get_context('spawn')
+        reader,writer=context.Pipe(duplex=False)
+        ready,release,hold=(context.Event()for _ in range(3))
+        worker=PlanningWorker.__new__(PlanningWorker)
+        worker.incoming=context.Queue(1);worker.outgoing=reader
+        worker.completed=queue.Queue(1);worker.receive_error=None
+        worker.busy=True;worker.pending=None
+        worker.process=context.Process(target=send_fragmented_result,args=(writer,ready,release,hold))
+        worker.process.start();writer.close()
+        worker.receiver=threading.Thread(target=worker.receive,daemon=True);worker.receiver.start()
+        try:
+            self.assertTrue(ready.wait(5.))
+            begin=time.monotonic()
+            self.assertIsNone(worker.poll())
+            self.assertLess(time.monotonic()-begin,.1)
+            release.set();result=None;deadline=time.monotonic()+5.
+            while result is None and time.monotonic()<deadline:
+                result=worker.poll();time.sleep(.005)
+            self.assertIsNotNone(result)
+            self.assertEqual(result['stamp'],3.)
+            self.assertEqual(len(result['data']),200000)
+            self.assertFalse(worker.busy)
+        finally:
+            worker.close()
+        self.assertFalse(worker.receiver.is_alive())
 
     def test_worker_keeps_only_latest_pending_observation_and_closes(self):
         import time

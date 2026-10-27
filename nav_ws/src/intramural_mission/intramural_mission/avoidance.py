@@ -6,6 +6,7 @@ import hashlib
 import math
 import multiprocessing as mp
 import queue
+import threading
 import time
 import numpy as np
 from scipy.ndimage import label,binary_dilation
@@ -718,18 +719,34 @@ def _work(config, grid, incoming, outgoing, ready):
                           run_id=request.get('run_id'),
                           plan=None, blocked=True, reason=str(error), tracks=[], seconds=0.)
         result['seconds']=time.monotonic()-started
-        outgoing.put(result)
+        outgoing.send(result)
 
 
 class PlanningWorker:
     def __init__(self, config, grid):
         context = mp.get_context('spawn')
-        self.incoming, self.outgoing = context.Queue(1), context.Queue(1)
+        self.incoming = context.Queue(1)
+        self.outgoing, writer = context.Pipe(duplex=False)
+        self.completed = queue.Queue(1)
+        self.receive_error = None
         self.ready=context.Event()
-        self.process = context.Process(target=_work, args=(config, grid, self.incoming, self.outgoing,self.ready), daemon=True)
+        self.process = context.Process(target=_work, args=(config, grid, self.incoming, writer,self.ready), daemon=True)
         self.process.start()
+        writer.close()
+        self.receiver = threading.Thread(target=self.receive, daemon=True, name='avoidance-results')
+        self.receiver.start()
         self.busy = False
         self.pending = None
+
+    def receive(self):
+        # Pipe readability does not mean a complete result; never receive inside control.
+        try:
+            while True:
+                self.completed.put(self.outgoing.recv())
+        except (EOFError, OSError):
+            return
+        except Exception as error:
+            self.receive_error = error
 
     def submit(self, request):
         # The queue feeder serializes later; freeze motion state before control changes it.
@@ -752,10 +769,12 @@ class PlanningWorker:
             self.busy = True
 
     def poll(self):
+        if self.receive_error is not None:
+            raise RuntimeError('Avoidance result receiver failed') from self.receive_error
         if not self.process.is_alive():
             raise RuntimeError('Avoidance worker exited')
         try:
-            result = self.outgoing.get_nowait()
+            result = self.completed.get_nowait()
         except queue.Empty:
             return None
         self.busy = False
@@ -770,7 +789,9 @@ class PlanningWorker:
             if self.process.is_alive():
                 self.process.kill()
                 self.process.join(timeout=1.)
+        self.receiver.join(timeout=1.)
         self.incoming.cancel_join_thread()
-        self.outgoing.cancel_join_thread()
         self.incoming.close()
         self.outgoing.close()
+        if self.receiver.is_alive():
+            raise RuntimeError('Avoidance result receiver did not finish')
