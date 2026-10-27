@@ -487,6 +487,8 @@ class TrajectoryMission(Node):
                         dict(
                             run_id=self.run_id,
                             route_id=self.plan.route_id,
+                            state=self.state,
+                            phase=self.plan.gates[self.index][0] if self.index>=0 else 'IDLE',
                             stamp=self.get_clock().now().nanoseconds / 1e9,
                             pose=self.pose + [self.yaw] if self.pose is not None else None,
                             pose_stamp=self.pose_stamp,

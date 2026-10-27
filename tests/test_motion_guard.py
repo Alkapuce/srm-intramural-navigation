@@ -13,6 +13,35 @@ from intramural_mission.adapter import Adapter
 
 
 class MotionGuardTests(unittest.TestCase):
+    def test_atomic_context_ignores_delayed_diagnostics_and_zero_start_hands_over_runs(self):
+        guard=N(atomic_command=True,snapshot_stamp=10.,mission_state='RUNNING',
+            mission_phase='LOWER',mission_context=('old','old-route'),output=[.2,0.],
+            get_clock=lambda:N(now=lambda:N(nanoseconds=10_400_000_000)),touch=lambda k:None)
+        from std_msgs.msg import String
+        def snapshot(run,stamp,state,command):
+            return String(data=json.dumps(dict(run_id=run,route_id=run+'-route',stamp=stamp,
+                state=state,phase='ENTER',points=[[0.,0.],[1.,0.]],pose=[0.,0.,0.],
+                pose_stamp=stamp,command=command)))
+        Adapter.receive_trajectory(guard,snapshot('new',10.2,'STARTING',[0.,0.]))
+        self.assertEqual(guard.mission_context,('new','new-route'))
+        self.assertEqual(guard.output,[0.,0.])
+        Adapter.receive_trajectory(guard,snapshot('old',10.25,'RUNNING',[.8,0.]))
+        self.assertEqual(guard.mission_context,('new','new-route'))
+        self.assertEqual(guard.cmd.linear.x,0.)
+        Adapter.receive_trajectory(guard,snapshot('new',10.3,'RUNNING',[.3,0.]))
+        Adapter.receive_mission_status(guard,String(data=json.dumps(dict(
+            run_id='old',route_id='old-route',state='CANCELLED',phase='UPPER'))))
+        self.assertEqual(guard.mission_context,('new','new-route'))
+        self.assertEqual(guard.mission_state,'RUNNING')
+        self.assertEqual(guard.mission_phase,'ENTER')
+        Adapter.receive_trajectory(guard,snapshot('old',10.35,'RUNNING',[.8,0.]))
+        self.assertEqual(guard.cmd.linear.x,.3)
+        legacy=N(atomic_command=False)
+        Adapter.receive_mission_status(legacy,String(data=json.dumps(dict(
+            run_id='legacy',route_id='route',state='BLOCKED',phase='LOWER'))))
+        self.assertEqual(legacy.mission_context,('legacy','route'))
+        self.assertEqual(legacy.mission_state,'BLOCKED')
+
     def test_delayed_old_snapshot_cannot_clear_a_newer_atomic_command(self):
         import json
         fresh_path=object();command=Twist();command.linear.x=.3

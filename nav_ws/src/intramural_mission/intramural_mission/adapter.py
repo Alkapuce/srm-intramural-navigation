@@ -135,6 +135,8 @@ class Adapter(Node):
         self.touch('odom')
 
     def receive_mission_status(self,msg):
+        if self.atomic_command:
+            return
         status=json.loads(msg.data)
         self.mission_phase=status['phase']
         self.mission_state=status.get('state','')
@@ -148,8 +150,9 @@ class Adapter(Node):
         command=np.asarray(d.get('command', [0., 0.]), dtype=float)
         if self.atomic_command:
             now=self.get_clock().now().nanoseconds/1e9
-            if (getattr(self,'mission_state','') in ('RUNNING','BLOCKED','CANCELLING')
-                    and context[0] != getattr(self,'mission_context',('',''))[0]):
+            starting=(d.get('state')=='STARTING' and command.shape==(2,) and not np.any(command))
+            if (getattr(self,'mission_state','') in ('STARTING','RUNNING','BLOCKED','CANCELLING')
+                    and context[0] != getattr(self,'mission_context',('',''))[0] and not starting):
                 return
             if not math.isfinite(d['stamp']) or abs(now-d['stamp']) > .3 or d['stamp'] <= self.snapshot_stamp:
                 return
@@ -167,6 +170,8 @@ class Adapter(Node):
                 return
             self.snapshot_stamp=d['stamp']
             self.mission_context=context
+            self.mission_state=d.get('state',getattr(self,'mission_state',''))
+            self.mission_phase=d.get('phase',getattr(self,'mission_phase',''))
             self.cmd=Twist()
             self.cmd.linear.x,self.cmd.linear.y=map(float,command)
             self.touch('command')

@@ -74,7 +74,7 @@ class RawShadow:
         self.progress=float(np.interp(now,self.stamps,self.plan.s))
         if now>self.last_snapshot:
             points,times=preview(self.plan,self.progress,float(np.linalg.norm(self.observer.velocity)))
-            self.publisher.publish(String(data=json.dumps(dict(stamp=now,run_id=self.run_id,
+            self.publisher.publish(String(data=json.dumps(dict(stamp=now,run_id=self.run_id,state='RUNNING',phase='RETURN',
                 route_id=self.plan.route_id,pose=[p.x,p.y,yaw],pose_stamp=source,
                 command=[0.,0.],points=points.tolist(),times=times.tolist()))))
             self.last_snapshot=now;self.counts['snapshots']+=1

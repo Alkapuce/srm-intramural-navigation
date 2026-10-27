@@ -483,9 +483,13 @@ class TrajectorySafetyTests(unittest.TestCase):
                     pose=[2.,3.,np.pi/2],
                     pose_stamp=a.get_clock().now().nanoseconds / 1e9,
                     points=[[2.0, 3.0], [2.0, 4.0]],
+                    state='RUNNING',phase='ENTER',command=[0.,0.],
                 )
+                a.receive_trajectory(String(data=json.dumps(dict(path,run_id='new'))))
+                path['stamp']+=.0001
                 a.receive_trajectory(String(data=json.dumps(path)))
-                self.assertIsNone(a.body_path())
+                self.assertEqual(a.mission_context,('new','route'))
+                np.testing.assert_allclose(a.body_path(),[[0.,0.],[1.,0.]],atol=1e-12)
                 path["run_id"] = "new"
                 def unavailable(*args):
                     raise AssertionError('A separate TF lookup must not interrupt the coherent trajectory')
