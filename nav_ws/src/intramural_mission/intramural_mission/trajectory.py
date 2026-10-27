@@ -117,6 +117,7 @@ class RoutePlan:
         speed = cap.copy()
         speed[0] = speed[-1] = 0.0
         for _ in range(6):
+            previous = speed.copy()
             for order in (range(len(p) - 2, -1, -1), range(1, len(p))):
                 backward = order.step < 0
                 for i in order:
@@ -131,6 +132,8 @@ class RoutePlan:
                     speed[i] = min(
                         speed[i], math.sqrt(speed[j] ** 2 + 2 * acc * abs(s[i] - s[j]))
                     )
+            if np.array_equal(speed, previous):
+                break
         payload = {"points": points, "gates": gates, "limits": limits, "map": map_id}
         identity = hashlib.sha256(
             json.dumps(payload, sort_keys=True, allow_nan=False).encode()

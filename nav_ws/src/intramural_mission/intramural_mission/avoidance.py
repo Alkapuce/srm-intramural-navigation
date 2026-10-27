@@ -473,7 +473,7 @@ class DetourPlanner:
             else:self.restore_confirm=None
             if (tracks or request.get('alternative_route',request.get('bypassing'))) and not executable(plan,progress):
                 report.update(blocked=True,execution_failure=True,reason='EXECUTION_CONFLICT')
-                for scale in (.8,.6,.4,.2,.1):
+                for scale in ((.8,.6,.4,.2,.1) if not tracks else ()):
                     proposal=retimed(scale)
                     if executable(proposal,progress):
                         report.update(plan=proposal,progress=progress,side=0,join_s=plan.s[last],
@@ -524,16 +524,6 @@ class DetourPlanner:
         tangent = np.asarray(plan.tangent[blocked_index]); normal = np.array([-tangent[1], tangent[0]])
         distance = radius+threat['radius']+max(.12,float(prediction_uncertainty(threat,0.)))+.10
         winners = []
-        if not escape_until and any(t['velocity_observed'] and t['moving'] for t in tracks):
-            # Compare slowing on the current line with detours using the same finish-time score.
-            join=min(len(lengths)-1,int(np.searchsorted(lengths,progress+max(1.,speed*2.))))
-            for scale in (.8,.6,.4,.2,.1):
-                proposal=retimed(scale,join)
-                points,arrival=preview(proposal,progress,speed)
-                if not collision(points,arrival,tracks,radius) and executable(proposal,progress):
-                    winners.append((remaining_seconds(proposal,start),0.,proposal,progress,0,lengths[join],scale,lengths[join]))
-                    break
-                if time.monotonic()-began>.05:break
         attempt=self.attempt
         self.attempt+=1
         offsets=(.6,1.2,2.)
@@ -645,6 +635,18 @@ class DetourPlanner:
                         rejoin = proposal.s[min(len(proposal.s)-1, first+len(bridge)-1)]
                         winners.append((duration, -float(min(clearance(bridge))), proposal, start_s, side, lengths[join], scale, rejoin))
                         break
+        if not escape_until and (report.get('execution_failure') or
+                any(t['velocity_observed'] and t['moving'] for t in tracks)):
+            # Compare slowing on the current line with detours using the same finish-time score.
+            join=min(len(lengths)-1,int(np.searchsorted(lengths,progress+max(1.,speed*2.))))
+            for scale in (.8,.6,.4,.2,.1):
+                if time.monotonic()-began+self.prediction_seconds+.012>.08:break
+                proposal=retimed(scale,join)
+                points,arrival=preview(proposal,progress,speed)
+                if not collision(points,arrival,tracks,radius) and executable(proposal,progress):
+                    winners.append((remaining_seconds(proposal,start),0.,proposal,progress,0,lengths[join],scale,lengths[join]))
+                    break
+                if time.monotonic()-began>.05:break
         if winners:
             best = min(winners, key=lambda x: x[:2])
             duration, gap, proposal, start_s, side, join_s, scale, rejoin = best
