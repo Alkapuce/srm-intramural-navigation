@@ -13,6 +13,36 @@ from intramural_mission.adapter import Adapter
 
 
 class MotionGuardTests(unittest.TestCase):
+    def test_cached_compensation_matches_each_point_and_invalidates_on_new_pose_or_scan(self):
+        from collections import deque
+        from intramural_mission.safety import compensate_motion
+        from intramural_mission.proximity import obstacle_near
+        guard,_=self.guard();guard.atomic_command=True;guard.enabled=False
+        guard.c.update(navigation_engine='trajectory',response_delay=.1,response_tau=.05)
+        guard.odom_history=deque([(9.8,0.,0.,0.),(10.,.1,.04,.1)])
+        guard.motion_history=deque();guard.body_velocity=np.array([.5,.2])
+        guard.raw_near_points=np.array([[1.5,.3],[2.,.2],[2.5,-.5]])
+        guard.raw_stamp=9.95;guard.raw_point_times=np.array([9.94,9.96,9.99])
+        stamp=[10.];guard.get_clock=lambda:N(now=lambda:N(nanoseconds=round(stamp[0]*1e9)))
+        samples=[]
+        def observe(points,*args,**kwargs):
+            samples.append(np.asarray(points).copy())
+            return obstacle_near(points,*args,**kwargs)
+        with patch('intramural_mission.adapter.obstacle_near',side_effect=observe):
+            for i,t in enumerate((10.,10.02,10.04,10.06)):
+                stamp[0]=t
+                if i==2:guard.odom_history.append((10.04,.13,.06,.16))
+                if i==3:
+                    guard.raw_near_points+=.1;guard.raw_stamp=10.02
+                    guard.raw_point_times=np.array([10.01,10.02,10.03]);guard.last['lidar']=10.01
+                expected=compensate_motion(guard.raw_near_points,guard.raw_point_times,guard.odom_history,t)
+                self.tick(guard)
+                np.testing.assert_allclose(samples[-1],expected,atol=1e-12,rtol=0.)
+                self.assertEqual(guard.raw_compensation_cache[1],(10.,10.,10.04,10.06)[i])
+            guard.odom_history.clear();self.tick(guard)
+            self.assertEqual(guard.raw_motion_problem,'ODOMETRY_HISTORY_WARMUP')
+            self.assertEqual(guard.output,[0.,0.])
+
     def test_queued_turn_stops_even_when_the_ordered_ray_is_clear(self):
         from collections import deque
         guard,output=self.guard()

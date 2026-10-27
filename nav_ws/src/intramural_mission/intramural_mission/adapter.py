@@ -41,6 +41,7 @@ class Adapter(Node):
         self.raw_point_times = None
         self.raw_point_offsets=None
         self.raw_motion_problem = ''
+        self.raw_compensation_cache = None
         self.velocity_stamp = 0.
         self.last_tick = time.monotonic()
         self.raw_near_points = np.empty((0, 2), dtype=np.float32)
@@ -401,10 +402,19 @@ class Adapter(Node):
         if self.c.get('navigation_engine') == 'trajectory' and getattr(self, 'raw_point_times', None) is not None:
             sensor_age = max(0., now_ros-self.raw_stamp)
             try:
-                raw_points = compensate_motion(raw_points, self.raw_point_times, self.odom_history, now_ros)
-                if trusted_points is not None:
-                    trusted_points = (raw_points if len(trusted_points)==len(self.raw_near_points) else
-                        compensate_motion(trusted_points, self.raw_trusted_times, self.odom_history, now_ros))
+                key=(self.last.get('lidar'),self.raw_stamp,self.odom_history[-1][0] if self.odom_history else None)
+                cached=getattr(self,'raw_compensation_cache',None)
+                if cached is None or cached[0]!=key:
+                    raw_points = compensate_motion(raw_points, self.raw_point_times, self.odom_history, now_ros)
+                    if trusted_points is not None:
+                        trusted_points = (raw_points if len(trusted_points)==len(self.raw_near_points) else
+                            compensate_motion(trusted_points, self.raw_trusted_times, self.odom_history, now_ros))
+                    self.raw_compensation_cache=(key,now_ros,raw_points,trusted_points)
+                else:
+                    raw_points=compensate_motion(cached[2],cached[1],self.odom_history,now_ros)
+                    if cached[3] is not None:
+                        trusted_points=(raw_points if cached[3] is cached[2] else
+                            compensate_motion(cached[3],cached[1],self.odom_history,now_ros))
                 if path is not None:
                     path = compensate_motion(path, self.collision_pose_stamp, self.odom_history, now_ros).tolist()
                     if (observation_pose is not None and self.c.get('allow_bypass',False)

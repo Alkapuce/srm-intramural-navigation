@@ -129,13 +129,9 @@ def executable_path(path, velocity, delay):
     ):
         raise ValueError("Invalid executable motion")
     end = velocity * delay
-    nearest = 0
-    while (
-        nearest + 1 < len(points)
-        and np.linalg.norm(points[nearest + 1] - end)
-        <= np.linalg.norm(points[nearest] - end) + 1e-9
-    ):
-        nearest += 1
+    distance=np.linalg.norm(points-end,axis=1)
+    rising=np.flatnonzero(distance[1:]>distance[:-1]+1e-9)
+    nearest=int(rising[0]) if len(rising) else max(0,len(points)-1)
     result = [[0.0, 0.0], end.tolist()] + points[nearest:].tolist()
     return [
         p for i, p in enumerate(result) if i == 0 or math.dist(p, result[i - 1]) > 1e-7
