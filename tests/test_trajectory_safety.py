@@ -61,6 +61,54 @@ class TrajectorySafetyTests(unittest.TestCase):
             finally:
                 node.worker=None;node.destroy_node();rclpy.shutdown()
 
+    def test_checked_escape_snapshot_accepts_once_but_latest_raw_point_and_cancel_still_win(self):
+        from collections import deque
+        from intramural_mission.avoidance import DetourPlanner
+        c=json.loads((ROOT/'config/arena.json').read_text())
+        c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['candidate'])
+        c.update(allow_bypass=False,mission_variant='return',bounds=[-2.,6.,-3.,3.],
+            lower_pole=[-10.,-10.],upper_pole=[10.,10.],pole_clearance_from_map=True)
+        c['drive_acceleration_limit']=c['max_acceleration']
+        with tempfile.TemporaryDirectory(dir=ROOT/'cache') as folder:
+            config=Path(folder)/'arena.json';config.write_text(json.dumps(c))
+            rclpy.init(domain_id=89,args=['--ros-args','-p',f'arena_config:={config}'])
+            node=TrajectoryMission();replies=deque()
+            node.worker=N(poll=lambda:replies.popleft()if replies else None)
+            try:
+                grid=OccupancyGrid();grid.header.frame_id='map';grid.info.resolution=.05
+                grid.info.width=160;grid.info.height=120
+                grid.info.origin.position.x=-2.;grid.info.origin.position.y=-3.
+                grid.info.origin.orientation.w=1.;grid.data=[0]*19200
+                node.plan=RoutePlan.build([('RETURN',[[float(x),0.]for x in np.linspace(-1.,5.,241)])],c)
+                node.tracker=OmniTracker(node.plan,c);node.tracker.progress.s=1.
+                node.tracker.velocity=np.array([1.9,0.]);node.tracker.command=np.array([1.9,0.])
+                node.pose=[0.,0.];node.run_id='escape';node.state='RUNNING'
+                now=node.get_clock().now().nanoseconds/1e9;planner=DetourPlanner(c,grid)
+                for i in range(16):
+                    position=np.array([.7,1.2])-1.5*(i-15)*.1
+                    points=[position+[dx,dy]for dx in(-.1,0.,.1)for dy in(-.1,0.,.1)]
+                    planner.observations(points,now+(i-15)*.1)
+                result=planner.solve(dict(run_id=node.run_id,plan=node.plan,progress=1.,pose=node.pose,
+                    velocity=[1.9,0.],command=[1.9,0.],acceleration=[0.,0.],points=points,stamp=now))
+                self.assertEqual(result['reason'],'ESCAPE_READY',result)
+                saved=dict(result);replies.append(result);node.update_avoidance()
+                self.assertTrue(node.avoidance['escape_accepted'])
+                deadline=node.escape_until
+                self.assertAlmostEqual(deadline,now+.8,places=5)
+                self.assertNotIn('escape_predictions',node.avoidance)
+                # A newly visible raw point overrides the otherwise certified moving-target escape.
+                now=node.get_clock().now().nanoseconds/1e9
+                node.observation=dict(stamp=now,points=[[.2,0.]])
+                node.submitted_stamp=now
+                replies.append(saved);node.update_avoidance()
+                self.assertFalse(node.avoidance.get('escape_accepted',False))
+                self.assertEqual(node.escape_until,deadline)
+                self.assertTrue(node.cancel(None,Trigger.Response()).success)
+                self.assertEqual(node.state,'CANCELLING')
+                np.testing.assert_array_equal(node.tracker.command,[0.,0.])
+            finally:
+                node.worker=None;node.destroy_node();rclpy.shutdown()
+
     def test_real_worker_speed_restore_does_not_jump_to_the_returning_branch(self):
         from dataclasses import replace
         c=json.loads((ROOT/'config/arena.json').read_text())

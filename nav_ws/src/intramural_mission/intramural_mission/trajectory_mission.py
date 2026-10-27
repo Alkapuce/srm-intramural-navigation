@@ -76,6 +76,7 @@ class TrajectoryMission(Node):
         self.bypass_count = 0
         self.bypassing = False
         self.execution_blocked = False
+        self.escape_until = 0.
         self.predictive_stop=False
         self.speed_restore=None
         self.rejoin_progress = 0.
@@ -150,6 +151,7 @@ class TrajectoryMission(Node):
         result = self.worker.poll()
         if result and result.get('run_id')==self.run_id and result['route_id'] == self.plan.route_id and now-result['stamp'] < .5:
             plan_json=result.pop('plan_json',None)
+            escape_predictions=result.pop('escape_predictions',None)
             if result['seconds']>.08:
                 result.update(plan=None,reason='PLANNING_TIMEOUT')
             candidate = result.pop('plan')
@@ -169,16 +171,27 @@ class TrajectoryMission(Node):
                 samples,times=preview(candidate,progress.s,float(np.linalg.norm(self.tracker.velocity)))
                 tracks=[dict(t,prediction_age=max(0.,now-result['stamp']),
                     age=t['age']+max(0.,now-result['stamp']-t.get('prediction_age',0.))) for t in result['tracks']]
-                fresh=not collision(samples,times,tracks,self.c['robot_radius']+self.c.get('minimum_clearance',.02))
+                checked=[dict(points=samples,times=times)]
+                if result.get('escape_active'):
+                    checked=[]
+                    for prediction in escape_predictions:
+                        arrival=np.asarray(prediction['times'])+result['escape_prediction_stamp']-now
+                        future=arrival>0.
+                        checked.append(dict(points=np.vstack((self.pose,np.asarray(prediction['points'])[future])),
+                            times=np.r_[0.,arrival[future]]))
+                fresh=all(not collision(path['points'],path['times'],tracks,
+                    self.c['robot_radius']+self.c.get('minimum_clearance',.02))for path in checked)
                 if self.observation is not None:
-                    fresh &= not obstacle_on_path(np.asarray(self.observation['points']).reshape(-1,2)-self.pose,
-                        np.vstack((self.pose,samples))-self.pose,math.inf,
-                        self.c['robot_radius']+self.c.get('minimum_clearance',.02))
+                    fresh &= all(not obstacle_on_path(np.asarray(self.observation['points']).reshape(-1,2)-self.pose,
+                        np.vstack((self.pose,path['points']))-self.pose,math.inf,
+                        self.c['robot_radius']+self.c.get('minimum_clearance',.02))for path in checked)
                 if fresh and error < self.c['max_tracking_error'] and (not changed_side or worthwhile or result.get('blocked')):
                     if result['reason'] in ('YIELD_READY','RETIME_READY') and self.speed_restore is None:
                         self.speed_restore=self.plan
                     elif result['reason']=='RESTORE_READY' or result['side']:
                         self.speed_restore=None
+                    result['escape_accepted']=bool(result.get('escape_active'))
+                    self.escape_until=result.get('escape_until',0.)
                     self.plan = candidate
                     self.execution_blocked=False
                     self.predictive_stop=False
@@ -204,6 +217,7 @@ class TrajectoryMission(Node):
                 and (candidate is None or accepted))
             if feasible:self.predictive_stop=False
             if accepted or feasible:
+                if feasible:self.escape_until=result.get('escape_until',0.)
                 self.continuation_until=0.
                 clear_twice=(previous.get('blocked') is False and previous.get('reason')!='PLANNING_TIMEOUT'
                     and previous.get('route_id')==result['route_id'] and previous.get('run_id')==self.run_id
@@ -238,7 +252,7 @@ class TrajectoryMission(Node):
                 bypassing=self.bypassing,
                 alternative_route=self.bypass_count>0,
                 path_blocked=self.raw_hazard and self.guard.get('route_id')==self.plan.route_id,
-                restore_plan=self.speed_restore,
+                restore_plan=self.speed_restore,escape_until=self.escape_until,
                 progress=self.tracker.progress.s, pose=self.pose, velocity=self.tracker.velocity,
                 command=self.tracker.command, acceleration=self.tracker.acceleration))
 
@@ -327,6 +341,7 @@ class TrajectoryMission(Node):
         self.execution_blocked=False
         self.predictive_stop=False
         self.continuation_until=0.
+        self.escape_until=0.
         self.speed_restore=None
         self.channel_side,self.channel_cost,self.channel_at=0,math.inf,0.
         self.avoidance = {}
@@ -644,7 +659,7 @@ class TrajectoryMission(Node):
             bypass_count=self.bypass_count,
             bypassing=self.bypassing,
             original_progress=self.original_progress,
-            behavior=(self.state if self.state!='RUNNING' else 'DETOUR' if self.bypassing
+            behavior=(self.state if self.state!='RUNNING' else 'ESCAPE' if stamp<self.escape_until else 'DETOUR' if self.bypassing
                 else 'YIELD' if self.speed_restore is not None else 'CRUISE'),
             obstacle_version=self.avoidance.get('stamp'),
             avoidance=self.avoidance,

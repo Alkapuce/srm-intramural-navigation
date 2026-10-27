@@ -358,6 +358,7 @@ class DetourPlanner:
         radius = self.c['robot_radius']+self.c.get('minimum_clearance', .02)
         samples, times = preview(plan, progress, speed)
         age = max(0., request.get('observation_age', 0.))
+        switch_stamp=request['stamp']+age+.08
         for t in tracks:
             t['age'] += age
             t['prediction_age'] = age
@@ -368,15 +369,31 @@ class DetourPlanner:
         if any(t['moving'] for t in tracks):
             fastest=min(models,key=sum)
             if fastest!=endpoints[0]:endpoints.append(fastest)
+        escape_until=0.
         if tracks:
             from intramural_mission.response import predict_motion
-            # Every candidate shares this initial braking branch; a conflict makes further search futile.
-            for _,_,brakes,brake_times,_ in predict_motion(plan,self.c,pose,velocity,
-                    request.get('command',velocity),request.get('acceleration',[0.,0.]),progress,horizon=0.,models=endpoints):
-                if (collision(brakes[0],brake_times[0],tracks,radius)
-                        or stopped_collision(brakes,brake_times,tracks,radius)):
+            initial=predict_motion(plan,self.c,pose,velocity,
+                request.get('command',velocity),request.get('acceleration',[0.,0.]),progress,horizon=0.,models=endpoints)
+            def unsafe_stop(predictions, obstacles):
+                return any(collision(brakes[0],brake_times[0],obstacles,radius)
+                    or stopped_collision(brakes,brake_times,obstacles,radius)
+                    for _,_,brakes,brake_times,_ in predictions)
+            if unsafe_stop(initial,tracks):
+                stationary=[t for t in tracks if not t['moving'] or not t['velocity_observed']]
+                # Only observed moving threats permit a finite escape; static and unknown threats still stop.
+                if unsafe_stop(initial,stationary):
                     return dict(report,blocked=True,imminent=True,execution_failure=True,
                         reason='BRAKING_ENVELOPE_CONFLICT',seconds=time.monotonic()-began)
+                endpoints=models
+                escape_until=request.get('escape_until',0.) or request['stamp']+age+.8
+                if escape_until<=switch_stamp:
+                    return dict(report,blocked=True,imminent=True,execution_failure=True,
+                        reason='ESCAPE_DEADLINE_EXPIRED',seconds=time.monotonic()-began)
+        report['escape_until']=escape_until
+        if escape_until:report['escape_prediction_stamp']=switch_stamp
+        execution_tracks=([dict(t,prediction_age=t['prediction_age']+.08) for t in tracks]
+            if escape_until else tracks)
+        escape_predictions={}
         def reject(reason):
             report['rejected'][reason] = report['rejected'].get(reason, 0)+1
         def executable(proposal, start_s, horizon=2.):
@@ -388,16 +405,33 @@ class DetourPlanner:
             for actual,timing,brakes,brake_times,error in predictions:
                 if (error>self.c['max_tracking_error']
                         or min(self.map.clearance(brakes.reshape(-1,2),include_poles=not self.c.get('pole_clearance_from_map',False)))<=self.c.get('execution_clearance',0.)
-                        or collision(actual,timing,tracks,radius)
-                        or collision_segments(brakes[:,:-1].reshape(-1,2),brakes[:,1:].reshape(-1,2),
-                            brake_times[:,:-1].ravel(),brake_times[:,1:].ravel(),tracks,radius)
-                        or stopped_collision(brakes,brake_times,tracks,radius)):
+                        or collision(actual,timing,execution_tracks,radius)):
                     return False
+                checks=[(execution_tracks,timing>=max(0.,escape_until-switch_stamp))]
+                if escape_until:
+                    checks.append(([t for t in execution_tracks if not t['moving'] or not t['velocity_observed']],np.ones(len(timing),bool)))
+                for obstacles,eligible in checks:
+                    if not np.any(eligible):
+                        if escape_until:return False
+                        continue
+                    branches,stamps=brakes[eligible],brake_times[eligible]
+                    if (collision_segments(branches[:,:-1].reshape(-1,2),branches[:,1:].reshape(-1,2),
+                            stamps[:,:-1].ravel(),stamps[:,1:].ravel(),obstacles,radius)
+                            or stopped_collision(branches,stamps,obstacles,radius)):
+                        return False
+            if escape_until:
+                escape_predictions[proposal.route_id]=[dict(points=p.tolist(),times=t.tolist()) for p,t,_,_,_ in predictions]
             return True
 
         def remaining_seconds(proposal, first, end=None):
             return float(np.sum((np.diff(proposal.s)/np.maximum(.05,
                 (np.asarray(proposal.speed)[:-1]+np.asarray(proposal.speed)[1:])/2))[first:end]))
+
+        if escape_until and executable(plan,progress):
+            return dict(report,plan=plan,progress=progress,side=0,join_s=progress,rejoin_progress=progress,
+                escape_active=True,escape_predictions=escape_predictions[plan.route_id],scale=1.,
+                expected_seconds=remaining_seconds(plan,int(np.searchsorted(plan.s,progress))),
+                reason='ESCAPE_READY',seconds=time.monotonic()-began)
 
         restore=request.get('restore_plan')
         nominal=restore if restore is not None and restore.points==plan.points else plan
@@ -413,7 +447,7 @@ class DetourPlanner:
 
         restore_conflict=False
         improve_speed=False
-        if not tracks or (not request.get('path_blocked') and not collision(samples, times, tracks, radius)):
+        if not escape_until and (not tracks or (not request.get('path_blocked') and not collision(samples, times, tracks, radius))):
             if nominal is not plan:
                 previous=self.restore_confirm
                 self.restore_confirm=None
@@ -457,7 +491,7 @@ class DetourPlanner:
         coast = np.stack((pose, pose+velocity*stop_horizon))
         if collision(coast, [0., stop_horizon], tracks, radius):
             report.update(blocked=True,imminent=True,reason='STOPPING_PREFIX_CONFLICT')
-        if not report['imminent'] and executable(plan,progress,horizon=.3):
+        if not escape_until and not report['imminent'] and executable(plan,progress,horizon=.3):
             # Reserve a checked continuation before search can consume the solve budget.
             report['continuation_until']=request['stamp']+age+.3
             report['execution_failure']=False
@@ -490,7 +524,7 @@ class DetourPlanner:
         tangent = np.asarray(plan.tangent[blocked_index]); normal = np.array([-tangent[1], tangent[0]])
         distance = radius+threat['radius']+max(.12,float(prediction_uncertainty(threat,0.)))+.10
         winners = []
-        if any(t['velocity_observed'] and t['moving'] for t in tracks):
+        if not escape_until and any(t['velocity_observed'] and t['moving'] for t in tracks):
             # Compare slowing on the current line with detours using the same finish-time score.
             join=min(len(lengths)-1,int(np.searchsorted(lengths,progress+max(1.,speed*2.))))
             for scale in (.8,.6,.4,.2,.1):
@@ -601,7 +635,7 @@ class DetourPlanner:
                             reject('topology')
                             continue
                         points, arrival = preview(proposal, start_s, speed)
-                        if collision(points, arrival, tracks, radius):
+                        if not escape_until and collision(points, arrival, tracks, radius):
                             reject('timed_collision')
                             continue
                         if not executable(proposal,start_s):
@@ -619,6 +653,10 @@ class DetourPlanner:
                           rejoin_phase=int(np.searchsorted([plan.s[i] for _,i in plan.gates],join_s)),
                           scale=scale, expected_seconds=float(duration), reason='DETOUR_READY' if side else 'YIELD_READY',
                           start_pose=pose.tolist(), source_progress=progress)
+        if escape_until:
+            report.update(escape_active=bool(winners),execution_failure=not bool(winners))
+            if winners:report['escape_predictions']=escape_predictions[report['plan'].route_id]
+            if not winners:report.update(reason='BRAKING_ENVELOPE_CONFLICT',escape_failure='NO_CERTIFIED_ESCAPE')
         report['seconds'] = time.monotonic()-began
         return report
 

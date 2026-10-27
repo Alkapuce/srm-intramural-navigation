@@ -114,6 +114,47 @@ class AvoidanceTests(unittest.TestCase):
         self.assertLess(np.mean(errors),.04)
         self.assertLess(np.percentile(speeds,95),.4)
 
+    def test_moving_stop_conflict_allows_only_checked_escape_and_does_not_extend_deadline(self):
+        import json
+        from pathlib import Path
+        from intramural_mission.avoidance import DetourPlanner,stopped_collision,collision_segments
+        from intramural_mission.response import predict_motion
+        c,grid,_,_=self.case()
+        c.update(json.loads((Path(__file__).resolve().parents[1]/'config/navigation-profiles.json').read_text())['candidate'])
+        c['drive_acceleration_limit']=c['max_acceleration']
+        plan=RoutePlan.build([('RETURN',[[float(x),0.]for x in np.linspace(-1.,5.,241)])],c)
+        planner=DetourPlanner(c,grid)
+        for i in range(16):
+            position=np.array([.7,1.2])-1.5*(i-15)*.1
+            points=[position+[dx,dy]for dx in(-.1,0.,.1)for dy in(-.1,0.,.1)]
+            planner.observations(points,i*.1)
+        request=dict(plan=plan,progress=1.,pose=[0.,0.],velocity=[1.9,0.],command=[1.9,0.],
+            acceleration=[0.,0.],points=points,stamp=1.5)
+        result=planner.solve(request)
+        self.assertEqual(result['reason'],'ESCAPE_READY',result)
+        self.assertTrue(result['escape_active'])
+        self.assertLessEqual(result['escape_until']-request['stamp'],.8+1e-9)
+        self.assertEqual(result['plan'].gates,plan.gates)
+        self.assertEqual(len(result['escape_predictions']),len(c['response_models']))
+        radius=c['robot_radius']+c['minimum_clearance']
+        initial=predict_motion(plan,c,[.152,0.],[1.9,0.],[1.9,0.],[0.,0.],1.,horizon=0.)
+        self.assertTrue(any(collision(b[0],bt[0],result['tracks'],radius)
+            or stopped_collision(b,bt,result['tracks'],radius)for _,_,b,bt,_ in initial))
+        execution_tracks=[dict(t,prediction_age=t['prediction_age']+.08)for t in result['tracks']]
+        for trajectory in result['escape_predictions']:
+            self.assertFalse(collision(trajectory['points'],trajectory['times'],execution_tracks,radius))
+        for _,timing,brakes,brake_times,_ in predict_motion(plan,c,[.152,0.],[1.9,0.],[1.9,0.],[0.,0.],1.):
+            eligible=timing>=.72
+            branches,stamps=brakes[eligible],brake_times[eligible]
+            self.assertFalse(collision_segments(branches[:,:-1].reshape(-1,2),branches[:,1:].reshape(-1,2),
+                stamps[:,:-1].ravel(),stamps[:,1:].ravel(),execution_tracks,radius))
+            self.assertFalse(stopped_collision(branches,stamps,execution_tracks,radius))
+        # Replanning keeps the original deadline even while stopping remains unsafe.
+        expired=planner.solve(dict(request,escape_until=request['stamp']+.05))
+        self.assertIsNone(expired['plan'],expired)
+        self.assertEqual(expired['reason'],'ESCAPE_DEADLINE_EXPIRED')
+        self.assertTrue(expired['blocked'])
+
     def test_stopping_place_remains_occupied_when_an_actor_arrives_after_rest(self):
         from intramural_mission.avoidance import collision_segments,stopped_collision
         brakes=np.array([[[0.,0.],[.2,0.]]]);times=np.array([[0.,.3]])
