@@ -44,7 +44,8 @@ class MotionGuardTests(unittest.TestCase):
         cmd.linear.x = 1.0
         cmd.linear.y = 1.0
         cmd.angular.z = 1.0
-        m = N(get_clock=lambda:N(now=lambda:N(nanoseconds=10_000_000_000)), 
+        m = N(
+            get_clock=lambda:N(now=lambda:N(nanoseconds=10_000_000_000)),
             atomic_command=False,
             enabled=True, bypassing=False, motion_permitted=True,
             cmd=cmd,
