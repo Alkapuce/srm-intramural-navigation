@@ -697,7 +697,10 @@ class PlanningWorker:
         self.pending = None
 
     def submit(self, request):
-        self.pending = request
+        # The queue feeder serializes later; freeze motion state before control changes it.
+        self.pending = dict(request)
+        for key in ('pose','velocity','command','acceleration'):
+            if key in self.pending:self.pending[key]=tuple(map(float,self.pending[key]))
         self.dispatch()
 
     def dispatch(self):

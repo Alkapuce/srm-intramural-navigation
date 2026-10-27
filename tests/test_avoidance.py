@@ -401,16 +401,19 @@ class AvoidanceTests(unittest.TestCase):
         import time
         from intramural_mission.avoidance import PlanningWorker
         c,grid,plan,points=self.case();worker=PlanningWorker(c,grid);results=[]
+        motion={key:np.zeros(2)for key in ('pose','velocity','command','acceleration')}
         try:
             for stamp in (1.,2.,3.):
-                worker.submit(dict(plan=plan,progress=0.,pose=[0.,0.],velocity=[0.,0.],
-                    command=[0.,0.],acceleration=[0.,0.],points=points,stamp=stamp))
+                worker.submit(dict(plan=plan,progress=0.,points=points,stamp=stamp,**motion))
+            for vector in motion.values():vector[:]=99.
             deadline=time.monotonic()+5.
             while len(results)<2 and time.monotonic()<deadline:
                 result=worker.poll()
-                if result is not None:results.append(result['stamp'])
+                if result is not None:results.append(result)
                 time.sleep(.005)
-            self.assertEqual(results,[1.,3.])
+            self.assertEqual([r['stamp']for r in results],[1.,3.])
+            self.assertGreater(results[-1].get('continuation_until',0.),results[-1]['stamp'])
+            self.assertFalse(results[-1].get('execution_failure',True))
         finally:worker.close()
         self.assertFalse(worker.process.is_alive())
 
