@@ -12,7 +12,7 @@ from scipy.ndimage import label,binary_dilation
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial import cKDTree
 from intramural_mission.bypass import entry_path, winding
-from intramural_mission.trajectory import RoutePlan
+from intramural_mission.trajectory import RoutePlan, Progress
 from intramural_mission.route import quintic_curve
 from intramural_mission.safety import response_horizon,stopping_horizon
 
@@ -94,9 +94,9 @@ class ObstacleTracker:
                     partial=clusters[j][2]<.5*extent
                     face_center=clusters[j][0]+np.sign(clusters[j][0]-sensor_position)*(extent-clusters[j][2])
                     center=np.where(partial,face_center,center)
-                # Only newly revealed dimensions recenter the shape; observable axes still estimate motion.
-                revealed=clusters[j][2]>t['extent']+.04
-                shape_shift=np.where(revealed,center-expected,0.)
+                # Growing visible faces shift the center; translation beyond that growth remains observable.
+                growth=np.maximum(0.,clusters[j][2]-t['extent'])
+                shape_shift=np.clip(center-expected,-growth,growth)
                 t['x'][:2]+=shape_shift
                 t['measurement_center']+=shape_shift
                 innovation = measurement@t['p']@measurement.T+np.eye(2)*.02**2
@@ -358,7 +358,8 @@ class DetourPlanner:
         plan, progress = request['plan'], request['progress']
         pose, velocity = np.asarray(request['pose']), np.asarray(request['velocity'])
         switch_delay=max(0.,request.get('pose_age',0.))+.08
-        pose=pose+velocity*switch_delay+.5*np.asarray(request.get('acceleration',[0.,0.]))*.08**2
+        current_pose=pose+velocity*max(0.,request.get('pose_age',0.))
+        pose=current_pose+velocity*.08+.5*np.asarray(request.get('acceleration',[0.,0.]))*.08**2
         speed = float(np.linalg.norm(velocity))
         radius = self.c['robot_radius']+self.c.get('minimum_clearance', .02)
         samples, times = preview(plan, progress, speed)
@@ -377,7 +378,7 @@ class DetourPlanner:
         escape_until=0.
         if tracks:
             from intramural_mission.response import predict_motion
-            initial=predict_motion(plan,self.c,pose,velocity,
+            initial=predict_motion(plan,self.c,current_pose,velocity,
                 request.get('command',velocity),request.get('acceleration',[0.,0.]),progress,horizon=0.,models=endpoints)
             def unsafe_stop(predictions, obstacles):
                 return any(collision(brakes[0],brake_times[0],obstacles,radius)
@@ -396,16 +397,18 @@ class DetourPlanner:
                         reason='ESCAPE_DEADLINE_EXPIRED',seconds=time.monotonic()-began)
         report['escape_until']=escape_until
         if escape_until:report['escape_prediction_stamp']=switch_stamp
-        execution_tracks=([dict(t,prediction_age=t['prediction_age']+.08) for t in tracks]
-            if escape_until else tracks)
+        execution_tracks=[dict(t,prediction_age=t['prediction_age']+.08) for t in tracks]
         escape_predictions={}
         def reject(reason):
             report['rejected'][reason] = report['rejected'].get(reason, 0)+1
         def executable(proposal, start_s, horizon=2.):
             from intramural_mission.response import predict_motion
+            boundary=Progress(proposal);boundary.s=start_s
+            if boundary.project(pose,self.c['max_speed']*switch_delay+.12,self.c['max_tracking_error'])>self.c['max_tracking_error']:
+                return False
             predict_started=time.monotonic()
             predictions=predict_motion(proposal,self.c,pose,velocity,request.get('command',velocity),
-                request.get('acceleration',[0.,0.]),start_s,horizon=horizon,models=endpoints)
+                request.get('acceleration',[0.,0.]),boundary.s,horizon=horizon,models=endpoints)
             if horizon>=2.:self.prediction_seconds=.5*self.prediction_seconds+.5*(time.monotonic()-predict_started)
             for actual,timing,brakes,brake_times,error in predictions:
                 if (error>self.c['max_tracking_error']
@@ -494,7 +497,7 @@ class DetourPlanner:
         self.restore_confirm=None
         # The braking prefix remains physical even if the desired path turns away.
         stop_horizon=stopping_horizon(self.c,speed)
-        coast = np.stack((pose, pose+velocity*stop_horizon))
+        coast = np.stack((current_pose, current_pose+velocity*stop_horizon))
         if collision(coast, [0., stop_horizon], tracks, radius):
             report.update(blocked=True,imminent=True,reason='STOPPING_PREFIX_CONFLICT')
         if not escape_until and not report['imminent'] and executable(plan,progress,horizon=.3):

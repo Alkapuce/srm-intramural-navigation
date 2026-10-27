@@ -182,8 +182,11 @@ class TrajectoryMission(Node):
                 fresh=all(not collision(path['points'],path['times'],tracks,
                     self.c['robot_radius']+self.c.get('minimum_clearance',.02))for path in checked)
                 if self.observation is not None:
+                    speed=max(np.linalg.norm(self.tracker.velocity),np.linalg.norm(self.tracker.command))
+                    reach=collision_reach(self.c,speed,max(0.,now-self.observation['stamp']))
                     fresh &= all(not obstacle_on_path(np.asarray(self.observation['points']).reshape(-1,2)-self.pose,
-                        np.vstack((self.pose,path['points']))-self.pose,math.inf,
+                        executable_path(np.vstack((self.pose,path['points']))-self.pose,
+                            self.tracker.velocity,stopping_horizon(self.c,speed)),reach,
                         self.c['robot_radius']+self.c.get('minimum_clearance',.02))for path in checked)
                 if fresh and error < self.c['max_tracking_error'] and (not changed_side or worthwhile or result.get('blocked')):
                     if result['reason'] in ('YIELD_READY','RETIME_READY') and self.speed_restore is None:

@@ -96,6 +96,13 @@ class TrajectorySafetyTests(unittest.TestCase):
                 deadline=node.escape_until
                 self.assertAlmostEqual(deadline,now+.8,places=5)
                 self.assertNotIn('escape_predictions',node.avoidance)
+                # A far raw point is reconsidered next scan; it cannot freeze the entire two-second route.
+                now=node.get_clock().now().nanoseconds/1e9
+                node.observation=dict(stamp=now,points=[[2.5,0.]])
+                node.submitted_stamp=now
+                replies.append(dict(saved));node.update_avoidance()
+                self.assertTrue(node.avoidance['escape_accepted'])
+                self.assertEqual(node.escape_until,deadline)
                 # A newly visible raw point overrides the otherwise certified moving-target escape.
                 now=node.get_clock().now().nanoseconds/1e9
                 node.observation=dict(stamp=now,points=[[.2,0.]])

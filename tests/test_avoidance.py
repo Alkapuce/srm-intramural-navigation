@@ -93,6 +93,18 @@ class AvoidanceTests(unittest.TestCase):
         self.assertLess(np.linalg.norm(track['velocity']),.1)
         np.testing.assert_allclose(track['center'],[2.,0.],atol=.04)
 
+    def test_gradually_revealed_face_does_not_look_like_translation(self):
+        for speed in (0.,1.):
+            tracker=ObstacleTracker()
+            for i in range(20):
+                width=min(.25,.02+i*.015)
+                cloud=[[2.+speed*i*.05+x,y]for x in np.linspace(-.25,-.25+2*width,9)
+                       for y in(-.25,0.,.25)]
+                track=tracker.update(cloud,i*.05,sensor_position=[0.,0.])[0]
+            self.assertAlmostEqual(track['velocity'][0],speed,delta=.12)
+            self.assertLess(abs(track['velocity'][1]),.08)
+            if speed==0.:self.assertFalse(track['acceleration_observed'])
+
     def test_real_motion_remains_observable_while_another_face_is_revealed(self):
         tracker=ObstacleTracker()
         top=[[2.+x,.25] for x in np.linspace(-.25,.25,11)]
@@ -172,7 +184,7 @@ class AvoidanceTests(unittest.TestCase):
         self.assertEqual(result['plan'].gates,plan.gates)
         self.assertEqual(len(result['escape_predictions']),len(c['response_models']))
         radius=c['robot_radius']+c['minimum_clearance']
-        initial=predict_motion(plan,c,[.152,0.],[1.9,0.],[1.9,0.],[0.,0.],1.,horizon=0.)
+        initial=predict_motion(plan,c,[0.,0.],[1.9,0.],[1.9,0.],[0.,0.],1.,horizon=0.)
         truth=[dict(t,covariance=np.zeros((6,6)).tolist())for t in result['tracks']]
         self.assertTrue(all(collision(b[0],bt[0],truth,radius)
             or stopped_collision(b,bt,truth,radius)for _,_,b,bt,_ in initial))
@@ -407,6 +419,34 @@ class AvoidanceTests(unittest.TestCase):
         plan = RoutePlan.build([('RETURN', [[x,0.] for x in np.linspace(0,4,81)])],c)
         points = [[1.2+x,y] for x in (-.1,0.,.1) for y in (-.1,0.,.1)]
         return c,grid,plan,points
+
+    def test_aged_moving_pose_projects_to_the_reachable_switch_boundary_without_a_detour(self):
+        import json
+        from pathlib import Path
+        from intramural_mission.avoidance import DetourPlanner
+        c,grid,_,_=self.case()
+        c.update(json.loads((Path(__file__).resolve().parents[1]/'config/navigation-profiles.json').read_text())['candidate'])
+        c['drive_acceleration_limit']=c['max_acceleration']
+        plan=RoutePlan.build([('RETURN',[[float(x),0.]for x in np.linspace(0.,4.,161)])],c)
+        points=[[4.9+x,-2.5+y]for x in(-.1,0.,.1)for y in(-.1,0.,.1)]
+        planner=DetourPlanner(c,grid)
+        for i in range(8):planner.observations(points,i*.1)
+        result=planner.solve(dict(plan=plan,progress=0.,pose=[0.,0.],pose_age=.2,velocity=[2.,0.],
+            command=[2.,0.],acceleration=[0.,0.],points=points,stamp=.8))
+        self.assertFalse(result['blocked'],result)
+        self.assertIsNone(result['plan'],result)
+        self.assertEqual(result['reason'],'')
+
+    def test_immediate_brake_does_not_include_the_future_solver_motion(self):
+        from intramural_mission.avoidance import DetourPlanner
+        c,grid,plan,_=self.case()
+        c.update(response_models=[[.09,.05]],response_delay=.09,response_tau=.05,drive_acceleration_limit=2.)
+        points=[[.87+x,y]for x in(-.1,0.,.1)for y in(-.1,0.,.1)]
+        planner=DetourPlanner(c,grid)
+        for i in range(8):planner.observations(points,i*.1)
+        result=planner.solve(dict(plan=plan,progress=0.,pose=[0.,0.],velocity=[1.,0.],command=[1.,0.],
+            acceleration=[0.,0.],points=points,stamp=.8))
+        self.assertNotEqual(result['reason'],'BRAKING_ENVELOPE_CONFLICT',result)
 
     def test_worker_keeps_only_latest_pending_observation_and_closes(self):
         import time
