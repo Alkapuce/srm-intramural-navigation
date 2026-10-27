@@ -203,6 +203,10 @@ class OmniTracker:
         self.velocity = np.zeros(2)
         self.correction = np.zeros(2)
         self.parking_samples = None
+        parking_tolerance, budget = limits.get('parking_tolerance', .08), limits.get('minimum_clearance', 0.)
+        if not 0 <= budget < parking_tolerance:
+            raise ValueError('Parking tolerance must exceed the shared position error budget')
+        self.parking_brake_radius = parking_tolerance - budget
         self.speed_scale = 1.
         models = limits.get('response_models', [])
         self.response_tau = limits.get('response_tau', float(np.median(models,axis=0)[1]) if models else .15)
@@ -297,7 +301,7 @@ class OmniTracker:
             < self.limits.get("parking_tolerance", 0.08)
             and np.linalg.norm(p + self.velocity*(stopping_horizon(self.limits,float(np.linalg.norm(self.velocity)))+max(0.,pose_age))
                                - np.asarray(self.plan.points[-1]))
-            < self.limits.get("parking_tolerance", 0.08)
+            < self.parking_brake_radius
         )
         # Command zero when the stopping tail fits; do not creep until speed is already zero.
         if parking_brake:

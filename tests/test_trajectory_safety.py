@@ -173,7 +173,7 @@ class TrajectorySafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=ROOT/'cache') as folder:
             config=Path(folder)/'arena.json';config.write_text(json.dumps(c))
             rclpy.init(domain_id=88,args=['--ros-args','-p',f'arena_config:={config}'])
-            node=TrajectoryMission();position=[1.93,0.]
+            node=TrajectoryMission();position=[1.95,0.]
             def transform(*args):
                 t=TransformStamped();t.header.stamp=node.get_clock().now().to_msg();t.transform.rotation.w=1.
                 t.transform.translation.x,t.transform.translation.y=position
@@ -184,10 +184,10 @@ class TrajectorySafetyTests(unittest.TestCase):
             grid.info.origin.orientation.w=1.;grid.data=[0]*4000
             try:
                 node.plan=RoutePlan.build([('RETURN',[[float(x),0.] for x in np.linspace(0.,2.,81)])],c)
-                node.tracker=OmniTracker(node.plan,c);node.tracker.progress.s=1.93
+                node.tracker=OmniTracker(node.plan,c);node.tracker.progress.s=1.95
                 node.measured=GridMap(grid,c);node.state='RUNNING';node.index=0
                 node.receive_map(grid)
-                for x in (1.93,1.91,1.93,1.94,1.92):
+                for x in (1.95,1.93,1.95,1.96,1.94):
                     position[0]=x;node.receive_costmap(grid)
                     node.receive_guard(String(data='{"sensors_fresh":true}'));node.tick()
                     np.testing.assert_array_equal(node.tracker.command,[0.,0.])

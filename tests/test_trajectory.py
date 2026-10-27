@@ -126,12 +126,12 @@ class TrajectoryTests(unittest.TestCase):
         c=dict(BASE,**PROFILES['candidate'],parking=[2.,0.],route_speed_scale=1.)
         plan=RoutePlan.build([('RETURN',[[float(x),0.] for x in np.linspace(0.,2.,81)])],c)
         for drifting in (False,True):
-            tracker=OmniTracker(plan,c);tracker.progress.s=1.93
-            tracker.step([1.93,0.],0.,.025,stamp=0.)
+            tracker=OmniTracker(plan,c);tracker.progress.s=1.95
+            tracker.step([1.95,0.],0.,.025,stamp=0.)
             for _ in range(20):
-                command,detail=tracker.step([1.93,0.],0.,.025,stamp=0.)
+                command,detail=tracker.step([1.95,0.],0.,.025,stamp=0.)
                 self.assertFalse(detail['done'])
-            for index,x in enumerate(([1.91,1.93,1.94,1.92] if not drifting else [1.88,1.84,1.80,1.76]),1):
+            for index,x in enumerate(([1.93,1.95,1.96,1.94] if not drifting else [1.88,1.84,1.80,1.76]),1):
                 command,detail=tracker.step([x,0.],0.,.025,stamp=index*.1)
                 np.testing.assert_array_equal(command,[0.,0.])
             self.assertEqual(detail['done'],not drifting)
@@ -168,6 +168,31 @@ class TrajectoryTests(unittest.TestCase):
         command,detail=tracker.step(position,0.,.025,stamp=.1,pose_age=.04)
         self.assertFalse(detail['parking_brake'],detail)
         self.assertGreater(np.linalg.norm(command),0.)
+
+    def test_terminal_stop_reserves_the_shared_localization_error_budget(self):
+        from intramural_mission.response import Plant
+        c=dict(BASE,**PROFILES['candidate'],parking=[0.,0.],drive_acceleration_limit=3.5,
+            route_speed_scale=1.)
+        plan=RoutePlan.build([('RETURN',[[2.*x,1.5*x] for x in np.linspace(1.,0.,81)])],c)
+        for delay,tau in c['response_models']:
+            with self.subTest(delay=delay,tau=tau):
+                plant=Plant([-.077,-.024],delay,tau,acceleration_limit=3.5)
+                tracker=OmniTracker(plan,c);tracker.progress.s=plan.s[-1]
+                # A biased pose can be inside the goal circle while the actual body is outside.
+                for i in range(200):
+                    command,detail=tracker.step(plant.pose+[.009,.008],0.,.025,stamp=i*.025)
+                    plant.step(command)
+                    if detail['done']:break
+                self.assertTrue(detail['done'],detail)
+                for _ in range(40):plant.step([0.,0.])
+                self.assertLess(np.linalg.norm(plant.pose),c['parking_tolerance'])
+
+    def test_parking_budget_must_leave_a_positive_goal_region(self):
+        c=dict(BASE,**PROFILES['candidate'])
+        plan=RoutePlan.build(segments(c),c)
+        for budget in (-.01,.08,.1,float('nan'),float('inf')):
+            with self.assertRaises(ValueError):
+                OmniTracker(plan,dict(c,minimum_clearance=budget))
 
     def test_terminal_preview_parks_with_recorded_response_delays(self):
         c=dict(BASE,**PROFILES['candidate'],parking=[2.,0.],route_speed_scale=1.)
