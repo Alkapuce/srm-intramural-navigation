@@ -540,10 +540,10 @@ class DetourPlanner:
         phase=request.get('phase',0)
         topology=route_topology(plan,self.c,tracks,phase)
         join_phase=min(phase+1,len(plan.gates)-1)
-        if len(plan.gates)==10 and join_phase in (3,7):
+        if len(plan.gates)==10 and join_phase<len(plan.gates)-1:
             cross=reference[plan.gates[join_phase][1]]
             if collision([cross,cross],[0.,0.],tracks,radius):
-                # Move the blocked shared joint and reconnect inside its successor, before reaching it.
+                # Any occupied phase joint needs a successor rejoin; the parking gate stays fixed.
                 join_phase+=1
         join_limit=plan.gates[join_phase][1]
         original=request.get('original_plan') or plan

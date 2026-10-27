@@ -75,25 +75,28 @@ class AvoidanceTests(unittest.TestCase):
         self.assertLess(np.linalg.norm(np.asarray(updated.points[updated.gates[7][1]])-[8.,0.]),.026)
         self.assertTrue(all(a[1]<b[1]for a,b in zip(updated.gates,updated.gates[1:])))
 
-    def test_blocked_next_crossing_can_rejoin_after_the_joint_without_skipping_gates(self):
+    def test_blocked_next_joint_can_rejoin_after_it_without_skipping_gates(self):
         from intramural_mission.avoidance import DetourPlanner
         c,grid,_,_=self.case()
         names=['ENTER','LOWER','LOWER','LOWER','UPPER','UPPER','UPPER','UPPER','LOWER_EXIT','RETURN']
         route=[(name,[[x,0.]for x in np.linspace(i*.5,(i+1)*.5,11)])for i,name in enumerate(names)]
-        plan=RoutePlan.build(route,c);points=[[2.+x,y]for x in(-.1,0.,.1)for y in(-.1,0.,.1)]
-        planner=DetourPlanner(c,grid)
-        for i in range(6):planner.observations(points,i*.1)
-        result=None
-        for i in range(8):
-            result=planner.solve(dict(plan=plan,original_plan=plan,phase=2,progress=1.1,pose=[1.1,0.],
-                velocity=[.3,0.],command=[.3,0.],acceleration=[0.,0.],points=points,stamp=.6+i*.1))
-            if result['plan'] is not None:break
-        self.assertIsNotNone(result['plan'],result)
-        selected=result['plan']
-        self.assertEqual(selected.gates[:2],plan.gates[:2])
-        self.assertEqual([name for name,_ in selected.gates],names)
-        self.assertGreater(result['join_s'],plan.s[plan.gates[3][1]])
-        self.assertEqual(selected.points[-1],plan.points[-1])
+        plan=RoutePlan.build(route,c)
+        for phase,progress,center in ((2,1.1,2.),(1,.6,1.5)):
+            with self.subTest(phase=phase):
+                points=[[center+x,y]for x in(-.1,0.,.1)for y in(-.1,0.,.1)]
+                planner=DetourPlanner(c,grid)
+                for i in range(6):planner.observations(points,i*.1)
+                result=None
+                for i in range(8):
+                    result=planner.solve(dict(plan=plan,original_plan=plan,phase=phase,progress=progress,pose=[progress,0.],
+                        velocity=[.3,0.],command=[.3,0.],acceleration=[0.,0.],points=points,stamp=.6+i*.1))
+                    if result['plan'] is not None:break
+                self.assertIsNotNone(result['plan'],result)
+                selected=result['plan']
+                self.assertEqual(selected.gates[:phase],plan.gates[:phase])
+                self.assertEqual([name for name,_ in selected.gates],names)
+                self.assertGreater(result['join_s'],plan.s[plan.gates[phase+1][1]])
+                self.assertEqual(selected.points[-1],plan.points[-1])
 
     def test_revealing_an_orthogonal_face_is_not_a_velocity_jump(self):
         tracker=ObstacleTracker()
