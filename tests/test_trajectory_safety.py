@@ -85,7 +85,7 @@ class TrajectorySafetyTests(unittest.TestCase):
                 node.pose=[0.,0.];node.run_id='escape';node.state='RUNNING'
                 now=node.get_clock().now().nanoseconds/1e9;planner=DetourPlanner(c,grid)
                 for i in range(16):
-                    position=np.array([.7,1.2])-1.5*(i-15)*.1
+                    position=np.array([.8,-1.8])+np.array([0.,1.5])*(i-15)*.1
                     points=[position+[dx,dy]for dx in(-.1,0.,.1)for dy in(-.1,0.,.1)]
                     planner.observations(points,now+(i-15)*.1)
                 result=planner.solve(dict(run_id=node.run_id,plan=node.plan,progress=1.,pose=node.pose,

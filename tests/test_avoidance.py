@@ -139,6 +139,16 @@ class AvoidanceTests(unittest.TestCase):
         self.assertGreater(np.linalg.norm(track['velocity']),.08)
         self.assertFalse(track['motion_confident'])
 
+    def test_unobserved_acceleration_does_not_inflate_a_static_face_across_the_map(self):
+        tracker=ObstacleTracker()
+        for i in range(24):
+            y=max(0,i-19)*.02
+            track=tracker.update([[1.75,y+dy]for dy in(-.05,0.,.05)],i*.1)[0]
+        self.assertFalse(track.get('acceleration_observed',False))
+        center=np.asarray(track['center'])
+        self.assertTrue(collision([center,center],[1.95,2.],[track],.29))
+        self.assertFalse(collision([center+[2.,0.],center+[2.,0.]],[1.95,2.],[track],.29))
+
     def test_moving_stop_conflict_allows_only_checked_escape_and_does_not_extend_deadline(self):
         import json
         from pathlib import Path
@@ -150,7 +160,7 @@ class AvoidanceTests(unittest.TestCase):
         plan=RoutePlan.build([('RETURN',[[float(x),0.]for x in np.linspace(-1.,5.,241)])],c)
         planner=DetourPlanner(c,grid)
         for i in range(16):
-            position=np.array([.7,1.2])-1.5*(i-15)*.1
+            position=np.array([.8,-1.8])+np.array([0.,1.5])*(i-15)*.1
             points=[position+[dx,dy]for dx in(-.1,0.,.1)for dy in(-.1,0.,.1)]
             planner.observations(points,i*.1)
         request=dict(plan=plan,progress=1.,pose=[0.,0.],velocity=[1.9,0.],command=[1.9,0.],
@@ -163,8 +173,9 @@ class AvoidanceTests(unittest.TestCase):
         self.assertEqual(len(result['escape_predictions']),len(c['response_models']))
         radius=c['robot_radius']+c['minimum_clearance']
         initial=predict_motion(plan,c,[.152,0.],[1.9,0.],[1.9,0.],[0.,0.],1.,horizon=0.)
-        self.assertTrue(any(collision(b[0],bt[0],result['tracks'],radius)
-            or stopped_collision(b,bt,result['tracks'],radius)for _,_,b,bt,_ in initial))
+        truth=[dict(t,covariance=np.zeros((6,6)).tolist())for t in result['tracks']]
+        self.assertTrue(all(collision(b[0],bt[0],truth,radius)
+            or stopped_collision(b,bt,truth,radius)for _,_,b,bt,_ in initial))
         execution_tracks=[dict(t,prediction_age=t['prediction_age']+.08)for t in result['tracks']]
         for trajectory in result['escape_predictions']:
             self.assertFalse(collision(trajectory['points'],trajectory['times'],execution_tracks,radius))

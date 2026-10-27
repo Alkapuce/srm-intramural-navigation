@@ -134,6 +134,8 @@ class ObstacleTracker:
         return [dict(id=t['id'], center=t['x'][:2].tolist(), velocity=t['x'][2:4].tolist(),acceleration=t['x'][4:].tolist(),
                      covariance=t['p'].tolist(), radius=t['radius'], extent=t['extent'].tolist(), age=max(0., stamp-t['seen']),
                      velocity_observed=t['observations']>=2,
+                     acceleration_observed=bool(t.get('association_valid',False) and
+                         np.linalg.norm(t['x'][4:])>max(.4,.5*math.sqrt(max(np.diag(t['p'])[4:])))),
                      motion_confident=bool(t['observations']>=2 and t.get('association_valid',False) and
                          np.linalg.norm(t['x'][2:4])>max(.08,2*math.sqrt(max(np.diag(t['p'])[2:4])))),
                      moving=bool(t['observations']<3 or stamp<t['moving_until']))
@@ -179,7 +181,7 @@ def prediction_uncertainty(track,horizon):
     h=horizon if track.get('velocity_observed',True) else np.minimum(horizon,.15)
     variance=np.maximum(covariance[0,0]+2*h*covariance[0,2]+h*h*covariance[2,2],
                         covariance[1,1]+2*h*covariance[1,3]+h*h*covariance[3,3])
-    if len(covariance)==6:
+    if len(covariance)==6 and track.get('acceleration_observed',True):
         a=acceleration_motion(h)[0]
         variance=np.maximum(covariance[0,0]+2*h*covariance[0,2]+h*h*covariance[2,2]
             +a*a*covariance[4,4]+2*a*covariance[0,4]+2*h*a*covariance[2,4],
@@ -193,7 +195,7 @@ def obstacle_positions(track,times):
     t=np.asarray(times)+track.get('prediction_age',0.)
     positions=np.asarray(track['center'])+t[...,None]*np.asarray(track['velocity'])
     acceleration=np.asarray(track.get('acceleration',[0.,0.]))
-    if track.get('moving',True) and np.any(acceleration):
+    if track.get('moving',True) and track.get('acceleration_observed',True) and np.any(acceleration):
         positions+=acceleration_motion(t)[0][...,None]*acceleration
     return positions
 
@@ -202,7 +204,7 @@ def collision_segments(start,end,begin,finish,tracks,radius):
     for track in tracks:
         a=np.asarray(start)-obstacle_positions(track,begin)
         b=np.asarray(end)-obstacle_positions(track,finish)
-        acceleration=np.asarray(track.get('acceleration',[0.,0.]))
+        acceleration=(np.asarray(track.get('acceleration',[0.,0.])) if track.get('acceleration_observed',True) else np.zeros(2))
         d=b-a
         f = np.clip(-np.sum(a*d, axis=1)/np.maximum(1e-12, np.sum(d*d, axis=1)), 0., 1.)
         uncertainty=prediction_uncertainty(track,finish)
