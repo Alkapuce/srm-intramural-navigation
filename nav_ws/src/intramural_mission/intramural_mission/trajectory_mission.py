@@ -6,6 +6,7 @@ import time
 import uuid
 import hashlib
 import gc
+from collections import deque
 from pathlib import Path
 import numpy as np
 import rclpy
@@ -48,6 +49,7 @@ class TrajectoryMission(Node):
         self.costmap = None
         self.costmap_at = 0.0
         self.guard = {}
+        self.command_history=deque()
         self.guard_at = 0.0
         self.yaw = 0.0
         self.run = 0
@@ -138,6 +140,12 @@ class TrajectoryMission(Node):
     def receive_guard(self, msg):
         self.guard = json.loads(msg.data)
         self.guard_at = time.monotonic()
+        if 'stamp' in self.guard:
+            stamp=self.guard['stamp'];x,y=self.guard['output'];co,si=math.cos(self.yaw),math.sin(self.yaw)
+            if self.command_history and stamp<self.command_history[-1][0]:self.command_history.clear()
+            self.command_history.append((stamp,co*x-si*y,si*x+co*y))
+            while len(self.command_history)>1 and self.command_history[1][0]<stamp-.5:
+                self.command_history.popleft()
 
     def receive_observations(self, msg):
         data = json.loads(msg.data)
@@ -257,7 +265,9 @@ class TrajectoryMission(Node):
                 path_blocked=self.raw_hazard and self.guard.get('route_id')==self.plan.route_id,
                 restore_plan=self.speed_restore,escape_until=self.escape_until,
                 progress=self.tracker.progress.s, pose=self.pose, velocity=self.tracker.velocity,
-                command=self.tracker.command, acceleration=self.tracker.acceleration))
+                command=self.tracker.command, acceleration=self.tracker.acceleration,
+                motion_active=self.state=='RUNNING',
+                command_history=tuple((stamp-now,x,y)for stamp,x,y in self.command_history)))
 
     def ready(self):
         now = time.monotonic()

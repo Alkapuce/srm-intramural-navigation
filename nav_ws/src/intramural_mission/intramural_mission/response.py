@@ -4,7 +4,7 @@ from collections import deque
 import math
 import numpy as np
 from intramural_base.transport import CommandPolicy
-from intramural_mission.trajectory import OmniTracker
+from intramural_mission.trajectory import OmniTracker, Progress
 from intramural_mission.safety import response_horizon,stopping_horizon
 
 
@@ -33,29 +33,41 @@ class Plant:
         self.pose += self.velocity*self.dt
 
 
-def predict_motion(plan, limits, pose, velocity, command, acceleration, progress, horizon=2., models=None):
+def predict_motion(plan, limits, pose, velocity, command, acceleration, progress, horizon=2., models=None,
+                   command_history=None, previous_plan=None, previous_progress=0., activation_delay=0.):
     """Production tracker and transport from a moving boundary, including stop tails."""
     models = models or limits.get('response_models', [(limits.get('response_delay', .2), limits.get('response_tau', .15))])
     trajectories = []
     for delay, tau in models:
         plant = Plant(pose, delay, tau, acceleration_limit=limits.get('drive_acceleration_limit'))
         plant.velocity = np.asarray(velocity).copy()
-        plant.queue = deque(np.asarray(command).copy() for _ in plant.queue)
-        tracker = OmniTracker(plan, limits)
-        tracker.progress.s = progress
+        history=np.asarray(command_history if command_history else [[0.,*command]],dtype=float)
+        pending=np.array([np.array([np.interp(t,history[:,0],history[:,axis])for axis in (1,2)])
+                          for t in (np.arange(len(plant.queue))-len(plant.queue))*plant.dt]).reshape(-1,2)
+        plant.queue=deque(pending.copy())
+        tracker = OmniTracker(previous_plan or plan, limits)
+        tracker.progress.s = previous_progress if previous_plan is not None else progress
         tracker.velocity = np.asarray(velocity).copy()
         tracker.command = np.asarray(command).copy()
         tracker.acceleration = np.asarray(acceleration).copy()
         policy = CommandPolicy([[1, 0], [0, 1]], limits['max_speed'], limits['max_acceleration'], limits['max_speed'])
         policy.enabled, policy.last_tick = True, -plant.dt
-        policy.previous = tuple(command)
+        policy.previous = tuple(history[-1,1:])
         points, velocities, sent_commands, errors = [plant.pose.copy()], [plant.velocity.copy()], [], []
         observed,source_stamp=plant.pose.copy(),0.
+        activated=activation_delay<=0.
         for i in range(math.ceil(horizon/plant.dt)):
             t = i*plant.dt
+            if not activated and t>=activation_delay:
+                tracker.plan=plan;tracker.progress=Progress(plan);tracker.progress.s=progress
+                activated=True
             if t-source_stamp>=limits.get('pose_update_period',.1)-1e-9:
                 observed,source_stamp=plant.pose.copy(),t
-            u, detail = tracker.step(observed, 0., plant.dt, pose_age=t-source_stamp, stamp=source_stamp)
+            if not activated and previous_plan is None:
+                tracker.observe(observed,plant.dt,source_stamp)
+                u,detail=np.asarray(command),dict(error=0.)
+            else:
+                u, detail = tracker.step(observed, 0., plant.dt, pose_age=t-source_stamp, stamp=source_stamp)
             policy.receive(*u, 0., now=t)
             sent, _ = policy.tick(t)
             sent_commands.append(sent[:2])
@@ -74,7 +86,7 @@ def predict_motion(plan, limits, pose, velocity, command, acceleration, progress
             if j<delay_steps:
                 indices=np.arange(count)+j-delay_steps
                 u=commands[np.clip(indices,0,len(commands)-1)].copy()
-                u[indices<0]=command
+                u[indices<0]=pending[indices[indices<0]+delay_steps]
             else:u=np.zeros_like(brake_velocity)
             change=alpha*(u-brake_velocity)
             if force is not None:

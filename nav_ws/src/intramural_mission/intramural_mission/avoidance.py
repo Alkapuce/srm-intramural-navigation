@@ -357,14 +357,18 @@ class DetourPlanner:
         tracks = self.observations(request['points'], request['stamp'], request.get('weights'),request.get('sensor_position'),point_times)
         plan, progress = request['plan'], request['progress']
         pose, velocity = np.asarray(request['pose']), np.asarray(request['velocity'])
-        switch_delay=max(0.,request.get('pose_age',0.))+.08
+        switch_delay=max(0.,request.get('pose_age',0.))+.1
         current_pose=pose+velocity*max(0.,request.get('pose_age',0.))
-        pose=current_pose+velocity*.08+.5*np.asarray(request.get('acceleration',[0.,0.]))*.08**2
+        pose=current_pose+velocity*.1+.5*np.asarray(request.get('acceleration',[0.,0.]))*.1**2
+        current_boundary=Progress(plan);current_boundary.s=progress
+        current_boundary.project(current_pose,self.c['max_speed']*max(0.,request.get('pose_age',0.))+.12,
+                                 self.c['max_tracking_error'])
         speed = float(np.linalg.norm(velocity))
         radius = self.c['robot_radius']+self.c.get('minimum_clearance', .02)
         samples, times = preview(plan, progress, speed)
         age = max(0., request.get('observation_age', 0.))
-        switch_stamp=request['stamp']+age+.08
+        prediction_stamp=request['stamp']+age
+        switch_stamp=prediction_stamp+.1
         for t in tracks:
             t['age'] += age
             t['prediction_age'] = age
@@ -379,7 +383,8 @@ class DetourPlanner:
         if tracks:
             from intramural_mission.response import predict_motion
             initial=predict_motion(plan,self.c,current_pose,velocity,
-                request.get('command',velocity),request.get('acceleration',[0.,0.]),progress,horizon=0.,models=endpoints)
+                request.get('command',velocity),request.get('acceleration',[0.,0.]),progress,horizon=0.,models=endpoints,
+                command_history=request.get('command_history'))
             def unsafe_stop(predictions, obstacles):
                 return any(collision(brakes[0],brake_times[0],obstacles,radius)
                     or stopped_collision(brakes,brake_times,obstacles,radius)
@@ -396,8 +401,8 @@ class DetourPlanner:
                     return dict(report,blocked=True,imminent=True,execution_failure=True,
                         reason='ESCAPE_DEADLINE_EXPIRED',seconds=time.monotonic()-began)
         report['escape_until']=escape_until
-        if escape_until:report['escape_prediction_stamp']=switch_stamp
-        execution_tracks=[dict(t,prediction_age=t['prediction_age']+.08) for t in tracks]
+        if escape_until:report['escape_prediction_stamp']=prediction_stamp
+        execution_tracks=tracks
         escape_predictions={}
         def reject(reason):
             report['rejected'][reason] = report['rejected'].get(reason, 0)+1
@@ -407,15 +412,18 @@ class DetourPlanner:
             if boundary.project(pose,self.c['max_speed']*switch_delay+.12,self.c['max_tracking_error'])>self.c['max_tracking_error']:
                 return False
             predict_started=time.monotonic()
-            predictions=predict_motion(proposal,self.c,pose,velocity,request.get('command',velocity),
-                request.get('acceleration',[0.,0.]),boundary.s,horizon=horizon,models=endpoints)
+            predictions=predict_motion(proposal,self.c,current_pose,velocity,request.get('command',velocity),
+                request.get('acceleration',[0.,0.]),boundary.s,horizon=horizon,models=endpoints,
+                command_history=request.get('command_history'),
+                previous_plan=plan if request.get('motion_active',bool(np.any(request.get('command',velocity)))) else None,
+                previous_progress=current_boundary.s,activation_delay=.1)
             if horizon>=2.:self.prediction_seconds=.5*self.prediction_seconds+.5*(time.monotonic()-predict_started)
             for actual,timing,brakes,brake_times,error in predictions:
                 if (error>self.c['max_tracking_error']
                         or min(self.map.clearance(brakes.reshape(-1,2),include_poles=not self.c.get('pole_clearance_from_map',False)))<=self.c.get('execution_clearance',0.)
                         or collision(actual,timing,execution_tracks,radius)):
                     return False
-                restore_index=max(0,int(np.searchsorted(timing,max(0.,escape_until-switch_stamp),side='right'))-1)
+                restore_index=max(0,int(np.searchsorted(timing,max(0.,escape_until-prediction_stamp),side='right'))-1)
                 checks=[(execution_tracks,np.arange(len(timing))>=restore_index)]
                 if escape_until:
                     checks.append(([t for t in execution_tracks if not (t['moving'] and t['motion_confident'])],np.ones(len(timing),bool)))

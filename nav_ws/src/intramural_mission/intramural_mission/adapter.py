@@ -361,6 +361,7 @@ class Adapter(Node):
 
     def tick(self):
         now = time.monotonic()
+        now_ros = self.get_clock().now().nanoseconds/1e9
         dt = min(now - self.last_tick, 0.1)
         self.last_tick = now
         stale = any(
@@ -384,7 +385,6 @@ class Adapter(Node):
         observer_position=None
         self.raw_motion_problem = ''
         if self.c.get('navigation_engine') == 'trajectory' and getattr(self, 'raw_point_times', None) is not None:
-            now_ros = self.get_clock().now().nanoseconds/1e9
             sensor_age = max(0., now_ros-self.raw_stamp)
             try:
                 raw_points = compensate_motion(raw_points, self.raw_point_times, self.odom_history, now_ros)
@@ -503,6 +503,7 @@ class Adapter(Node):
             String(
                 data=json.dumps(
                     {
+                        "stamp": now_ros,
                         "enabled": self.enabled,
                         "motion_permitted": self.motion_permitted,
                         "stale": stale,

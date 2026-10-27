@@ -188,11 +188,11 @@ class AvoidanceTests(unittest.TestCase):
         truth=[dict(t,covariance=np.zeros((6,6)).tolist())for t in result['tracks']]
         self.assertTrue(all(collision(b[0],bt[0],truth,radius)
             or stopped_collision(b,bt,truth,radius)for _,_,b,bt,_ in initial))
-        execution_tracks=[dict(t,prediction_age=t['prediction_age']+.08)for t in result['tracks']]
+        execution_tracks=result['tracks']
         for trajectory in result['escape_predictions']:
             self.assertFalse(collision(trajectory['points'],trajectory['times'],execution_tracks,radius))
-        for _,timing,brakes,brake_times,_ in predict_motion(plan,c,[.152,0.],[1.9,0.],[1.9,0.],[0.,0.],1.):
-            eligible=timing>=.7
+        for _,timing,brakes,brake_times,_ in predict_motion(plan,c,[0.,0.],[1.9,0.],[1.9,0.],[0.,0.],1.):
+            eligible=timing>=.8
             branches,stamps=brakes[eligible],brake_times[eligible]
             self.assertFalse(collision_segments(branches[:,:-1].reshape(-1,2),branches[:,1:].reshape(-1,2),
                 stamps[:,:-1].ravel(),stamps[:,1:].ravel(),execution_tracks,radius))

@@ -157,6 +157,36 @@ class TrajectoryTests(unittest.TestCase):
                 np.testing.assert_array_equal(command,[0.,0.])
                 self.assertGreater(np.linalg.norm(tracker.velocity),.06)
 
+    def test_braking_keeps_the_commands_still_in_the_actuator_delay_queue(self):
+        from intramural_mission.response import Plant,predict_motion
+        from collections import deque
+        c=dict(BASE,**PROFILES['candidate'],drive_acceleration_limit=3.5)
+        plan=RoutePlan.build([('RETURN',[[float(x),0.]for x in np.linspace(0.,4.,161)])],c)
+        history=[[-.2,1.5,0.],[-.025,1.5,0.],[0.,0.,0.]]
+        _,_,brakes,times,_=predict_motion(plan,c,[0.,0.],[1.5,0.],[0.,0.],[0.,0.],0.,
+            horizon=0.,models=[(.1,.05)],command_history=history)[0]
+        # Independent delayed actuator integration, followed by a sustained zero command.
+        pending=deque(np.array([1.5,0.])for _ in range(4))
+        p=np.zeros(2);v=np.array([1.5,0.]);trace=[p.copy()]
+        for _ in range(round(times[0,-1]/.025)):
+            pending.append(np.zeros(2));u=pending.popleft()
+            change=(1-math.exp(-.025/.05))*(u-v)
+            change*=min(1.,3.5*.025/max(1e-9,np.linalg.norm(change)))
+            v+=change;p+=v*.025;trace.append(p.copy())
+        np.testing.assert_allclose(brakes[0],np.asarray(trace)[np.rint(times[0]/.025).astype(int)],atol=1e-10)
+        self.assertGreater(brakes[0,-1,0],.44)
+
+    def test_switch_prediction_keeps_the_old_route_until_the_new_route_can_activate(self):
+        from intramural_mission.response import predict_motion
+        c=dict(BASE,**PROFILES['candidate'],drive_acceleration_limit=3.5)
+        old=RoutePlan.build([('RETURN',[[float(x),0.]for x in np.linspace(0.,4.,161)])],c)
+        new=RoutePlan.build([('RETURN',[[0.,float(y)]for y in np.linspace(0.,4.,161)])],c)
+        points,times,_,_,_=predict_motion(new,c,[0.,0.],[1.,0.],[1.,0.],[0.,0.],0.,
+            horizon=.3,models=[(0.,.05)],previous_plan=old,previous_progress=0.,activation_delay=.1)[0]
+        np.testing.assert_allclose(points[times<=.1,1],0.,atol=1e-12)
+        self.assertGreater(points[4,0],.08)
+        self.assertGreater(points[-1,1],.02)
+
     def test_terminal_zero_waits_for_the_force_limited_tail(self):
         c=dict(BASE,**PROFILES['candidate'],parking=[0.,0.],drive_acceleration_limit=3.5,
             route_speed_scale=1.)
