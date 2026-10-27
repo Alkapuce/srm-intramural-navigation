@@ -165,9 +165,20 @@ try:
                   and physical_speed() < .03, 5, "control staleness zero")
             result["zero_command_and_stop"] = True
             result["state_after_injection"] = status.get("state")
+            previous_guard_stamp=status.get('guard',{}).get('stamp',0.)
             os.kill(stopped_pid, signal.SIGCONT)
             stopped_pid = None
-            if status.get("state") == "RUNNING":
+            if c.get('navigation_engine')=='trajectory':
+                # The cached RUNNING report predates SIGSTOP; confirm fresh inputs before judging cancellation.
+                until(lambda:status.get('guard',{}).get('stamp',0.)>previous_guard_stamp
+                      and status.get('ready'),15,'fresh control status after resume')
+                result['state_after_fresh_resume']=status.get('state')
+                if status.get('state') not in ('RUNNING','FAULT') or (status.get('state')=='FAULT'
+                        and status.get('reason')!='LOCALIZATION_OR_SENSOR_STALE'):
+                    raise RuntimeError('Unexpected resumed control state: '+str(status.get('state')))
+                call(cancel, Trigger.Request())
+                until(lambda:status.get('state')=='CANCELLED',10,'cancel after fresh control resume')
+            elif status.get("state") == "RUNNING":
                 call(cancel, Trigger.Request())
                 until(lambda: status.get("state") == "CANCELLED", 10, "cancel after control resume")
         else:
