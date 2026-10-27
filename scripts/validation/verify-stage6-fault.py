@@ -134,17 +134,13 @@ try:
         result["stopped_after_link_restored"] = True
     elif a.fault=='planner':
         parent=child_pid('trajectory_mission')
-        workers=[]
-        for entry in Path('/proc').iterdir():
-            if not entry.name.isdigit():continue
-            try:
-                fields=(entry/'status').read_text().splitlines()
-                ppid=int(next(line.split()[1] for line in fields if line.startswith('PPid:')))
-                command=(entry/'cmdline').read_bytes()
-                if ppid==parent and b'multiprocessing.spawn' in command:workers.append(int(entry.name))
-            except (FileNotFoundError,ProcessLookupError,PermissionError):continue
-        if len(workers)!=1:raise RuntimeError(f'Expected exactly one planning child: {workers}')
-        stopped_pid=workers[0];os.kill(stopped_pid,signal.SIGSTOP)
+        pid=status.get('planner_pid')
+        if not isinstance(pid,int) or pid<=0:raise RuntimeError('Missing planning child identity')
+        fields=Path(f'/proc/{pid}/status').read_text().splitlines()
+        ppid=int(next(line.split()[1] for line in fields if line.startswith('PPid:')))
+        if ppid!=parent:raise RuntimeError('Reported planner is not a mission child')
+        result['suspended_planner_pid']=pid
+        stopped_pid=pid;os.kill(stopped_pid,signal.SIGSTOP)
         route=json.loads((Path('/work/artifacts/navigation-runs')/status['run_id']/'route.json').read_text())
         target=next(point for distance,point in zip(route['s'],route['points'])
                     if distance>status['continuous_progress']+1.)

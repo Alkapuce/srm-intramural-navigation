@@ -665,6 +665,7 @@ class TrajectoryMission(Node):
             continuous_progress=self.tracker.progress.s if self.tracker else 0.0,
             run=self.run,
             run_id=self.run_id,
+            planner_pid=getattr(getattr(self.worker, 'process', None), 'pid', None),
             route_id=self.plan.route_id if self.plan else "",
             pose=self.pose,
             tf_age_sim_seconds=self.pose_age if math.isfinite(self.pose_age) else None,

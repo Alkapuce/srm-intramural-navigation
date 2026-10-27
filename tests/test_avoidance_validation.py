@@ -11,6 +11,32 @@ oracle=importlib.util.module_from_spec(spec);spec.loader.exec_module(oracle)
 class PhysicalOracleTests(unittest.TestCase):
     config=dict(robot_radius=.29,obstacle_size=[.5,.5,1.])
 
+    def test_standoff_uses_box_surface_and_full_robot_radius(self):
+        import math
+        self.assertAlmostEqual(float(oracle.box_clearance([0.,.637],0.,self.config)),.097)
+        diagonal=.7/math.sqrt(2)
+        self.assertLess(float(oracle.box_clearance([diagonal,diagonal],0.,self.config)),.08)
+
+    def test_queued_braking_encloses_independent_millisecond_force_response(self):
+        import numpy as np
+        from intramural_mission.safety import braking_paths
+        c=dict(response_delay=.1,response_tau=.09,drive_acceleration_limit=3.5)
+        history=np.array([[-.3,0.,2.],[-.09,-.8,1.8],[-.04,-1.2,1.6],[0.,-1.4,1.4]])
+        branch=np.asarray(braking_paths(c,[0.,2.],[-1.4,1.4],history,.135)[0])
+        pose=np.zeros(2);velocity=np.array([0.,2.]);points=[]
+        for i in range(1800):
+            source=i*.001-.1
+            u=(history[max(0,np.searchsorted(history[:,0],source,side='right')-1),1:]
+               if source<0 else history[-1,1:] if source<.135 else np.zeros(2))
+            force=(u-velocity)/.09;force*=min(1.,3.5/max(1e-12,np.linalg.norm(force)))
+            velocity+=force*.001;pose+=velocity*.001;points.append(pose.copy())
+        delta=np.diff(branch,axis=0);points=np.asarray(points)
+        local=points[:,None,:]-branch[:-1]
+        fraction=np.clip(np.sum(local*delta,axis=2)/np.maximum(1e-12,np.sum(delta*delta,axis=1)),0.,1.)
+        distances=np.linalg.norm(local-fraction[:,:,None]*delta,axis=2).min(axis=1)
+        self.assertLess(float(distances.max()),.015)
+        self.assertLess(branch[-1,0],-.25)
+
     def test_physical_matrix_selection_preserves_formal_order_and_subsets(self):
         self.assertEqual(oracle.matrix_indices(60),[47,*range(47),*range(48,60)])
         self.assertEqual(oracle.matrix_indices(10,baseline=True),list(range(10)))

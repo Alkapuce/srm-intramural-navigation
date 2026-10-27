@@ -39,6 +39,37 @@ def collision_reach(limits, speed, sensor_age=0.):
     return max(.35, speed * horizon) + limits.get('minimum_clearance', .02)
 
 
+def braking_paths(limits, velocity, command, history=(), reaction=0.):
+    """Actual queued commands can turn a stopping vehicle away from its current velocity ray."""
+    history=np.asarray(history if len(history) else [[0.,*command]],dtype=float)
+    if (history.ndim!=2 or history.shape[1]!=3 or not np.isfinite(history).all()
+            or np.any(np.diff(history[:,0])<0) or not np.isfinite([*velocity,*command,reaction]).all()
+            or reaction<0):
+        raise ValueError('Invalid braking boundary/history')
+    force=limits.get('drive_acceleration_limit')
+    if force is not None and (not math.isfinite(force) or force<=0):
+        raise ValueError('Positive drive acceleration limit required')
+    speed=max(math.hypot(*velocity),math.hypot(*command),float(np.linalg.norm(history[:,1:],axis=1).max()))
+    paths=[];dt=.01
+    for delay,tau in _response_models(limits):
+        duration=delay+reaction+8*tau+(speed/force if force else 0.)
+        steps=max(1,math.ceil(duration/dt));times=(np.arange(steps)+.5)*dt-delay
+        indices=np.clip(np.searchsorted(history[:,0],times,side='right')-1,0,len(history)-1)
+        inputs=history[indices,1:].copy()
+        inputs[times>=0]=command;inputs[times>=reaction]=0.
+        x=y=0.;vx,vy=map(float,velocity);path=[[0.,0.]]
+        alpha=1. if tau==0 else 1-math.exp(-dt/tau)
+        for j,(ux,uy) in enumerate(inputs):
+            dx,dy=alpha*(ux-vx),alpha*(uy-vy)
+            scale=min(1.,force*dt/max(1e-12,math.hypot(dx,dy))) if force else 1.
+            nx,ny=vx+dx*scale,vy+dy*scale
+            x+=(vx+nx)*dt/2;y+=(vy+ny)*dt/2;vx,vy=nx,ny
+            # Once zero has reached the drive, deceleration is collinear; keep its full endpoint.
+            if times[j]<=reaction+dt or j==steps-1:path.append([x,y])
+        paths.append(path)
+    return paths
+
+
 def compensate_motion(points, stamps, history, reference_time):
     """Put sampled body XY into one current body frame using source-time odometry."""
     points = np.asarray(points, dtype=float)

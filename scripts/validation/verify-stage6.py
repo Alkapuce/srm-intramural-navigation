@@ -7,6 +7,7 @@ import json
 import math
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -19,6 +20,8 @@ from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
 from intramural_mission.route import clearance, segments
 from intramural_mission.planning import compile_route
 
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'internal'))
+from avoidance_gazebo import box_clearance
 
 p = argparse.ArgumentParser()
 p.add_argument("--output", required=True)
@@ -36,6 +39,8 @@ if (a.cancel_bypass or a.expect_blocked) and (not a.persistent or a.scenarios !=
 if not 0 < a.blocked_hold_seconds <= 60:
     p.error("--blocked-hold-seconds must be in (0, 60]")
 c = json.loads(Path(os.environ.get("INTRAMURAL_ARENA_CONFIG", "/work/config/arena.json")).read_text())
+# Candidate geometry has its own frozen error budget; retain the legacy audit default.
+required_clearance=c.get('execution_clearance',.08) if c.get('navigation_engine')=='trajectory' else .08
 if c.get('navigation_engine') == 'trajectory' and a.persistent and not a.expect_blocked and not c.get('allow_bypass',False):
     p.error('Trajectory engine waits for obstacles; use --expect-blocked or a legacy bypass configuration')
 out = Path(a.output).resolve()
@@ -222,12 +227,18 @@ try:
         frozen_history=list(history)
         stopped(1.5)
         hold_blocked(a.blocked_hold_seconds)
-        if status['segment']!=segment or status['history']!=frozen_history:
-            raise RuntimeError('Progress advanced during blocking')
+        history=status['history']
+        # Inertia can carry a trajectory across a gate after zero command; completed stages stay ordered.
+        if (history[:len(frozen_history)]!=frozen_history
+            or [h['segment']for h in history]!=list(range(len(history)))
+            or (c.get('navigation_engine')!='trajectory' and status['segment']!=segment)):
+            raise RuntimeError('Ordered history changed during blocking')
+        segment=status['segment']
         p = latest["truth"].pose.pose.position
         stand_off = math.dist((p.x, p.y), target)
-        if stand_off < .7:
-            raise RuntimeError(f"Unsafe obstacle standoff {stand_off}")
+        blocked_clearance=float(box_clearance([p.x-target[0],p.y-target[1]],0.,c))
+        if not a.expect_blocked and blocked_clearance < required_clearance:
+            raise RuntimeError(f"Unsafe obstacle surface clearance {blocked_clearance}")
         blocked_pose = (p.x, p.y)
         if a.expect_blocked:
             hold_blocked(12)
@@ -239,7 +250,9 @@ try:
             results.append({'scenario':'no-route','state':status['state'],'bypass_count':0,'stopped':True})
             (out/'results.json').write_text(json.dumps(results,indent=2)+'\n')
             break
+        removed_at=None
         if not a.persistent:
+            removed_at=time.monotonic()
             move("park")
         until(lambda: status.get("state") == "RUNNING" and status.get("segment") == segment
               and (not a.persistent or status.get('bypass_count',0) > 0),
@@ -261,21 +274,34 @@ try:
         if parking_error > c["parking_tolerance"]:
             raise RuntimeError(f"Parking error {parking_error}")
         run_records = [r for r in records if r["run"] == status["run"]]
+        if [h['phase']for h in status['history']]!=[name for name,_ in segments(c)]:
+            raise RuntimeError('Completion omitted an ordered phase')
+        winding={}
+        for key in ('lower_pole','upper_pole'):
+            angles=[math.atan2(r['y']-c[key][1],r['x']-c[key][0])for r in run_records]
+            winding[key]=sum(math.atan2(math.sin(b-a),math.cos(b-a))for a,b in zip(angles,angles[1:]))
+        if not (6.<winding['lower_pole']<6.6 and -6.6<winding['upper_pole']<-6.):
+            raise RuntimeError(f'Wrong physical winding: {winding}')
         min_clearance = min(min(clearance(c, (r["x"], r["y"]))) for r in run_records)
         if min_clearance <= 0:
             raise RuntimeError("Physical pole/boundary collision")
-        dynamic_clearance = min(math.hypot(max(abs(r['x']-target[0])-.25,0),
-            max(abs(r['y']-target[1])-.25,0))-c['robot_radius'] for r in run_records
-            if r['wall'] >= inserted_at) if a.persistent else None
-        if dynamic_clearance is not None and dynamic_clearance < .08:
-            raise RuntimeError(f'Insufficient persistent obstacle clearance: {dynamic_clearance}')
+        exposed=[r for r in run_records if r['wall']>=inserted_at
+                 and (removed_at is None or r['wall']<=removed_at)]
+        dynamic_clearance=float(min(box_clearance(
+            [[r['x']-target[0],r['y']-target[1]]for r in exposed],0.,c)))
+        if dynamic_clearance < required_clearance:
+            raise RuntimeError(f'Insufficient obstacle clearance: {dynamic_clearance}')
         result = {"scenario": scenario, "target": target, "blocked_segment": segment,
                   "blocked_hold_wall_seconds": a.blocked_hold_seconds,
                   "moving_pose_at_insertion": moving_pose,
                   "insertion_distance_m":math.dist(moving_pose,target),
                   "blocked_pose": blocked_pose, "obstacle_standoff_m": stand_off,
+                  "blocked_surface_clearance_m":blocked_clearance,
+                  "required_surface_clearance_m":required_clearance,
+                  "obstacle_inserted_wall":inserted_at,"obstacle_removed_wall":removed_at,
                   "parking_error_m": parking_error, "min_static_clearance_m": min_clearance,
                   "history": [h["phase"] for h in status["history"]],
+                  "physical_winding_rad":winding,
                   "elapsed_sim_seconds": status["elapsed_sim_seconds"],
                   "samples": len(run_records)}
         result.update(persistent=a.persistent,bypass_count=status.get('bypass_count',0),

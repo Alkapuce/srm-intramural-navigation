@@ -13,6 +13,22 @@ from intramural_mission.adapter import Adapter
 
 
 class MotionGuardTests(unittest.TestCase):
+    def test_queued_turn_stops_even_when_the_ordered_ray_is_clear(self):
+        from collections import deque
+        guard,output=self.guard()
+        guard.atomic_command=True
+        guard.c.update(navigation_engine='trajectory',max_speed=2.,max_acceleration=3.5,
+            minimum_clearance=.02,response_delay=.1,response_tau=.09,
+            drive_acceleration_limit=3.5,raw_collision_follow_path=True)
+        guard.body_velocity=np.array([0.,2.]);guard.odom_history=deque([(10.,0.,0.,0.)])
+        guard.motion_history=deque([(9.7,0.,2.),(9.91,-.8,1.8),(9.96,-1.2,1.6)])
+        guard.cmd.linear.x=-1.4;guard.cmd.linear.y=1.4;guard.output=[-1.4,1.4]
+        guard.body_path=lambda:[[0.,0.],[0.,3.]]
+        guard.raw_near_points=np.array([[-.5,.9]])
+        self.tick(guard)
+        self.assertTrue(guard.hazard)
+        self.assertEqual(output[-1],Twist())
+
     def test_newer_run_recovers_when_the_starting_snapshot_was_stale(self):
         guard=N(atomic_command=True,snapshot_stamp=10.,snapshot_run=1,mission_state='CANCELLING',
             mission_context=('old','route'),output=[0.,0.],

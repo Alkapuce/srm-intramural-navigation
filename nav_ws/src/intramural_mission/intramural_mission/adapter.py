@@ -17,7 +17,7 @@ from std_msgs.msg import Bool, String
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster, Buffer, TransformListener, TransformException
 from intramural_mission.proximity import obstacle_near, obstacle_on_path, lidar_to_body
 from intramural_mission.route import curve_speed_limit
-from intramural_mission.safety import executable_path, response_horizon, stopping_horizon, collision_reach, compensate_motion, map_motion_pose
+from intramural_mission.safety import executable_path, response_horizon, stopping_horizon, collision_reach, compensate_motion, map_motion_pose, braking_paths
 
 
 class Adapter(Node):
@@ -37,6 +37,7 @@ class Adapter(Node):
         self.body_velocity = np.zeros(2)
         self.previous_odometry = None
         self.odom_history = deque(maxlen=32)
+        self.motion_history = deque(maxlen=80)
         self.raw_point_times = None
         self.raw_point_offsets=None
         self.raw_motion_problem = ''
@@ -475,6 +476,14 @@ class Adapter(Node):
             stop_radius = radial+.2*speed+speed*speed/(2*braking)
         lateral = self.c['robot_radius'] if 'minimum_clearance' in self.c else radial
         min_points = self.c.get('raw_collision_min_points', 1)
+        brakes=[]
+        if self.atomic_command:
+            yaw=self.odom_history[-1][3] if self.odom_history else 0.
+            co,si=math.cos(yaw),math.sin(yaw)
+            history=[(t-now_ros,co*x+si*y,-si*x+co*y)for t,x,y in self.motion_history]
+            brakes=braking_paths(self.c,observed_velocity,scheduled,history,
+                reaction=max(self.c.get('pose_update_period',.1),sensor_age)+.035)
+        brake_reaches=[sum(math.dist(a,b)for a,b in zip(branch,branch[1:]))for branch in brakes]
         self.hazard = False if path is not None else obstacle_near(raw_points, self.last_motion_direction,
             radial=radial, forward=stop_radius, lateral=lateral, immediate=lateral, min_points=min_points)
         self.guard_mode = 'velocity'
@@ -485,9 +494,14 @@ class Adapter(Node):
                 self.hazard = obstacle_on_path(raw_points, path,
                     reach=stop_radius-radial+self.c.get('minimum_clearance', 0.), radius=self.c['robot_radius'], min_points=min_points)
                 self.guard_mode = 'ordered_path'
+        braking_hazard=any(obstacle_on_path(raw_points,branch,reach=reach,radius=radial,min_points=min_points)
+                           for branch,reach in zip(brakes,brake_reaches))
+        self.hazard |= braking_hazard
         if self.hazard and path is not None and getattr(self, 'raw_trusted_points', None) is not None:
             trusted = obstacle_on_path(trusted_points, path,
                 reach=stop_radius-radial+self.c.get('minimum_clearance', 0.), radius=self.c['robot_radius'], min_points=min_points)
+            trusted |= any(obstacle_on_path(trusted_points,branch,reach=reach,radius=radial,min_points=min_points)
+                           for branch,reach in zip(brakes,brake_reaches))
             if trusted or np.count_nonzero(np.linalg.norm(raw_points,axis=1) < radial) >= min_points:
                 self.pending_raw_stamp = None
             else:
@@ -512,6 +526,10 @@ class Adapter(Node):
         msg.linear.x, msg.linear.y = self.output
         msg.angular.z = 0.0
         self.pub.publish(msg)
+        if self.atomic_command:
+            co,si=math.cos(yaw),math.sin(yaw)
+            if self.motion_history and now_ros<self.motion_history[-1][0]:self.motion_history.clear()
+            self.motion_history.append((now_ros,co*self.output[0]-si*self.output[1],si*self.output[0]+co*self.output[1]))
         self.diagnostic.publish(
             String(
                 data=json.dumps(
@@ -525,6 +543,7 @@ class Adapter(Node):
                         "mode": self.mode,
                         "wz_disabled": True,
                         "raw_lidar_hazard": self.hazard,
+                        "raw_braking_hazard":braking_hazard,
                         "raw_hazard_unconfirmed": getattr(self, "pending_raw_stamp", None) is not None and not self.hazard,
                         "collision_check": self.guard_mode,
                         "collision_reach_m": stop_radius-radial+self.c.get('minimum_clearance', 0.),

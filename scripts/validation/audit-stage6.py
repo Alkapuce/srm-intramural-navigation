@@ -4,10 +4,14 @@
 import argparse
 import json
 import math
+import sys
 from pathlib import Path
 
 import numpy as np
 from intramural_mission.route import segments, clearance
+
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'internal'))
+from avoidance_gazebo import box_clearance
 
 p = argparse.ArgumentParser()
 p.add_argument("--input", required=True)
@@ -18,6 +22,7 @@ if not folder.is_relative_to(Path("/work/artifacts")):
 results = json.loads((folder / "results.json").read_text())
 records = [json.loads(line) for line in (folder / "trajectory.jsonl").read_text().splitlines()]
 c = json.loads((folder / "arena.json").read_text())
+required_clearance=c.get('execution_clearance',.08) if c.get('navigation_engine')=='trajectory' else .08
 reference = [point for _, path in segments(c) for point in path]
 expected = [name for name, _ in segments(c)]
 audit = []
@@ -48,14 +53,16 @@ for run, result in enumerate(results, 1):
         raise RuntimeError(f"No sustained obstacle stop in run {run}")
     target = result["target"]
     minimum_dynamic_distance = min(math.dist((r["x"], r["y"]), target) for r in blocked)
-    if minimum_dynamic_distance < c.get('robot_radius',.3905)+.25+.08:
+    blocked_clearance=float(min(box_clearance(
+        [[r['x']-target[0],r['y']-target[1]]for r in blocked],0.,c)))
+    if blocked_clearance < required_clearance:
         raise RuntimeError(f"Box collision risk in run {run}: {minimum_dynamic_distance}")
     dynamic_clearance = None
     if result.get('persistent'):
-        dynamic_clearance = min(math.hypot(max(abs(r['x']-target[0])-.25,0),
-            max(abs(r['y']-target[1])-.25,0))-c['robot_radius'] for r in sample
-            if r['wall'] >= blocked[0]['wall'])
-        if dynamic_clearance < .08 or result.get('bypass_count',0) == 0:
+        dynamic_clearance = float(min(box_clearance(
+            [[r['x']-target[0],r['y']-target[1]]for r in sample
+             if r['wall']>=result.get('obstacle_inserted_wall',blocked[0]['wall'])],0.,c)))
+        if dynamic_clearance < required_clearance or result.get('bypass_count',0) == 0:
             raise RuntimeError(f'Persistent obstacle was not safely bypassed: {dynamic_clearance}')
     item = {"scenario": result["scenario"], "run": run,
             "true_winding_rad": winding, "max_reference_deviation_m": deviation,
