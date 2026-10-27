@@ -425,6 +425,7 @@ class TrajectoryMission(Node):
             self.tracker.stop()
         self.command_pub.publish(Twist())
         self.enable_pub.publish(Bool(data=False))
+        self.publish_collision()
         if state in ("DONE", "FAULT", "CANCELLED"):
             self.finished = self.get_clock().now().nanoseconds / 1e9
 
@@ -485,6 +486,7 @@ class TrajectoryMission(Node):
                 String(
                     data=json.dumps(
                         dict(
+                            run=self.run,
                             run_id=self.run_id,
                             route_id=self.plan.route_id,
                             state=self.state,

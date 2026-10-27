@@ -13,6 +13,27 @@ from intramural_mission.adapter import Adapter
 
 
 class MotionGuardTests(unittest.TestCase):
+    def test_newer_run_recovers_when_the_starting_snapshot_was_stale(self):
+        guard=N(atomic_command=True,snapshot_stamp=10.,snapshot_run=1,mission_state='CANCELLING',
+            mission_context=('old','route'),output=[0.,0.],
+            get_clock=lambda:N(now=lambda:N(nanoseconds=10_400_000_000)),touch=lambda k:None)
+        def snapshot(run,sequence,stamp,state,pose_stamp=None):
+            return N(data=json.dumps(dict(run_id=run,run=sequence,route_id='route',stamp=stamp,
+                state=state,phase='ENTER',points=[[0.,0.],[1.,0.]],pose=[0.,0.,0.],
+                pose_stamp=stamp if pose_stamp is None else pose_stamp,command=[.3,0.] if state=='RUNNING' else [0.,0.])))
+        Adapter.receive_trajectory(guard,snapshot('new',2,10.1,'STARTING',9.))
+        self.assertEqual(guard.snapshot_run,1)
+        Adapter.receive_trajectory(guard,snapshot('new',2,10.2,'RUNNING'))
+        self.assertEqual(guard.mission_context,('new','route'))
+        self.assertEqual(guard.snapshot_run,2)
+        self.assertEqual(guard.cmd.linear.x,.3)
+        for state in ('RUNNING','DONE'):
+            guard.mission_state=state
+            for run,sequence in [('old',1),('other',2),('invalid',True),('invalid',-1)]:
+                Adapter.receive_trajectory(guard,snapshot(run,sequence,10.3,'STARTING'))
+                self.assertEqual(guard.mission_context,('new','route'))
+                self.assertEqual(guard.cmd.linear.x,.3)
+
     def test_atomic_context_ignores_delayed_diagnostics_and_zero_start_hands_over_runs(self):
         guard=N(atomic_command=True,snapshot_stamp=10.,mission_state='RUNNING',
             mission_phase='LOWER',mission_context=('old','old-route'),output=[.2,0.],

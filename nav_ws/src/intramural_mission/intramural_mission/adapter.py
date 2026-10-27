@@ -47,6 +47,7 @@ class Adapter(Node):
         self.hazard = False
         self.atomic_command = self.c.get('navigation_engine') == 'trajectory'
         self.snapshot_stamp = -math.inf
+        self.snapshot_run = -1
         self.observed_stamp = -math.inf
         self.observation_pub = self.create_publisher(String, 'motion_guard/observations', 1)
         self.mission_phase = ''
@@ -150,9 +151,15 @@ class Adapter(Node):
         command=np.asarray(d.get('command', [0., 0.]), dtype=float)
         if self.atomic_command:
             now=self.get_clock().now().nanoseconds/1e9
+            sequence=d.get('run')
+            current=getattr(self,'snapshot_run',-1)
+            if sequence is not None and (type(sequence) is not int or sequence<0 or sequence<current
+                    or sequence==current and context[0]!=getattr(self,'mission_context',('',''))[0]):
+                return
+            newer_run=sequence is not None and sequence>current
             starting=(d.get('state')=='STARTING' and command.shape==(2,) and not np.any(command))
             if (getattr(self,'mission_state','') in ('STARTING','RUNNING','BLOCKED','CANCELLING')
-                    and context[0] != getattr(self,'mission_context',('',''))[0] and not starting):
+                    and context[0] != getattr(self,'mission_context',('',''))[0] and not (starting or newer_run)):
                 return
             if not math.isfinite(d['stamp']) or abs(now-d['stamp']) > .3 or d['stamp'] <= self.snapshot_stamp:
                 return
@@ -169,6 +176,7 @@ class Adapter(Node):
                 self.cmd=Twist()
                 return
             self.snapshot_stamp=d['stamp']
+            if sequence is not None:self.snapshot_run=sequence
             self.mission_context=context
             self.mission_state=d.get('state',getattr(self,'mission_state',''))
             self.mission_phase=d.get('phase',getattr(self,'mission_phase',''))
