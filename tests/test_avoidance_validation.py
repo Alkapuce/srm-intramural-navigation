@@ -27,6 +27,22 @@ class PhysicalOracleTests(unittest.TestCase):
         trace[4][2]=-1.
         self.assertFalse(oracle.channel_agreement(trace,history,config)['passed'])
 
+    def test_same_channel_keeps_order_when_one_trace_contains_extra_local_correction(self):
+        config=dict(parking=[0.,0.],parking_tolerance=.08,max_tracking_error=.3)
+        # Extra out-and-back distance near home must not pair later points with an earlier bend.
+        entry=[[0.,0.],[.4,0.],[.4,.35],[.4,0.],[1.,0.],[1.,1.],[2.,1.],[3.,1.]]
+        returning=[[3.,1.],[2.,1.],[1.,1.],[1.,0.],[.4,0.],[0.,0.]]
+        trace=[[float(i),*p]for i,p in enumerate(entry+returning)]
+        history=[dict(sim_time=0.)for _ in range(10)]
+        history[1]['sim_time']=7.;history[9]['sim_time']=8.
+        result=oracle.channel_agreement(trace,history,config)
+        self.assertGreater(result['max_equal_distance_separation_m'],.6)
+        self.assertLess(result['max_ordered_separation_m'],.36)
+        self.assertTrue(result['passed'])
+        # A different branch remains invalid even with the same endpoints and winding.
+        trace[-3][2]=-1.
+        self.assertFalse(oracle.channel_agreement(trace,history,config)['passed'])
+
     def test_return_replan_uses_detour_corridor_only_when_old_channel_is_blocked(self):
         config=dict(parking=[0.,0.],parking_tolerance=.08,max_tracking_error=.3,
             bypass_max_deviation=1.1,robot_radius=.29,obstacle_size=[.5,.5,1.])

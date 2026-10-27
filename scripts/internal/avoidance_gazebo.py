@@ -97,9 +97,20 @@ def channel_agreement(measurements,history,config,actors=None):
     # Different C2 handoff locations meet the loop; compare the shared stem before those joints.
     length=min(a[-1],b[-1])-.6
     distance=np.arange(0.,max(0.,length),.025)
-    separation=np.linalg.norm(np.column_stack([np.interp(distance,a,entry[:,k])-
-        np.interp(distance,b,returning[:,k]) for k in (0,1)]),axis=1)
-    maximum=float(max(separation,default=math.inf))
+    outbound=np.column_stack([np.interp(distance,a,entry[:,k])for k in (0,1)])
+    inbound=np.column_stack([np.interp(distance,b,returning[:,k])for k in (0,1)])
+    equal_distance=float(max(np.linalg.norm(outbound-inbound,axis=1),default=math.inf))
+    # Tracking corrections change arc length; compare the channel with monotone spatial correspondence.
+    outbound=np.column_stack([np.interp(np.arange(0.,max(0.,a[-1]-.6),.025),a,entry[:,k])for k in (0,1)])
+    inbound=np.column_stack([np.interp(np.arange(0.,max(0.,b[-1]-.6),.025),b,returning[:,k])for k in (0,1)])
+    previous=np.full(len(inbound),math.inf)
+    for i,point in enumerate(outbound):
+        current=np.full(len(inbound),math.inf)
+        for j,gap in enumerate(np.linalg.norm(inbound-point,axis=1)):
+            current[j]=(gap if i==j==0 else max(gap,min(previous[j],
+                current[j-1]if j else math.inf,previous[j-1]if j else math.inf)))
+        previous=current
+    maximum=float(previous[-1])if len(previous)else math.inf
     blocked=False;same_side=True
     if actors is not None and len(actors):
         actor=np.asarray(actors);valid=np.ones(len(actor),bool)
@@ -124,6 +135,7 @@ def channel_agreement(measurements,history,config,actors=None):
     if blocked:limit+=config.get('bypass_max_deviation',0.)
     return dict(passed=length>.2 and maximum<limit and same_side,
         compared_length_m=float(length),max_ordered_separation_m=maximum,
+        max_equal_distance_separation_m=equal_distance,
         original_return_blocked=blocked,historical_entry_side_preserved=bool(same_side),
         allowed_separation_m=limit,
         scope='Independent truth, ordered distance from home; observed return blockage permits configured detour deviation plus tracking errors, historical entry side retained')
