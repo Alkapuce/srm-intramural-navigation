@@ -70,6 +70,24 @@ class GridMap:
                                     - self.c.get("minimum_clearance", .02))
         return result
 
+    def continuous_clearance(self, points, include_poles=True):
+        """Check occupied cell squares at continuous poses, capped beyond the required footprint."""
+        world=np.asarray(points);delta=world-self.origin
+        local=delta@np.array([[self.co,-self.si],[self.si,self.co]])
+        margin=self.c['robot_radius']+self.c.get('minimum_clearance',.02)
+        n=math.ceil((margin+self.c.get('execution_clearance',0.))/self.res)+2
+        dy,dx=np.mgrid[-n:n+1,-n:n+1]
+        cells=np.floor(local/self.res).astype(int)[:,None,:]+np.column_stack((dx.ravel(),dy.ravel()))
+        inside=(cells[...,0]>=0)&(cells[...,0]<self.free.shape[1])&(cells[...,1]>=0)&(cells[...,1]<self.free.shape[0])
+        occupied=np.ones(inside.shape,dtype=bool)
+        occupied[inside]=~self.free[cells[...,1][inside],cells[...,0][inside]]
+        distance=np.linalg.norm(np.maximum(np.abs(local[:,None,:]-(cells+.5)*self.res)-self.res/2,0.),axis=2)
+        result=np.minimum(np.where(occupied,distance,np.inf).min(axis=1),(n-1)*self.res)-margin
+        if include_poles and self.c.get('mission_variant','figure8')=='figure8':
+            for key in ('lower_pole','upper_pole'):
+                result=np.minimum(result,np.linalg.norm(world-self.c[key],axis=1)-margin-self.c['pole_radius'])
+        return result
+
     def shortcut(self, path):
         result = [path[0]]
         i = 0

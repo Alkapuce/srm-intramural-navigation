@@ -422,6 +422,18 @@ class DetourPlanner:
         if escape_until:report['escape_prediction_stamp']=prediction_stamp
         execution_tracks=tracks
         escape_predictions={}
+        initial_cell=np.floor((current_pose-self.map.origin)@
+            np.array([[self.map.co,-self.map.si],[self.map.si,self.map.co]])/self.map.res).astype(int)
+        # A valid measured start must not be rejected by the cell-center distance approximation.
+        precise_start=(self.map.clearance([current_pose],include_poles=not self.c.get('pole_clearance_from_map',False))[0]<max(.0125,self.c.get('execution_clearance',0.))
+            and self.map.continuous_clearance([current_pose],include_poles=not self.c.get('pole_clearance_from_map',False))[0]>max(.0125,self.c.get('execution_clearance',0.)))
+        def map_clearance(points,include_poles=True):
+            points=np.asarray(points);gap=self.map.clearance(points,include_poles=include_poles)
+            if precise_start:
+                local=(points-self.map.origin)@np.array([[self.map.co,-self.map.si],[self.map.si,self.map.co]])
+                selected=np.all(np.floor(local/self.map.res).astype(int)==initial_cell,axis=1)
+                if np.any(selected):gap[selected]=self.map.continuous_clearance(points[selected],include_poles=include_poles)
+            return gap
         def reject(reason):
             report['rejected'][reason] = report['rejected'].get(reason, 0)+1
         def executable(proposal, start_s, horizon=2.):
@@ -438,7 +450,7 @@ class DetourPlanner:
             if horizon>=2.:self.prediction_seconds=.5*self.prediction_seconds+.5*(time.monotonic()-predict_started)
             for actual,timing,brakes,brake_times,error in predictions:
                 if (error>self.c['max_tracking_error']
-                        or min(self.map.clearance(brakes.reshape(-1,2),include_poles=not self.c.get('pole_clearance_from_map',False)))<=self.c.get('execution_clearance',0.)
+                        or min(map_clearance(brakes.reshape(-1,2),include_poles=not self.c.get('pole_clearance_from_map',False)))<=self.c.get('execution_clearance',0.)
                         or collision(actual,timing,execution_tracks,radius)):
                     return False
                 restore_index=max(0,int(np.searchsorted(timing,max(0.,escape_until-prediction_stamp),side='right'))-1)
@@ -574,7 +586,7 @@ class DetourPlanner:
             corridor_tree = cKDTree(reference[start:join+1])
             def clearance(p):
                 p = np.asarray(p)
-                gap = self.map.clearance(p, include_poles=not self.c.get('pole_clearance_from_map', False))
+                gap = map_clearance(p, include_poles=not self.c.get('pole_clearance_from_map', False))
                 for track in tracks:
                     # Search the observed contour; arrival-time uncertainty is checked on timed candidates.
                     uncertainty=prediction_uncertainty(track,0.)
@@ -596,7 +608,7 @@ class DetourPlanner:
                 free_mask[row,col]=True
             def side_clearance(side):
                 waypoint=np.asarray(threat['center'])+normal*side*distance
-                return float(min(self.map.clearance([waypoint-tangent*.35,waypoint+tangent*.35],
+                return float(min(map_clearance([waypoint-tangent*.35,waypoint+tangent*.35],
                     include_poles=not self.c.get('pole_clearance_from_map',False))))
             sides=sorted(((-1,1) if attempt%2==0 else (1,-1)),key=side_clearance,reverse=True)
             for side in sides:
@@ -606,7 +618,8 @@ class DetourPlanner:
                 legs = []
                 waypoints = [pose, waypoint-tangent*.35, waypoint+tangent*.35, reference[join]]
                 for a, b in zip(waypoints, waypoints[1:]):
-                    leg = entry_path(self.c, a, b, self.grid, free_mask=free_mask,deadline=began+.06)
+                    leg = entry_path(self.c, a, b, self.grid, free_mask=free_mask,deadline=began+.06,
+                                     continuous_start=precise_start and not legs)
                     if leg is None:
                         reject('search')
                         break
@@ -639,7 +652,7 @@ class DetourPlanner:
                             for n,(a,b) in enumerate(zip(vertices,vertices[1:]))]
                         bridge=np.asarray([p for n,curve in enumerate(curves) for p in curve[1 if n else 0:]])
                         if (min(clearance(bridge))>.0125 and
-                                min(self.map.clearance(bridge,include_poles=not self.c.get('pole_clearance_from_map',False)))>=self.c.get('execution_clearance',0.)):break
+                                min(map_clearance(bridge,include_poles=not self.c.get('pole_clearance_from_map',False)))>=self.c.get('execution_clearance',0.)):break
                     else:
                         reject('smooth_clearance')
                         continue
@@ -649,7 +662,7 @@ class DetourPlanner:
                         limits = dict(self.c)
                         try:
                             proposal, start_s = splice(plan, progress, bridge, lengths[join], limits,
-                                lambda p: self.map.clearance(p, include_poles=not self.c.get('pole_clearance_from_map', False)), speed)
+                                lambda p: map_clearance(p, include_poles=not self.c.get('pole_clearance_from_map', False)), speed)
                         except ValueError:
                             reject('return_joint')
                             continue

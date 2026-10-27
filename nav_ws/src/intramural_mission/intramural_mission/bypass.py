@@ -13,7 +13,7 @@ def winding(points, pole):
     return round(sum(math.remainder(b-a, 2*math.pi) for a, b in zip(angles, angles[1:])) / (2*math.pi))
 
 
-def entry_path(c, start, goal, grid, clearance=None, free_mask=None, deadline=None):
+def entry_path(c, start, goal, grid, clearance=None, free_mask=None, deadline=None, continuous_start=False):
     """Connect a localized start to the first gate on the known static map."""
     if deadline is not None and time.monotonic()>=deadline:
         return None
@@ -78,7 +78,7 @@ def entry_path(c, start, goal, grid, clearance=None, free_mask=None, deadline=No
             cells = [v]
             while cells[-1] != source:
                 cells.append(previous[cells[-1]])
-            path = [list(start)] + [point(p) for p in reversed(cells)] + [list(goal)]
+            path = [list(start)] + [point(p) for p in reversed(cells) if not continuous_start or p != source] + [list(goal)]
             if free_mask is not None:
                 def sampled_cost(points):
                     p=np.asarray(points);delta=p-[origin.position.x,origin.position.y]

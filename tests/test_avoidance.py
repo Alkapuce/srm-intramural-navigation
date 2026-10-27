@@ -17,6 +17,37 @@ def send_fragmented_result(writer, ready, release, hold):
 
 
 class AvoidanceTests(unittest.TestCase):
+    def test_continuous_start_clears_full_cell_squares_without_lowering_margins(self):
+        import math
+        from intramural_mission.avoidance import DetourPlanner
+        from intramural_mission.planning import GridMap
+        c,grid,_,points=self.case()
+        c.update(minimum_clearance=.02,execution_clearance=.025,
+            response_models=[[.09,.05]],drive_acceleration_limit=2.)
+        yy=np.arange(grid.info.height)[:,None]
+        data=np.broadcast_to(np.where(-3.+(yy+.5)*.05<-.3,100,0),
+            (grid.info.height,grid.info.width)).copy()
+        grid.data=data.ravel().tolist();pose=[0.,.04]
+        planner=DetourPlanner(c,grid)
+        self.assertLess(planner.map.clearance([pose])[0],.0125)
+        self.assertAlmostEqual(planner.map.continuous_clearance([pose])[0],.03)
+        self.assertLess(planner.map.continuous_clearance([[0.,.025]])[0],c['execution_clearance'])
+        path=np.vstack((np.linspace(pose,[.2,.12],9),np.linspace([.2,.12],[4.,.12],77)[1:]))
+        plan=RoutePlan.build([('RETURN',path)],c)
+        for i in range(6):planner.observations(points,i*.1)
+        selected=None
+        for i in range(6):
+            result=planner.solve(dict(points=points,stamp=.6+i*.1,plan=plan,progress=0.,
+                pose=pose,velocity=[0.,0.],command=[0.,0.],acceleration=[0.,0.]))
+            if result['plan'] is not None:selected=result['plan'];break
+        self.assertIsNotNone(selected,result['rejected'])
+        grid.info.origin.orientation.w=math.sqrt(.5);grid.info.origin.orientation.z=math.sqrt(.5)
+        rotated=GridMap(grid,c)
+        self.assertAlmostEqual(rotated.continuous_clearance([[-5.04,-1.]])[0],.03)
+        grid.info.origin.orientation.w=1.;grid.info.origin.orientation.z=0.
+        data[60,46]=-1;grid.data=data.ravel().tolist()
+        self.assertLess(GridMap(grid,c).continuous_clearance([pose])[0],0.)
+
     def test_safe_crawl_still_searches_a_faster_detour_when_recovery_is_blocked(self):
         from dataclasses import replace
         from intramural_mission.avoidance import DetourPlanner,preview
