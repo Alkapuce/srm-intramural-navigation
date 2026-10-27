@@ -101,7 +101,8 @@ class ObstacleTracker:
                 t['measurement_center']+=shape_shift
                 innovation = measurement@t['p']@measurement.T+np.eye(2)*.02**2
                 residual=center-measurement@t['x']
-                if float(residual@np.linalg.solve(innovation,residual))>9.:
+                t['association_valid']=float(residual@np.linalg.solve(innovation,residual))<=9.
+                if not t['association_valid']:
                     # A motion start is a velocity jump, not measurement noise to average away.
                     dt=max(.01,clusters[j][3]-t['seen'])
                     velocity=(center-t['measurement_center'])/dt
@@ -126,13 +127,15 @@ class ObstacleTracker:
                 advance=obstacle_transition(stamp-source_time)
                 self.tracks.append(dict(id=self.serial, x=np.r_[center, 0., 0.,0.,0.],
                     p=advance@initial@advance.T,
-                    radius=radius,extent=extent,stamp=stamp,seen=source_time,measurement_center=center,observations=1,moving_until=stamp))
+                    radius=radius,extent=extent,stamp=stamp,seen=source_time,measurement_center=center,observations=1,moving_until=stamp,association_valid=True))
         return self.snapshot(stamp)
 
     def snapshot(self, stamp):
         return [dict(id=t['id'], center=t['x'][:2].tolist(), velocity=t['x'][2:4].tolist(),acceleration=t['x'][4:].tolist(),
                      covariance=t['p'].tolist(), radius=t['radius'], extent=t['extent'].tolist(), age=max(0., stamp-t['seen']),
                      velocity_observed=t['observations']>=2,
+                     motion_confident=bool(t['observations']>=2 and t.get('association_valid',False) and
+                         np.linalg.norm(t['x'][2:4])>max(.08,2*math.sqrt(max(np.diag(t['p'])[2:4])))),
                      moving=bool(t['observations']<3 or stamp<t['moving_until']))
                 for t in self.tracks]
 
@@ -379,7 +382,7 @@ class DetourPlanner:
                     or stopped_collision(brakes,brake_times,obstacles,radius)
                     for _,_,brakes,brake_times,_ in predictions)
             if unsafe_stop(initial,tracks):
-                stationary=[t for t in tracks if not t['moving'] or not t['velocity_observed']]
+                stationary=[t for t in tracks if not (t['moving'] and t['motion_confident'])]
                 # Only observed moving threats permit a finite escape; static and unknown threats still stop.
                 if unsafe_stop(initial,stationary):
                     return dict(report,blocked=True,imminent=True,execution_failure=True,
@@ -407,9 +410,10 @@ class DetourPlanner:
                         or min(self.map.clearance(brakes.reshape(-1,2),include_poles=not self.c.get('pole_clearance_from_map',False)))<=self.c.get('execution_clearance',0.)
                         or collision(actual,timing,execution_tracks,radius)):
                     return False
-                checks=[(execution_tracks,timing>=max(0.,escape_until-switch_stamp))]
+                restore_index=max(0,int(np.searchsorted(timing,max(0.,escape_until-switch_stamp),side='right'))-1)
+                checks=[(execution_tracks,np.arange(len(timing))>=restore_index)]
                 if escape_until:
-                    checks.append(([t for t in execution_tracks if not t['moving'] or not t['velocity_observed']],np.ones(len(timing),bool)))
+                    checks.append(([t for t in execution_tracks if not (t['moving'] and t['motion_confident'])],np.ones(len(timing),bool)))
                 for obstacles,eligible in checks:
                     if not np.any(eligible):
                         if escape_until:return False

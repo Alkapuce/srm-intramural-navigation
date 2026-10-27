@@ -114,6 +114,31 @@ class AvoidanceTests(unittest.TestCase):
         self.assertLess(np.mean(errors),.04)
         self.assertLess(np.percentile(speeds,95),.4)
 
+    def test_association_jump_keeps_occupancy_but_cannot_authorize_escape(self):
+        tracker=ObstacleTracker()
+        for i in range(20):
+            tracker.update([[2.+dx,dy]for dx in(-.1,0.,.1)for dy in(-.1,0.,.1)],i*.05)
+        shifted=[[2.+dx,.4+dy]for dx in(-.1,0.,.1)for dy in(-.1,0.,.1)]
+        track=tracker.update(shifted,1.)[0]
+        self.assertTrue(track['velocity_observed'])
+        self.assertGreater(np.linalg.norm(track['velocity']),1.)
+        self.assertLess(np.linalg.norm(np.asarray(track['center'])-[2.,.4]),.1)
+        self.assertFalse(track['motion_confident'])
+        for i in range(1,6):
+            cloud=[[2.+dx,.4+dy+i*.05]for dx in(-.1,0.,.1)for dy in(-.1,0.,.1)]
+            track=tracker.update(cloud,1.+i*.05)[0]
+        self.assertTrue(track['motion_confident'])
+
+    def test_slow_fragment_motion_on_a_static_face_does_not_authorize_escape(self):
+        tracker=ObstacleTracker()
+        for i in range(24):
+            y=max(0,i-19)*.02
+            cloud=[[1.75,y+dy]for dy in(-.05,0.,.05)]
+            track=tracker.update(cloud,i*.1)[0]
+        self.assertTrue(track['velocity_observed'])
+        self.assertGreater(np.linalg.norm(track['velocity']),.08)
+        self.assertFalse(track['motion_confident'])
+
     def test_moving_stop_conflict_allows_only_checked_escape_and_does_not_extend_deadline(self):
         import json
         from pathlib import Path
@@ -144,7 +169,7 @@ class AvoidanceTests(unittest.TestCase):
         for trajectory in result['escape_predictions']:
             self.assertFalse(collision(trajectory['points'],trajectory['times'],execution_tracks,radius))
         for _,timing,brakes,brake_times,_ in predict_motion(plan,c,[.152,0.],[1.9,0.],[1.9,0.],[0.,0.],1.):
-            eligible=timing>=.72
+            eligible=timing>=.7
             branches,stamps=brakes[eligible],brake_times[eligible]
             self.assertFalse(collision_segments(branches[:,:-1].reshape(-1,2),branches[:,1:].reshape(-1,2),
                 stamps[:,:-1].ravel(),stamps[:,1:].ravel(),execution_tracks,radius))
