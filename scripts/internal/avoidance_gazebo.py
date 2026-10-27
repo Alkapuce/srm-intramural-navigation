@@ -103,14 +103,16 @@ def channel_agreement(measurements,history,config,actors=None):
     # Tracking corrections change arc length; compare the channel with monotone spatial correspondence.
     outbound=np.column_stack([np.interp(np.arange(0.,max(0.,a[-1]-.6),.025),a,entry[:,k])for k in (0,1)])
     inbound=np.column_stack([np.interp(np.arange(0.,max(0.,b[-1]-.6),.025),b,returning[:,k])for k in (0,1)])
-    previous=np.full(len(inbound),math.inf)
+    previous=np.full(len(inbound),math.inf);last_column=[]
     for i,point in enumerate(outbound):
         current=np.full(len(inbound),math.inf)
         for j,gap in enumerate(np.linalg.norm(inbound-point,axis=1)):
             current[j]=(gap if i==j==0 else max(gap,min(previous[j],
                 current[j-1]if j else math.inf,previous[j-1]if j else math.inf)))
         previous=current
-    maximum=float(previous[-1])if len(previous)else math.inf
+        if len(current):last_column.append(current[-1])
+    # Cover the shorter shared stem; the longer terminal C2 joint need not share its arc length.
+    maximum=float(min(previous) if len(outbound)<=len(inbound) else min(last_column)) if len(outbound) and len(inbound) else math.inf
     blocked=False;same_side=True
     if actors is not None and len(actors):
         actor=np.asarray(actors);valid=np.ones(len(actor),bool)

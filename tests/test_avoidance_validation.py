@@ -43,6 +43,16 @@ class PhysicalOracleTests(unittest.TestCase):
         trace[-3][2]=-1.
         self.assertFalse(oracle.channel_agreement(trace,history,config)['passed'])
 
+    def test_common_stem_does_not_include_the_longer_terminal_joint(self):
+        config=dict(parking=[0.,0.],parking_tolerance=.08,max_tracking_error=.3)
+        trace=[[float(i),*p]for i,p in enumerate([[0.,0.],[1.,0.],[2.,0.],[3.,0.],
+            [3.,1.],[3.,0.],[2.,0.],[1.,0.],[0.,0.]])]
+        history=[dict(sim_time=0.)for _ in range(10)]
+        history[1]['sim_time']=3.;history[9]['sim_time']=4.
+        self.assertTrue(oracle.channel_agreement(trace,history,config)['passed'])
+        trace[6][2]=-1.
+        self.assertFalse(oracle.channel_agreement(trace,history,config)['passed'])
+
     def test_return_replan_uses_detour_corridor_only_when_old_channel_is_blocked(self):
         config=dict(parking=[0.,0.],parking_tolerance=.08,max_tracking_error=.3,
             bypass_max_deviation=1.1,robot_radius=.29,obstacle_size=[.5,.5,1.])
