@@ -28,6 +28,10 @@ class BypassTests(unittest.TestCase):
         self.assertLess(min(p[1] for p in route),-.05)
         legacy=entry_path(c,[1.,0.],[5.,0.],grid)
         self.assertLess(max(abs(p[1]) for p in legacy),1e-6)
+        from unittest.mock import patch
+        with patch('intramural_mission.bypass.time.monotonic',side_effect=[0.,0.,1.]):
+            self.assertIsNone(entry_path(c,[1.,0.],[5.,0.],grid,free_mask=free,deadline=.5))
+        self.assertIsNone(entry_path(c,[1.,0.],[5.,0.],grid,free_mask=free,deadline=-math.inf))
 
     def test_four_phases_keep_winding_and_collision_clearance(self):
         for index, target in ((0,(1.5,.75)),(1,(2.44,-.06)),(4,(2.44,2.94)),(3,(3.5,2.5)),(7,(3.5,2.5))):
