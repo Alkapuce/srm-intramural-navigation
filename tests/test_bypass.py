@@ -13,6 +13,26 @@ def box(x,y):
 
 
 class BypassTests(unittest.TestCase):
+    def test_prepared_search_keeps_clearance_cost_when_a_straight_shortcut_is_free(self):
+        from nav_msgs.msg import OccupancyGrid
+        from intramural_mission.bypass import entry_path
+        c=dict(C,pole_clearance_from_map=True)
+        grid=OccupancyGrid();grid.header.frame_id='map';grid.info.width=160;grid.info.height=170;grid.info.resolution=.05
+        grid.info.origin.position.x=-1.5;grid.info.origin.position.y=-2.;grid.info.origin.orientation.w=1.
+        yy,xx=np.mgrid[:170,:160];x=-1.5+(xx+.5)*.05;y=-2.+(yy+.5)*.05
+        occupied=(x>2.)&(x<4.)&(y>.6)&(y<3.)
+        grid.data=(occupied.astype(np.int8)*100).ravel().tolist()
+        free=~((x>1.7)&(x<4.3)&(y>.3)&(y<3.3))
+        route=entry_path(c,[1.,0.],[5.,0.],grid,free_mask=free)
+        self.assertIsNotNone(route)
+        self.assertLess(min(p[1] for p in route),-.05)
+        legacy=entry_path(c,[1.,0.],[5.,0.],grid)
+        self.assertLess(max(abs(p[1]) for p in legacy),1e-6)
+        from unittest.mock import patch
+        with patch('intramural_mission.bypass.time.monotonic',side_effect=[0.,0.,1.]):
+            self.assertIsNone(entry_path(c,[1.,0.],[5.,0.],grid,free_mask=free,deadline=.5))
+        self.assertIsNone(entry_path(c,[1.,0.],[5.,0.],grid,free_mask=free,deadline=-math.inf))
+
     def test_four_phases_keep_winding_and_collision_clearance(self):
         for index, target in ((0,(1.5,.75)),(1,(2.44,-.06)),(4,(2.44,2.94)),(3,(3.5,2.5)),(7,(3.5,2.5))):
             with self.subTest(index=index):

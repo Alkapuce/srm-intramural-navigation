@@ -11,7 +11,7 @@ parser.add_argument("--transport", choices=["direct", "serial-sim"], default="di
 parser.add_argument("--no-gui", action="store_true")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
-c = json.loads((root / "config/arena.json").read_text())
+c = json.loads(Path(os.environ.get("INTRAMURAL_ARENA_CONFIG", str(root / "config/arena.json"))).read_text())
 ns = c["namespace"]
 if os.environ.get("INTRAMURAL_TRANSPORT", "direct") != args.transport:
     raise ValueError("Generated arena transport and runtime transport differ")

@@ -13,7 +13,8 @@ from intramural_base.runtime import shutdown_before_peers
 
 def generate_launch_description():
     root = Path(__file__).resolve().parents[1]
-    c = json.loads((root / "config/arena.json").read_text())
+    config = Path(os.environ.get("INTRAMURAL_ARENA_CONFIG", str(root / "config/arena.json")))
+    c = json.loads(config.read_text())
     ns = c["namespace"]
     trajectory = c.get("navigation_engine")=="trajectory"
     mode = os.environ.get("INTRAMURAL_LOCALIZATION", "ideal")
@@ -107,7 +108,7 @@ def generate_launch_description():
                 package="intramural_mission",
                 executable="adapter",
                 remappings=[("cmd_vel_nav2_result","cmd_vel_controller")] if trajectory else [],
-                parameters=[{"use_sim_time": True, "localization": mode, "arena_config": str(root / "config/arena.json")}],
+                parameters=[{"use_sim_time": True, "localization": mode, "arena_config": str(config)}],
                 output="screen",
             ),
             Node(
@@ -116,7 +117,7 @@ def generate_launch_description():
                 parameters=[
                     {
                         "use_sim_time": True,
-                        "arena_config": str(root / "config/arena.json"),
+                        "arena_config": str(config),
                         "variant": os.environ.get(
                             "INTRAMURAL_MISSION_VARIANT", "figure8"
                         ),

@@ -2,6 +2,7 @@
 
 import math
 import numpy as np
+from scipy.spatial import cKDTree
 
 
 def lidar_to_body(points, pose):
@@ -52,6 +53,11 @@ def obstacle_on_path(points, path, reach, radius, min_points=1):
         return True
     if len(route) < 2:
         return False
+    # A point farther than the entire sweep cannot intersect any of its segments.
+    xy = xy[np.sum(xy*xy, axis=1) < (max(0., reach)+radius)**2]
+    if not len(xy):
+        return False
+    hits = np.sum(xy*xy, axis=1) < radius**2
     if np.linalg.norm(route[0]) < 1e-7:
         # An executable coast prefix is already ordered; projecting again can discard it.
         future = route
@@ -66,7 +72,26 @@ def obstacle_on_path(points, path, reach, radius, min_points=1):
         while index+1<len(distance) and distance[index+1]<=distance[index]+1e-9:
             index+=1
         future = np.vstack(([0., 0.], projections[index], route[index+1:]))
+    delta=np.diff(future,axis=0)
+    lengths=np.linalg.norm(delta,axis=1)
+    starts=np.r_[0.,np.cumsum(lengths)[:-1]]
+    selected=(lengths>1e-9)&(starts<reach)
+    a=future[:-1][selected]
+    if not len(a):return False
+    d=delta[selected]*np.minimum(1.,(reach-starts[selected])/lengths[selected])[:,None]
+    low=np.min(np.minimum(a,a+d),axis=0)-radius
+    high=np.max(np.maximum(a,a+d),axis=0)+radius
+    xy=xy[np.all(xy>=low,axis=1)&np.all(xy<=high,axis=1)]
+    if not len(xy):return False
+    # Short braking sweeps fit one small array operation; avoid per-segment Python overhead.
+    if len(xy)*len(a)<=65536:
+        local=xy[:,None,:]-a
+        fraction=np.clip(np.sum(local*d,axis=2)/np.sum(d*d,axis=1),0.,1.)
+        residual=local-fraction[...,None]*d
+        return bool(np.count_nonzero(np.any(np.sum(residual*residual,axis=2)<radius**2,axis=1))>=min_points)
+    hits=np.sum(xy*xy,axis=1)<radius**2
     travelled = 0.
+    tree=cKDTree(xy) if len(xy)>=256 else None
     for a, b in zip(future, future[1:]):
         length = np.linalg.norm(b-a)
         if length < 1e-9:
@@ -75,8 +100,19 @@ def obstacle_on_path(points, path, reach, radius, min_points=1):
             break
         b = a + (b-a)*min(1., (reach-travelled)/length)
         d = b-a
-        projection = np.clip(((xy-a)@d)/np.dot(d,d), 0., 1.)
-        hits |= np.linalg.norm(xy-a-projection[:, None]*d, axis=1) < radius
+        if tree is not None:
+            possible=np.asarray(tree.query_ball_point((a+b)/2,radius+np.linalg.norm(d)/2),dtype=int)
+            possible=possible[~hits[possible]]
+        else:
+            possible = np.flatnonzero(~hits & np.all(xy >= np.minimum(a,b)-radius, axis=1)
+                                      & np.all(xy <= np.maximum(a,b)+radius, axis=1))
+        if not len(possible):
+            travelled+=length
+            continue
+        local = xy[possible]-a
+        projection = np.clip((local@d)/np.dot(d,d), 0., 1.)
+        residual = local-projection[:, None]*d
+        hits[possible] |= np.sum(residual*residual, axis=1) < radius**2
         if np.count_nonzero(hits) >= min_points:
             return True
         travelled += length

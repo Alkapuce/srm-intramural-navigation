@@ -13,7 +13,7 @@ SRM 导航调试（在执行本命令的机器上运行，不自动 SSH）
   srm-nav tf [PARENT CHILD]           默认 map → base_footprint，Ctrl-C 结束
   srm-nav sensors [CONFIG_DIR]        启动雷达/Point-LIO，不打开底盘串口
   srm-nav standby [MAP_DIR]           启动最新地图的导航待机，运动和任务启动锁定
-  srm-nav field [MAP_DIR] [--parking-here|--parking X Y] [--profile safe|candidate] [--response-model FILE] [--output cache/DIR]
+  srm-nav field [MAP_DIR] [--parking-here|--parking X Y] [--profile safe|candidate] [--allow-bypass|--no-bypass] [--response-model FILE] [--output cache/DIR]
                     从本次地图识别两桩，联合优化完整路线和速度；--parking-here 自动记录当前发车位
   srm-nav localize [MAP_DIR]          静止采样匹配旧图，更新下次导航的定位初值，不发车
   srm-nav drive [MAP_DIR] [DEVICE]    启用最新已确认场地的导航与串口，任务仍需手动 start

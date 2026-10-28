@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -17,7 +18,7 @@ if not out.is_relative_to(root / "artifacts"):
 out.mkdir(parents=True, exist_ok=True)
 for file in ("config/arena.json", "config/base-sim.json", "config/fastdds-services.xml",
              "docker/sources.lock.json", "simulation/generated/manifest.json"):
-    source = root / file
+    source = Path(os.environ.get('INTRAMURAL_ARENA_CONFIG',str(root/file))) if file=='config/arena.json' else root/file
     shutil.copyfile(source, out / source.name)
 shutil.copytree(root / "simulation/generated", out / "arena-snapshot", dirs_exist_ok=True)
 files = [file for file in (root / "scripts").rglob("*")
@@ -25,6 +26,7 @@ files = [file for file in (root / "scripts").rglob("*")
 files += list((root / "launch").glob("arena*.py"))
 files += list((root / "nav_ws/src/intramural_mission").rglob("*.py"))
 files += list((root / "nav_ws/src/intramural_base").rglob("*.py"))
+files += [file for file in (root/'nav_ws/src/intramural_sim').glob('*') if file.is_file()]
 files += list((root / "config").glob("*.json"))
 files += [root / "config/fastdds-services.xml"]
 files += [root / 'config/arena-gui.config', root / 'simulation/models/sentry_robot_cylinder.xacro',

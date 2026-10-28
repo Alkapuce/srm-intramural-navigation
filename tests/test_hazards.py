@@ -6,6 +6,31 @@ from intramural_mission.hazards import first_blocked
 
 
 class HazardTests(unittest.TestCase):
+    def test_vectorized_sweep_matches_independent_cell_walk(self):
+        import math
+        import numpy as np
+        rng=np.random.default_rng(42)
+        for _ in range(100):
+            width,height=50,40;resolution=.1;radius=float(rng.uniform(.1,.4))
+            grid=rng.choice([0,100],width*height,p=[.995,.005]).tolist()
+            points=np.cumsum(rng.normal(0.,.04,(45,2)),axis=0)+[2.,2.]
+            progress=int(rng.integers(0,20));position=points[progress]+rng.normal(0.,.02,2)
+            tx,ty,yaw=rng.uniform(-.5,.5,3);ox,oy,oyaw=rng.uniform(-.5,.5,3)
+            reach=0.;previous=position;expected=None
+            for i in range(progress,len(points)):
+                x,y=points[i];reach+=math.dist(previous,(x,y));previous=(x,y)
+                if reach>1.2:break
+                gx=math.cos(yaw)*x-math.sin(yaw)*y+tx-ox
+                gy=math.sin(yaw)*x+math.cos(yaw)*y+ty-oy
+                ix=math.floor((math.cos(oyaw)*gx+math.sin(oyaw)*gy)/resolution)
+                iy=math.floor((-math.sin(oyaw)*gx+math.cos(oyaw)*gy)/resolution)
+                n=math.ceil(radius/resolution)
+                if any(0<=iy+dy<height and 0<=ix+dx<width and math.hypot(dx,dy)*resolution<=radius
+                       and grid[(iy+dy)*width+ix+dx]>=90 for dy in range(-n,n+1) for dx in range(-n,n+1)):
+                    expected=i;break
+            self.assertEqual(first_blocked(points,progress,position,grid,width,height,resolution,
+                (ox,oy,oyaw),(tx,ty,yaw),radius=radius),expected)
+
     def test_obstacle_ahead_blocks_but_behind_or_other_segment_does_not(self):
         width = height = 60
         resolution = 0.1

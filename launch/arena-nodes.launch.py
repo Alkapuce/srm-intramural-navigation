@@ -1,6 +1,6 @@
 """Organizer model with public simulated sensors and task-level planar drive."""
 
-import json
+import os, json
 from pathlib import Path
 from launch import LaunchDescription
 from launch.actions import RegisterEventHandler
@@ -10,7 +10,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     root = Path(__file__).resolve().parents[1]
-    c = json.loads((root / "config/arena.json").read_text())
+    c = json.loads(Path(os.environ.get("INTRAMURAL_ARENA_CONFIG", str(root / "config/arena.json"))).read_text())
     ns = c["namespace"]
     folder = root / "simulation/generated"
 
@@ -40,8 +40,8 @@ def generate_launch_description():
                 output="screen",
             ),
             Node(
-                package="ros_gz_bridge",
-                executable="parameter_bridge",
+                package="intramural_sim",
+                executable="sensor_bridge",
                 namespace=ns,
                 parameters=[{"config_file": str(folder / "bridge.yaml")}],
                 output="screen",

@@ -2,7 +2,9 @@
 
 基于公开项目 [pb2025_sentry_nav](https://github.com/SMBU-PolarBear-Robotics-Team/pb2025_sentry_nav)，实现从停车位出发、逆时针绕下桩、顺时针绕上桩、沿原路回位的自主导航。支持障碍停车、移除恢复、持续障碍绕行、输入失效保护和比赛串口协议。
 
-当前 main 冻结 2026-10-20 的实车版本：**9.440 秒完成 10 个有序分段，0 次障碍阻断**。参数和源码指纹见[基线记录](docs/results/2026-10-20/baseline-9s440.json)，冻结标签为 `baseline/field-9s440`。这是单次现场记录，位置和速度来自车载定位；新场地会重新建图、识桩并规划，不能直接套用旧地图或成绩。18.554 秒旧版保留为历史标签 `baseline/field-18s554`。
+2026-10-20 的实车冻结基线：**9.440 秒完成 10 个有序分段，0 次障碍阻断**。参数和源码指纹见[基线记录](docs/results/2026-10-20/baseline-9s440.json)，冻结标签为 `baseline/field-9s440`。这是单次现场记录，位置和速度来自车载定位；新场地会重新建图、识桩并规划，不能直接套用旧地图或成绩。18.554 秒旧版保留为历史标签 `baseline/field-18s554`。
+
+当前 `main` 已合入[预测绕行候选](docs/architecture/trajectory-avoidance.md)，绕行默认关闭（`allow_bypass=false`）。该候选的重放和仿真结果不代表新增实车验收通过；实车冻结版本仍由上述基线标签保留。
 
 现场执行 `srm-map → srm-nav sensors → srm-nav drive → srm-nav start`；可在发车前执行 `srm-nav prepare`，将路线计算与发车分开。操作见[命令手册](docs/field-cli.md)，实现见[整圈轨迹导航](docs/architecture/trajectory-navigation.md)。
 
@@ -157,15 +159,15 @@ scripts/run.sh python3 -m unittest discover -s /work/tests -v
 scripts/verify-stage34.sh --mode sensors --transport serial-sim --rounds 1 \
   --output /work/artifacts/recheck-sensors-01
 
-# 四处持续障碍绕行
-scripts/verify-stage6.sh --mode sensors --persistent \
-  --output /work/artifacts/recheck-bypass-01
+# 轨迹避障候选：模型、历史影子重放、刚体及故障验收
+scripts/verify-avoidance.sh --suite all \
+  --output artifacts/recheck-avoidance-01
 
 # 独立 build/install：完整构建、测试与传感器串口路线
 scripts/reproduce-candidate.sh --output /work/artifacts/reproduce-01
 ```
 
-`/work/artifacts/` 对应本机项目的 `artifacts/`。验收保存轨迹、结果、配置快照和子进程退出状态；无窗口模式仍需图形设备渲染雷达。其他故障、建图和诊断入口见[脚本索引](scripts/README.md)。
+`/work/artifacts/` 对应本机项目的 `artifacts/`。验收保存轨迹、结果、配置快照和子进程退出状态；无窗口模式仍需图形设备渲染雷达。其他故障、建图和诊断入口见[脚本索引](scripts/README.md)。高速整圈引擎的候选动态绕行、独立验收及已知限制见[轨迹避障说明](docs/architecture/trajectory-avoidance.md)，目前须显式启用。
 
 | 已验证场景 | 结果 |
 |---|---|

@@ -3,6 +3,7 @@
 import signal
 import os
 import time
+import gc
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.signals import SignalHandlerOptions
@@ -47,9 +48,13 @@ def run(factory, cleanup=None, args=None):
     handlers = {s: signal.signal(s, stop) for s in (signal.SIGINT, signal.SIGTERM)}
     executor = SingleThreadedExecutor()
     node = None
+    frozen = False
     try:
         node = factory()
         executor.add_node(node)
+        # Startup objects are long-lived; repeated full-heap scans caused 10–39 ms control stalls.
+        gc.freeze()
+        frozen = True
         while not stopping and rclpy.ok():
             executor.spin_once(timeout_sec=.1)
     finally:
@@ -63,5 +68,6 @@ def run(factory, cleanup=None, args=None):
                     node.destroy_node()
         finally:
             rclpy.try_shutdown()
+            if frozen:gc.unfreeze()
             for sig, handler in handlers.items():
                 signal.signal(sig, handler)

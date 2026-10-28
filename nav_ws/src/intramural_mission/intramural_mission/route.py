@@ -63,6 +63,17 @@ def segments(c, smooth=True):
     return smooth_route(result,c) if smooth else result
 
 
+def quintic_curve(a,b,u,v,ka,kb,spacing):
+    length=math.dist(a,b)
+    control=[a,[a[k]+length*u[k]/5 for k in range(2)],
+        [a[k]+2*length*u[k]/5+length*length*ka*[-u[1],u[0]][k]/20 for k in range(2)],
+        [b[k]-2*length*v[k]/5+length*length*kb*[-v[1],v[0]][k]/20 for k in range(2)],
+        [b[k]-length*v[k]/5 for k in range(2)],b]
+    n=max(12,math.ceil(5*max(math.dist(p,q) for p,q in zip(control,control[1:]))/spacing))
+    return [[sum(math.comb(5,h)*(1-t)**(5-h)*t**h*control[h][k] for h in range(6))
+        for k in range(2)] for t in (i/n for i in range(n+1))]
+
+
 def smooth_route(route,c,scale=1.25,geometry=None):
     """Spread each entry/exit turn with curvature-continuous quintic transitions."""
     if not c.get('smooth_transitions',False):
@@ -103,14 +114,8 @@ def smooth_route(route,c,scale=1.25,geometry=None):
         ka,kb=(0.,1/c['loop_radius']) if index==0 else (1/c['loop_radius'],0.)
         if geometry is not None:
             ka,kb=(0.,curvature) if index==0 else (curvature,0.)
-        control=[a,[a[k]+length*u[k]/5 for k in range(2)],
-            [a[k]+2*length*u[k]/5+length*length*ka*[-u[1],u[0]][k]/20 for k in range(2)],
-            [b[k]-2*length*v[k]/5+length*length*kb*[-v[1],v[0]][k]/20 for k in range(2)],
-            [b[k]-length*v[k]/5 for k in range(2)],b]
-        # Bound sample spacing by the largest Bezier derivative control vector.
-        n=max(12,math.ceil(5*max(math.dist(p,q)for p,q in zip(control,control[1:]))/c['path_spacing']))
-        curve=[[sum(math.comb(5,h)*(1-t)**(5-h)*t**h*control[h][k]for h in range(6))
-                for k in range(2)]for t in (v/n for v in range(n+1))]
+        curve=quintic_curve(a,b,u,v,ka,kb,c['path_spacing'])
+        n=len(curve)-1
         result[index]=(name,left[:i]+curve[:n//2+1])
         following=curve[n//2:]+right[j+1:]
         for offset in range(count):

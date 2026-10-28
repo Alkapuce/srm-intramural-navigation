@@ -20,19 +20,20 @@ from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
 
 p = argparse.ArgumentParser()
 p.add_argument("--output", required=True)
-p.add_argument("--fault", choices=["pointcloud", "localization", "tf", "control", "transport_link"], required=True)
+p.add_argument("--fault", choices=["pointcloud", "localization", "tf", "control", "planner", "transport_link"], required=True)
 a = p.parse_args()
 out = Path(a.output).resolve()
 if not out.is_relative_to(Path("/work/artifacts")):
     raise ValueError("Evidence must be under artifacts")
 out.mkdir(parents=True, exist_ok=True)
 subprocess.run(["python3", "/work/scripts/internal/snapshot-evidence.py", "--output", str(out)], check=True)
-c = json.loads(Path("/work/config/arena.json").read_text())
+c = json.loads(Path(os.environ.get('INTRAMURAL_ARENA_CONFIG', '/work/config/arena.json')).read_text())
 ns = "/" + c["namespace"] + "/"
 latest, status = {}, {}
 system = (out / "system.log").open("w")
 process = subprocess.Popen(["python3", "/work/scripts/internal/arena-process.py",
-    "--localization", "sensors", "--transport", "serial-sim", "--variant", "primitives", "--no-gui"],
+    "--localization", "sensors", "--transport", "serial-sim", "--no-gui"]+
+    ([] if c.get('navigation_engine')=='trajectory' else ['--variant','primitives']),
     stdout=system, stderr=subprocess.STDOUT, start_new_session=True)
 rclpy.init()
 node = rclpy.create_node("stage6_fault_verifier")
@@ -68,7 +69,7 @@ def call(client, request):
     if not client.wait_for_service(timeout_sec=10):
         raise RuntimeError("Service unavailable")
     future = client.call_async(request)
-    until(future.done, 10, "service reply")
+    until(future.done, 180 if client is start else 10, "service reply")
     response = future.result()
     if not response.success:
         raise RuntimeError("Service rejected: " + response.message)
@@ -114,7 +115,9 @@ try:
         wire_broken = True
         # Cancellation closes software gate, but an unprotected MCU keeps the last frame.
         call(cancel, Trigger.Request())
-        until(lambda: status.get("state") == "CANCELLED", 10, "mission cancellation")
+        until(lambda: status.get("state") in ("CANCELLED", "FAULT"), 10, "mission cancellation")
+        if status.get('state')=='FAULT' and status.get('reason')!='STOP_UNCONFIRMED':
+            raise RuntimeError('Unexpected wire-break cancellation fault: '+status.get('reason',''))
         until(lambda: velocity("cmd") < .01, 3, "upstream zero")
         start_pos = position()
         until(lambda: math.dist(position(), start_pos) > .06, 2, "retained physical motion")
@@ -129,9 +132,31 @@ try:
         until(lambda: velocity("transport") < .01 and physical_speed() < .03,
               5, "physical recovery after link restored")
         result["stopped_after_link_restored"] = True
+    elif a.fault=='planner':
+        parent=child_pid('trajectory_mission')
+        pid=status.get('planner_pid')
+        if not isinstance(pid,int) or pid<=0:raise RuntimeError('Missing planning child identity')
+        fields=Path(f'/proc/{pid}/status').read_text().splitlines()
+        ppid=int(next(line.split()[1] for line in fields if line.startswith('PPid:')))
+        if ppid!=parent:raise RuntimeError('Reported planner is not a mission child')
+        result['suspended_planner_pid']=pid
+        stopped_pid=pid;os.kill(stopped_pid,signal.SIGSTOP)
+        route=json.loads((Path('/work/artifacts/navigation-runs')/status['run_id']/'route.json').read_text())
+        target=next(point for distance,point in zip(route['s'],route['points'])
+                    if distance>status['continuous_progress']+1.)
+        subprocess.run(['python3','/work/scripts/internal/arena-obstacle.py','place',
+            '--x',str(target[0]),'--y',str(target[1])],check=True,timeout=10)
+        until(lambda:velocity('cmd')<.01 and velocity('transport')<.01 and physical_speed()<.03,
+              8,'raw guard stop while planner is suspended')
+        result['zero_command_and_stop']=True
+        began=time.monotonic();call(cancel,Trigger.Request())
+        until(lambda:status.get('state')=='CANCELLED',5,'cancellation with suspended planner')
+        result['cancel_seconds']=time.monotonic()-began
+        if result['cancel_seconds']>1.:raise RuntimeError('Planner suspension delayed cancellation')
+        os.kill(stopped_pid,signal.SIGCONT);stopped_pid=None
     else:
         labels = {"pointcloud": "lidar_adapter", "localization": "small_gicp_relocalization_node",
-                  "tf": "sensor_scan_generation_node", "control": "velocity_smoother"}
+                  "tf": "sensor_scan_generation_node", "control": "trajectory_mission" if c.get('navigation_engine')=='trajectory' else "velocity_smoother"}
         stopped_pid = child_pid(labels[a.fault])
         os.kill(stopped_pid, signal.SIGSTOP)
         result["suspended_child"] = labels[a.fault]
@@ -140,9 +165,20 @@ try:
                   and physical_speed() < .03, 5, "control staleness zero")
             result["zero_command_and_stop"] = True
             result["state_after_injection"] = status.get("state")
+            previous_guard_stamp=status.get('guard',{}).get('stamp',0.)
             os.kill(stopped_pid, signal.SIGCONT)
             stopped_pid = None
-            if status.get("state") == "RUNNING":
+            if c.get('navigation_engine')=='trajectory':
+                # The cached RUNNING report predates SIGSTOP; confirm fresh inputs before judging cancellation.
+                until(lambda:status.get('guard',{}).get('stamp',0.)>previous_guard_stamp
+                      and status.get('ready'),15,'fresh control status after resume')
+                result['state_after_fresh_resume']=status.get('state')
+                if status.get('state') not in ('RUNNING','FAULT') or (status.get('state')=='FAULT'
+                        and status.get('reason')!='LOCALIZATION_OR_SENSOR_STALE'):
+                    raise RuntimeError('Unexpected resumed control state: '+str(status.get('state')))
+                call(cancel, Trigger.Request())
+                until(lambda:status.get('state')=='CANCELLED',10,'cancel after fresh control resume')
+            elif status.get("state") == "RUNNING":
                 call(cancel, Trigger.Request())
                 until(lambda: status.get("state") == "CANCELLED", 10, "cancel after control resume")
         else:

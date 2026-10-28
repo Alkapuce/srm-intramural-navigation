@@ -231,8 +231,9 @@ def main():
     p.add_argument("--execute", action="store_true")
     p.add_argument("--stop-available", action="store_true")
     args = p.parse_args()
-    if not args.levels or any(not math.isfinite(x) or not 0 < x <= 1.5 for x in args.levels) or not 1 <= args.repeats <= 3:
-        p.error("Levels must be in (0, 1.5] and within vehicle limits; repeats in 1..3")
+    maximum = json.loads((ROOT / "config/navigation-profiles.json").read_text())["candidate"]["max_speed"]
+    if not args.levels or any(not math.isfinite(x) or not 0 < x <= maximum for x in args.levels) or not 1 <= args.repeats <= 3:
+        p.error(f"Levels must be in (0, {maximum:g}] and within vehicle limits; repeats in 1..3")
     if not math.isfinite(args.seconds) or not 0 < args.seconds <= 3:
         p.error("--seconds must be in (0, 3]")
     args.vehicle_config = (ROOT / args.vehicle_config).resolve()

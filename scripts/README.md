@@ -11,6 +11,7 @@
 | 当前校内赛任务及障碍调试 | `arena.sh`、`arena-obstacle.sh` |
 | 上游对照仿真、导航、RViz | `simulator.sh`、`navigation.sh`、`rviz.sh` |
 | 阶段验收 | `verify-gui.sh`、`verify-stage2.sh`、`verify-stage34.sh`、`verify-stage6.sh`、`verify-stage6-fault.sh` |
+| 轨迹避障模型、真实点云影子重放和力驱动仿真验收 | `verify-avoidance.sh --suite model\|replay\|gazebo\|all --output artifacts/<新目录>`，见[避障说明](../docs/architecture/trajectory-avoidance.md) |
 | 独立目录构建、测试及完整串口模拟路线 | `reproduce-candidate.sh --output /work/artifacts/<新目录>` |
 | 固定公开源码恢复、检查与补丁导出 | `python3 prepare-sources.py`、`python3 sources.py status`、`python3 sources.py export <仓库>` |
 | 按参考接口生成独立实车配置，不连接设备 | `run.sh python3 /work/scripts/prepare-vehicle.py --output /work/cache/<新目录>` |

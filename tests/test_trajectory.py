@@ -81,16 +81,57 @@ def rollout(c, delay=0.2, tau=0.15, gain=1.0, noise=0.0, seed=0, plan=None):
 
 
 class TrajectoryTests(unittest.TestCase):
+    def test_unequal_adjacent_steps_cannot_hide_a_short_reversal(self):
+        c=dict(BASE,**PROFILES['candidate'])
+        for points in ([[0.,0.],[.06,.02],[.05,.02],[1.,.2]],
+                       [[0.,0.],[.5,0.],[.01,0.],[1.,0.]],
+                       [[.00154,-.01254],[.05616,.02601],[.04938,.02586]]):
+            with self.subTest(points=points):
+                plan=RoutePlan.build([('RETURN',points)],c)
+                self.assertEqual(plan.speed[1],0.)
+
+    def test_reversed_departure_tail_reaches_home_without_a_feedforward_equilibrium(self):
+        from intramural_mission.response import Plant
+        c=dict(BASE,**PROFILES['candidate'])
+        points=[[-.0595,.0394],[-.0422,.0321],[-.025,.025],[-.0187,.0225],[-.0123,.0206],
+            [-.0058,.0194],[.0009,.0191],[.0077,.0195],[.0146,.0206],[.0216,.0219],
+            [.0287,.0233],[.0356,.0246],[.0426,.0254],[.0494,.0259],[.0562,.0260],
+            [.00154,-.01254],[0.,0.]]
+        plan=RoutePlan.build([('RETURN',points)],c);tracker=OmniTracker(plan,c)
+        tracker.progress.s=plan.s[-1]-.077
+        plant=Plant([.2357,.1357],.09,.05,acceleration_limit=3.5)
+        for i in range(600):
+            command,report=tracker.step(plant.pose,0.,.025,stamp=i*.025)
+            plant.step(command)
+            if report['done']:break
+        self.assertTrue(report['done'],report)
+        self.assertLess(np.linalg.norm(plant.pose),c['parking_tolerance'])
+
+    def test_worker_roundtrip_preserves_cached_plan_and_tracker_motion(self):
+        import pickle
+        c=dict(BASE,**PROFILES['candidate'])
+        plan=RoutePlan.build(segments(c),c)
+        plan.sample(.5)
+        restored=pickle.loads(pickle.dumps(plan))
+        self.assertEqual(restored,plan)
+        before,after=OmniTracker(plan,c),OmniTracker(restored,c)
+        for index in range(20):
+            pose=plan.sample(index*.01)[0]
+            a,detail_a=before.step(pose,0.,.025,stamp=index*.025)
+            b,detail_b=after.step(pose,0.,.025,stamp=index*.025)
+            np.testing.assert_array_equal(a,b)
+            self.assertEqual(detail_a,detail_b)
+
     def test_parking_holds_zero_through_jitter_and_uses_distinct_pose_window(self):
         c=dict(BASE,**PROFILES['candidate'],parking=[2.,0.],route_speed_scale=1.)
         plan=RoutePlan.build([('RETURN',[[float(x),0.] for x in np.linspace(0.,2.,81)])],c)
         for drifting in (False,True):
-            tracker=OmniTracker(plan,c);tracker.progress.s=1.93
-            tracker.step([1.93,0.],0.,.025,stamp=0.)
+            tracker=OmniTracker(plan,c);tracker.progress.s=1.95
+            tracker.step([1.95,0.],0.,.025,stamp=0.)
             for _ in range(20):
-                command,detail=tracker.step([1.93,0.],0.,.025,stamp=0.)
+                command,detail=tracker.step([1.95,0.],0.,.025,stamp=0.)
                 self.assertFalse(detail['done'])
-            for index,x in enumerate(([1.91,1.93,1.94,1.92] if not drifting else [1.88,1.84,1.80,1.76]),1):
+            for index,x in enumerate(([1.93,1.95,1.96,1.94] if not drifting else [1.88,1.84,1.80,1.76]),1):
                 command,detail=tracker.step([x,0.],0.,.025,stamp=index*.1)
                 np.testing.assert_array_equal(command,[0.,0.])
             self.assertEqual(detail['done'],not drifting)
@@ -115,6 +156,73 @@ class TrajectoryTests(unittest.TestCase):
             if brake:
                 np.testing.assert_array_equal(command,[0.,0.])
                 self.assertGreater(np.linalg.norm(tracker.velocity),.06)
+
+    def test_braking_keeps_the_commands_still_in_the_actuator_delay_queue(self):
+        from intramural_mission.response import Plant,predict_motion
+        from collections import deque
+        c=dict(BASE,**PROFILES['candidate'],drive_acceleration_limit=3.5)
+        plan=RoutePlan.build([('RETURN',[[float(x),0.]for x in np.linspace(0.,4.,161)])],c)
+        history=[[-.2,1.5,0.],[-.025,1.5,0.],[0.,0.,0.]]
+        _,_,brakes,times,_=predict_motion(plan,c,[0.,0.],[1.5,0.],[0.,0.],[0.,0.],0.,
+            horizon=0.,models=[(.1,.05)],command_history=history)[0]
+        # Independent delayed actuator integration, followed by a sustained zero command.
+        pending=deque(np.array([1.5,0.])for _ in range(4))
+        p=np.zeros(2);v=np.array([1.5,0.]);trace=[p.copy()]
+        for _ in range(round(times[0,-1]/.025)):
+            pending.append(np.zeros(2));u=pending.popleft()
+            change=(1-math.exp(-.025/.05))*(u-v)
+            change*=min(1.,3.5*.025/max(1e-9,np.linalg.norm(change)))
+            v+=change;p+=v*.025;trace.append(p.copy())
+        np.testing.assert_allclose(brakes[0],np.asarray(trace)[np.rint(times[0]/.025).astype(int)],atol=1e-10)
+        self.assertGreater(brakes[0,-1,0],.44)
+
+    def test_switch_prediction_keeps_the_old_route_until_the_new_route_can_activate(self):
+        from intramural_mission.response import predict_motion
+        c=dict(BASE,**PROFILES['candidate'],drive_acceleration_limit=3.5)
+        old=RoutePlan.build([('RETURN',[[float(x),0.]for x in np.linspace(0.,4.,161)])],c)
+        new=RoutePlan.build([('RETURN',[[0.,float(y)]for y in np.linspace(0.,4.,161)])],c)
+        points,times,_,_,_=predict_motion(new,c,[0.,0.],[1.,0.],[1.,0.],[0.,0.],0.,
+            horizon=.3,models=[(0.,.05)],previous_plan=old,previous_progress=0.,activation_delay=.1)[0]
+        np.testing.assert_allclose(points[times<=.1,1],0.,atol=1e-12)
+        self.assertGreater(points[4,0],.08)
+        self.assertGreater(points[-1,1],.02)
+
+    def test_terminal_zero_waits_for_the_force_limited_tail(self):
+        c=dict(BASE,**PROFILES['candidate'],parking=[0.,0.],drive_acceleration_limit=3.5,
+            route_speed_scale=1.)
+        plan=RoutePlan.build([('RETURN',[[2.*x,1.5*x] for x in np.linspace(1.,0.,81)])],c)
+        position=np.array([.0443710771,.0386735641]);velocity=np.array([-.4811517057,-.3744119686])
+        tracker=OmniTracker(plan,c);tracker.progress.s=plan.s[-1]-float(np.linalg.norm(position))
+        tracker.previous_pose=position-velocity*.1;tracker.previous_stamp=0.
+        tracker.velocity=velocity;tracker.command=velocity
+        command,detail=tracker.step(position,0.,.025,stamp=.1,pose_age=.04)
+        self.assertFalse(detail['parking_brake'],detail)
+        self.assertGreater(np.linalg.norm(command),0.)
+
+    def test_terminal_stop_reserves_the_shared_localization_error_budget(self):
+        from intramural_mission.response import Plant
+        c=dict(BASE,**PROFILES['candidate'],parking=[0.,0.],drive_acceleration_limit=3.5,
+            route_speed_scale=1.)
+        plan=RoutePlan.build([('RETURN',[[2.*x,1.5*x] for x in np.linspace(1.,0.,81)])],c)
+        for delay,tau in c['response_models']:
+            with self.subTest(delay=delay,tau=tau):
+                plant=Plant([-.077,-.024],delay,tau,acceleration_limit=3.5)
+                tracker=OmniTracker(plan,c);tracker.progress.s=plan.s[-1]
+                # A biased pose can be inside the goal circle while the actual body is outside.
+                for i in range(200):
+                    command,detail=tracker.step(plant.pose+[.009,.008],0.,.025,stamp=i*.025)
+                    plant.step(command)
+                    if detail['done']:break
+                self.assertTrue(detail['done'],detail)
+                for _ in range(40):plant.step([0.,0.])
+                self.assertLess(np.linalg.norm(plant.pose),c['parking_tolerance'])
+
+    def test_parking_budget_must_leave_a_positive_goal_region(self):
+        c=dict(BASE,**PROFILES['candidate'])
+        plan=RoutePlan.build(segments(c),c)
+        for budget in (-.01,.08,.1,float('nan'),float('inf')):
+            with self.assertRaises(ValueError):
+                OmniTracker(plan,dict(c,minimum_clearance=budget))
 
     def test_terminal_preview_parks_with_recorded_response_delays(self):
         c=dict(BASE,**PROFILES['candidate'],parking=[2.,0.],route_speed_scale=1.)

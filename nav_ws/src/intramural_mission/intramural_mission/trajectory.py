@@ -7,7 +7,7 @@ import hashlib
 import json
 import math
 import numpy as np
-from intramural_mission.safety import response_horizon
+from intramural_mission.safety import stopping_horizon
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,18 @@ class RoutePlan:
     speed: tuple
     gates: tuple
     clearance: tuple
+
+    def __post_init__(self):
+        # NumPy scalar reducers held the queue feeder's GIL while control waited to resume.
+        for name in ('points','tangent'):
+            object.__setattr__(self,name,tuple(tuple(map(float,row)) for row in getattr(self,name)))
+        for name in ('s','curvature','speed','clearance'):
+            object.__setattr__(self,name,tuple(map(float,getattr(self,name))))
+
+    def __getstate__(self):
+        state=self.__dict__.copy()
+        state.pop('_arrays',None)
+        return state
 
     @cached_property
     def _arrays(self):
@@ -61,6 +73,7 @@ class RoutePlan:
         tangent = d / norm[:, None]
         curvature = np.zeros(len(p))
         a, b = np.diff(p, axis=0)[:-1], np.diff(p, axis=0)[1:]
+        reversing=np.sum(a*b,axis=1)<-.01*ds[:-1]*ds[1:]
         curvature[1:-1] = (
             2
             * (a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0])
@@ -71,6 +84,8 @@ class RoutePlan:
         if not math.isfinite(speed_scale) or not 0 < speed_scale <= 1:
             raise ValueError('Route speed scale must be in (0, 1]')
         cap = np.full(len(p), limits["max_speed"], dtype=float)
+        # A stopped departure can reverse, but its finite curvature estimate must not permit a moving cusp.
+        cap[np.flatnonzero(reversing)+1]=0.
         cap = np.minimum(
             cap,
             speed_scale * np.sqrt(
@@ -102,6 +117,7 @@ class RoutePlan:
         speed = cap.copy()
         speed[0] = speed[-1] = 0.0
         for _ in range(6):
+            previous = speed.copy()
             for order in (range(len(p) - 2, -1, -1), range(1, len(p))):
                 backward = order.step < 0
                 for i in order:
@@ -116,6 +132,8 @@ class RoutePlan:
                     speed[i] = min(
                         speed[i], math.sqrt(speed[j] ** 2 + 2 * acc * abs(s[i] - s[j]))
                     )
+            if np.array_equal(speed, previous):
+                break
         payload = {"points": points, "gates": gates, "limits": limits, "map": map_id}
         identity = hashlib.sha256(
             json.dumps(payload, sort_keys=True, allow_nan=False).encode()
@@ -188,6 +206,11 @@ class OmniTracker:
         self.velocity = np.zeros(2)
         self.correction = np.zeros(2)
         self.parking_samples = None
+        parking_tolerance, budget = limits.get('parking_tolerance', .08), limits.get('minimum_clearance', 0.)
+        if not 0 <= budget < parking_tolerance:
+            raise ValueError('Parking tolerance must exceed the shared position error budget')
+        self.parking_brake_radius = parking_tolerance - budget
+        self.speed_scale = 1.
         models = limits.get('response_models', [])
         self.response_tau = limits.get('response_tau', float(np.median(models,axis=0)[1]) if models else .15)
 
@@ -237,6 +260,7 @@ class OmniTracker:
         curvature = max(map(abs,self.plan.curvature[lo:hi]),default=0.)
         ahead = min(self.plan.s[-1],s+min(lookahead,.5/max(curvature,1e-9)))
         target, tangent, reference = self.plan.sample(ahead)
+        reference *= self.speed_scale
         offset = target - predicted
         along = float(np.dot(offset, tangent))
         normal = offset - along * tangent
@@ -253,6 +277,7 @@ class OmniTracker:
         desired = reference * tangent + feedback
         # Invert the fitted velocity lag for the reference acceleration, before bounded correction.
         _, next_tangent, next_reference = self.plan.sample(ahead + max(.05,reference)*.05)
+        next_reference *= self.speed_scale
         feedforward_acceleration = (next_reference*next_tangent-reference*tangent)/.05
         feedforward_acceleration *= min(1., self.limits['max_acceleration']/max(1e-9,np.linalg.norm(feedforward_acceleration)))
         desired += self.response_tau * feedforward_acceleration
@@ -277,9 +302,9 @@ class OmniTracker:
                             self.limits.get("parking_tolerance", 0.08))
             and np.linalg.norm(p - np.asarray(self.plan.points[-1]))
             < self.limits.get("parking_tolerance", 0.08)
-            and np.linalg.norm(p + self.velocity*(response_horizon(self.limits)+max(0.,pose_age))
+            and np.linalg.norm(p + self.velocity*(stopping_horizon(self.limits,float(np.linalg.norm(self.velocity)))+max(0.,pose_age))
                                - np.asarray(self.plan.points[-1]))
-            < self.limits.get("parking_tolerance", 0.08)
+            < self.parking_brake_radius
         )
         # Command zero when the stopping tail fits; do not creep until speed is already zero.
         if parking_brake:

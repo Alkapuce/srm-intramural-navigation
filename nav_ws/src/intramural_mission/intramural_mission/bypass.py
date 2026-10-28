@@ -2,6 +2,7 @@
 
 import heapq
 import math
+import time
 import numpy as np
 from scipy.ndimage import distance_transform_edt
 from intramural_mission.route import line, clearance, segments, primitives
@@ -12,17 +13,24 @@ def winding(points, pole):
     return round(sum(math.remainder(b-a, 2*math.pi) for a, b in zip(angles, angles[1:])) / (2*math.pi))
 
 
-def entry_path(c, start, goal, grid, clearance=None):
+def entry_path(c, start, goal, grid, clearance=None, free_mask=None, deadline=None, continuous_start=False):
     """Connect a localized start to the first gate on the known static map."""
+    if deadline is not None and time.monotonic()>=deadline:
+        return None
     if grid is None or grid.header.frame_id != "map":
         return None
     res, width, height = grid.info.resolution, grid.info.width, grid.info.height
     if res <= 0 or width * height != len(grid.data):
         raise ValueError("Invalid occupancy grid")
     free = np.asarray(grid.data).reshape(height, width) == 0
-    distance = distance_transform_edt(np.pad(free, 1))[1:-1, 1:-1] * res
-    # Same footprint and cell/sampling uncertainty as field route verification.
-    free &= distance > c['robot_radius'] + res / math.sqrt(2) + c['path_spacing'] / 2
+    if free_mask is None:
+        distance = distance_transform_edt(np.pad(free, 1))[1:-1, 1:-1] * res
+        # Same footprint and cell/sampling uncertainty as field route verification.
+        free &= distance > c['robot_radius'] + res / math.sqrt(2) + c['path_spacing'] / 2
+    else:
+        if free_mask.shape != free.shape:
+            raise ValueError('Prepared traversability must match the map')
+        free &= free_mask
     origin = grid.info.origin
     q = origin.orientation
     yaw = math.atan2(2*(q.w*q.z+q.x*q.y), 1-2*(q.y*q.y+q.z*q.z))
@@ -51,14 +59,18 @@ def entry_path(c, start, goal, grid, clearance=None):
     if not c.get('pole_clearance_from_map', False):
         for pole in ('lower_pole', 'upper_pole'):
             free &= np.hypot(wx-c[pole][0], wy-c[pole][1]) >= c['pole_radius']+margin
+    travel_cost=(1+.10/np.maximum(.05,distance_transform_edt(free)*res)
+                 if free_mask is not None else np.ones_like(free,dtype=float))
     source, target = cell(start), cell(goal)
     if not valid(source) or not valid(target):
         return None
     direct=line(start,goal,min(res/2,c['path_spacing']))
-    if all(valid(cell(p)) for p in direct):
+    if free_mask is None and all(valid(cell(p)) for p in direct):
         return line(start,goal,c['path_spacing'])
     queue, costs, previous = [(math.dist(source, target), 0., source)], {source: 0.}, {}
     while queue:
+        if deadline is not None and time.monotonic()>=deadline:
+            return None
         _, cost, v = heapq.heappop(queue)
         if cost != costs[v]:
             continue
@@ -66,13 +78,37 @@ def entry_path(c, start, goal, grid, clearance=None):
             cells = [v]
             while cells[-1] != source:
                 cells.append(previous[cells[-1]])
-            path = [list(start)] + [point(p) for p in reversed(cells)] + [list(goal)]
+            path = [list(start)] + [point(p) for p in reversed(cells) if not continuous_start or p != source] + [list(goal)]
+            if free_mask is not None:
+                def sampled_cost(points):
+                    p=np.asarray(points);delta=p-[origin.position.x,origin.position.y]
+                    row=np.floor((-so*delta[:,0]+co*delta[:,1])/res).astype(int)
+                    col=np.floor((co*delta[:,0]+so*delta[:,1])/res).astype(int)
+                    weights=travel_cost[row,col]
+                    return np.r_[0.,np.cumsum(np.linalg.norm(np.diff(p,axis=0),axis=1)*(weights[:-1]+weights[1:])/2)]
+                cumulative=sampled_cost(path)
+                indices=[0]
+                for n,(a,b,d) in enumerate(zip(path,path[1:],path[2:]),1):
+                    u,v=np.asarray(b)-a,np.asarray(d)-b
+                    if np.dot(u,v)<.999*np.linalg.norm(u)*np.linalg.norm(v):indices.append(n)
+                indices.append(len(path)-1)
+                corners=[path[n] for n in indices];path=[corners[0]];i=0
+                while i<len(corners)-1:
+                    j=len(corners)-1
+                    while j>i+1:
+                        if deadline is not None and time.monotonic()>=deadline:
+                            return None
+                        shortcut=line(corners[i],corners[j],res/2)
+                        if (all(valid(cell(p)) for p in shortcut) and
+                                sampled_cost(shortcut)[-1]<=1.01*(cumulative[indices[j]]-cumulative[indices[i]])):break
+                        j-=1
+                    path.append(corners[j]);i=j
             return [p for a, b in zip(path, path[1:]) for p in line(a, b, c['path_spacing'])[:-1]] + [list(goal)]
         for dy, dx in ((-1,0),(1,0),(0,-1),(0,1),(-1,-1),(-1,1),(1,-1),(1,1)):
             nxt = v[0]+dy, v[1]+dx
             if not valid(nxt) or (dx and dy and (not valid((v[0]+dy,v[1])) or not valid((v[0],v[1]+dx)))):
                 continue
-            new = cost + math.hypot(dx, dy)
+            new = cost + math.hypot(dx, dy)*travel_cost[nxt]
             if new < costs.get(nxt, math.inf):
                 costs[nxt], previous[nxt] = new, v
                 heapq.heappush(queue, (new+math.dist(nxt,target), new, nxt))
