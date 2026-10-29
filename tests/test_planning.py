@@ -52,6 +52,19 @@ class PlanningTests(unittest.TestCase):
         self.assertLess(measured.clearance([[.2,0.]],include_poles=False)[0],0.)
         self.assertLess(measured.clearance([[-.475,.525]],include_poles=False)[0],0.)
 
+    def test_threshold_clearance_uses_occupied_square_without_freeing_unknown_cells(self):
+        c=dict(robot_radius=.29,minimum_clearance=.02,path_spacing=.05,
+               execution_clearance=.025,mission_variant='return')
+        g=OccupancyGrid();g.header.frame_id='map';g.info.width=g.info.height=80
+        g.info.resolution=.05;g.info.origin.position.x=g.info.origin.position.y=-2.
+        g.info.origin.orientation.w=1.
+        for occupied in (100,-1):
+            pixels=np.zeros((80,80),dtype=np.int8);pixels[40,40]=occupied
+            g.data=pixels.ravel().tolist();measured=GridMap(g,c)
+            # The square ends at x=.05: a center at .39 retains .03 m after the full .31 m envelope.
+            self.assertAlmostEqual(measured.clearance([[.39,.025]])[0],.03)
+            self.assertLess(measured.clearance([[.35,.025]])[0],0.)
+
     def test_prediction_rejects_the_required_reserve_before_finishing_a_failed_candidate(self):
         c=json.loads((ROOT/'config/arena.json').read_text())
         c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['safe'])

@@ -63,6 +63,11 @@ class GridMap:
             + self.c.get("minimum_clearance", 0.02)
         )
         result = distance - margin
+        # Resolve threshold cells against occupied squares instead of their quantized centers.
+        threshold = max(self.c.get("execution_clearance", 0.), self.c["path_spacing"] / 2)
+        near = inside & (result <= threshold + self.res / math.sqrt(2)) & (result >= -math.sqrt(2) * self.res)
+        if np.any(near):
+            result[near] = self.continuous_clearance(np.asarray(points)[near], include_poles=False)
         if include_poles and self.c.get("mission_variant", "figure8") == "figure8":
             world = np.asarray(points)
             for key in ("lower_pole", "upper_pole"):
