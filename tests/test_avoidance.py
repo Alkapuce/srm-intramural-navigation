@@ -17,6 +17,25 @@ def send_fragmented_result(writer, ready, release, hold):
 
 
 class AvoidanceTests(unittest.TestCase):
+    def test_unconfirmed_nearby_contour_stays_at_its_measured_location(self):
+        from intramural_mission.avoidance import stopped_collision
+        tracker=ObstacleTracker()
+        brakes=np.array([[[0.,0.],[0.,0.]]]);times=np.array([[0.,.1]])
+        for i in range(2):
+            center=np.array([.61,-.32])+i*np.array([-.11,.035])
+            cloud=[center+[x,y]for x in(-.125,0.,.125)for y in(-.055,0.,.055)]
+            tracks=tracker.update(cloud,i*.1+.14,point_times=np.full(9,i*.1))
+        self.assertFalse(tracks[0]['motion_confirmed'])
+        self.assertFalse(stopped_collision(brakes,times,tracks,.31))
+        unconfirmed=dict(tracks[0],acceleration=[20.,20.],acceleration_observed=True)
+        self.assertFalse(collision([[0.,0.],[0.,0.]],[0.,2.],[unconfirmed],.31))
+        # Consistent approach or actual occupation must still stop the vehicle.
+        for i in range(2,5):
+            center=np.array([.61,-.32])+i*np.array([-.11,.035])
+            cloud=[center+[x,y]for x in(-.125,0.,.125)for y in(-.055,0.,.055)]
+            tracks=tracker.update(cloud,i*.1+.14,point_times=np.full(9,i*.1))
+        self.assertTrue(stopped_collision(brakes,times,tracks,.31))
+
     def test_two_scan_jump_and_missing_returns_do_not_invent_an_incoming_actor(self):
         from intramural_mission.avoidance import stopped_collision
         tracker=ObstacleTracker()
@@ -29,7 +48,7 @@ class AvoidanceTests(unittest.TestCase):
             self.assertFalse(stopped_collision(brakes,times,tracks,.31))
             for track in tracks:
                 self.assertFalse(track['motion_confident'])
-        # A third independent, consistent observation confirms genuine approach.
+        # Repeated independent, consistent observations confirm genuine approach.
         tracker=ObstacleTracker()
         for i in range(6):
             cloud=[[x,1.8-.12*i+y]for x in(-.05,0.,.05)for y in(-.05,0.,.05)]
@@ -383,7 +402,7 @@ class AvoidanceTests(unittest.TestCase):
         self.assertFalse(any(moving))
         track.update(moving=False,velocity=[.077,-.022],acceleration=[.519,0.])
         np.testing.assert_allclose(obstacle_positions(track,[0.,1.,2.]),
-            np.asarray(track['center'])+np.arange(3)[:,None]*track['velocity'])
+            np.broadcast_to(track['center'],(3,2)))
 
     def test_cruise_checks_future_braking_tails_when_the_ideal_line_is_clear(self):
         from intramural_mission.avoidance import DetourPlanner,preview

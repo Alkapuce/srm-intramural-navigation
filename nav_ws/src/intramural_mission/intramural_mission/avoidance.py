@@ -111,6 +111,7 @@ class ObstacleTracker:
                 previous=t.get('measured_velocity',np.zeros(2))
                 consistent=(0.<elapsed<=.25 and np.dot(previous,measured_velocity)>0.
                     and np.linalg.norm(measured_velocity-previous)<=max(.5,.5*np.linalg.norm(previous)))
+                t['motion_updates']=t.get('motion_updates',0)+1 if consistent else 0
                 t['measured_velocity']=measured_velocity
                 innovation = measurement@t['p']@measurement.T+np.eye(2)*.02**2
                 residual=center-measurement@t['x']
@@ -130,7 +131,7 @@ class ObstacleTracker:
                     observations=t['observations']+1)
                 # A small derivative inside its own uncertainty is scan jitter, not motion evidence.
                 sigma=np.sqrt(np.maximum(0.,np.diag(t['p'])))
-                if consistent and np.linalg.norm(t['x'][2:4])>max(.08,2*max(sigma[2:4])):
+                if t['motion_updates']>=2 and np.linalg.norm(t['x'][2:4])>max(.08,2*max(sigma[2:4])):
                     t['motion_confirmed_until']=stamp+.3
                 displacement=center-t['motion_anchor']
                 onset=(np.linalg.norm(displacement)>.02 and np.linalg.norm(t['x'][2:4])>.05
@@ -166,8 +167,8 @@ class ObstacleTracker:
                      moving=bool(t['observations']<3 or stamp<t['moving_until']))
                 for t in self.tracks]
         for track,t in zip(tracks,self.tracks):
-            if track['moving'] and not track['motion_confirmed']:
-                # Unmatched scan fragments must not coast into the route for two seconds.
+            if not track['motion_confirmed']:
+                # Unconfirmed fragments remain measured occupancy, without invented motion.
                 track['center']=t.get('observed_x',t['measurement_center']).tolist()
                 covariance=np.asarray(track['covariance'])
                 covariance[:2,:2]=t.get('observed_p',np.eye(2)*.02**2)
@@ -212,6 +213,8 @@ def collision(points, times, tracks, radius):
 def prediction_uncertainty(track,horizon):
     covariance=np.asarray(track['covariance'])
     horizon=np.asarray(horizon)+track.get('prediction_age',0.)
+    if not track.get('motion_confirmed',True):
+        return np.full_like(horizon,max(0.,2*math.sqrt(max(np.diag(covariance)[:2]))-track.get('shared_margin',0.)),dtype=float)
     if not track.get('moving',True):
         return np.maximum(0.,2*math.sqrt(max(np.diag(covariance)[:2]))+.02*horizon-track.get('shared_margin',0.))
     h=horizon if track.get('motion_confirmed',True) and track.get('velocity_observed',True) else np.minimum(horizon,.2)
@@ -229,7 +232,8 @@ def prediction_uncertainty(track,horizon):
 
 def obstacle_positions(track,times):
     t=np.asarray(times)+track.get('prediction_age',0.)
-    if track.get('moving',True) and not track.get('motion_confirmed',True):t=np.minimum(t,.2)
+    if not track.get('moving',True) or not track.get('motion_confirmed',True):
+        return np.broadcast_to(np.asarray(track['center']),t.shape+(2,))
     positions=np.asarray(track['center'])+t[...,None]*np.asarray(track['velocity'])
     acceleration=np.asarray(track.get('acceleration',[0.,0.]))
     if track.get('moving',True) and track.get('acceleration_observed',True) and np.any(acceleration):
@@ -241,7 +245,8 @@ def collision_segments(start,end,begin,finish,tracks,radius):
     for track in tracks:
         a=np.asarray(start)-obstacle_positions(track,begin)
         b=np.asarray(end)-obstacle_positions(track,finish)
-        acceleration=(np.asarray(track.get('acceleration',[0.,0.])) if track.get('acceleration_observed',True) else np.zeros(2))
+        acceleration=(np.asarray(track.get('acceleration',[0.,0.])) if track.get('acceleration_observed',True)
+            and track.get('motion_confirmed',True) and track.get('moving',True) else np.zeros(2))
         d=b-a
         f = np.clip(-np.sum(a*d, axis=1)/np.maximum(1e-12, np.sum(d*d, axis=1)), 0., 1.)
         uncertainty=prediction_uncertainty(track,finish)
