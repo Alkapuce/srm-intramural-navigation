@@ -17,6 +17,14 @@ def send_fragmented_result(writer, ready, release, hold):
 
 
 class AvoidanceTests(unittest.TestCase):
+    def test_measured_sparse_contour_does_not_gain_invented_width(self):
+        cloud=[[-.3088147669666753,-.9173955136322564],[-.2898964975729178,-.8506138378407017]]
+        track=ObstacleTracker().update(cloud,0.,weights=[2,1])[0]
+        position=[-.5034116725849269,-1.1644204596450438]
+        self.assertFalse(collision([position,position],[0.,.1],[track],.31))
+        near=[-.45,-1.10]
+        self.assertTrue(collision([near,near],[0.,.1],[track],.31))
+
     def test_rotated_box_does_not_fill_empty_axis_aligned_corners(self):
         from intramural_mission.avoidance import obstacle_gap
         rotation=np.array([[1.,1.],[-1.,1.]])/np.sqrt(2)

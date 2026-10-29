@@ -237,7 +237,7 @@ class TrajectoryMission(Node):
                 if self.state=='BLOCKED' and (accepted or clear_twice):
                     # New route or two distinct clear observations; the latest obstacle check still gates this tick.
                     self.clear_since=-math.inf
-            elif result['reason']!='PLANNING_TIMEOUT':
+            elif result['reason']!='PLANNING_TIMEOUT' or (result.get('continuation_until') and result.get('execution_failure') is False):
                 self.continuation_until=result.get('continuation_until',0.)
             if result.get('blocked') and not accepted:
                 self.predictive_stop=now>=getattr(self,'continuation_until',0.)

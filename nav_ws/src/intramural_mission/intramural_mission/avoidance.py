@@ -198,7 +198,8 @@ def obstacle_gap(points, track):
     delta=np.asarray(points)-track['center']
     if 'contour' in track:
         shape=delta.shape[:-1];flat=delta.reshape(-1,2)
-        return (segment_contour_distance(flat,flat,track['contour'])-.025).reshape(shape)
+        padding=.025 if len(track['contour'])>2 else 0.
+        return (segment_contour_distance(flat,flat,track['contour'])-padding).reshape(shape)
     if 'extent' in track:
         return np.linalg.norm(np.maximum(np.abs(delta)-track['extent'],0.),axis=-1)
     return np.linalg.norm(delta,axis=-1)-track['radius']
@@ -255,6 +256,8 @@ def prediction_uncertainty(track,horizon):
     covariance=np.asarray(track['covariance'])
     horizon=np.asarray(horizon)+track.get('prediction_age',0.)
     if not track.get('motion_confirmed',True):
+        # The measured contour cancels its filter-center offset; shared clearance covers sensor error.
+        if 'contour' in track:return np.zeros_like(horizon,dtype=float)
         return np.full_like(horizon,max(0.,2*math.sqrt(max(np.diag(covariance)[:2]))-track.get('shared_margin',0.)),dtype=float)
     if not track.get('moving',True):
         return np.maximum(0.,2*math.sqrt(max(np.diag(covariance)[:2]))+.02*horizon-track.get('shared_margin',0.))
@@ -300,7 +303,7 @@ def collision_segments(start,end,begin,finish,tracks,radius):
         if not np.any(near):
             continue
         a,b,uncertainty=a[near],b[near],uncertainty[near]
-        gap=(segment_contour_distance(a,b,track['contour'])-.025 if 'contour' in track else
+        gap=(segment_contour_distance(a,b,track['contour'])-(.025 if len(track['contour'])>2 else 0.) if 'contour' in track else
              segment_box_distance(a,b,track['extent']) if 'extent' in track
              else np.linalg.norm(a+f[near,None]*d[near],axis=1)-track['radius'])
         if np.any(gap <= radius+uncertainty):
@@ -503,7 +506,7 @@ class DetourPlanner:
             t['prediction_age'] = t.get('prediction_age',0.)+age
         # Uncertain motion must remain safe even if the observed contour stays where it is.
         tracks += [dict(t,velocity=[0.,0.],acceleration=[0.,0.],moving=False,stationary_hypothesis=True)
-                   for t in tracks if t['moving'] and not t['motion_confident']]
+                   for t in tracks if t['moving'] and t.get('motion_confirmed',True) and not t['motion_confident']]
         report = dict(stamp=request['stamp'], route_id=plan.route_id, run_id=request.get('run_id'),tracks=tracks,
                       plan=None, blocked=False, imminent=False,reason='', side=0, rejected={})
         models=self.c.get('response_models',[(self.c.get('response_delay',.2),self.c.get('response_tau',.15))])
@@ -522,6 +525,7 @@ class DetourPlanner:
                     or stopped_collision(brakes,brake_times,obstacles,radius)
                     for _,_,brakes,brake_times,_ in predictions)
             if unsafe_stop(initial,tracks):
+                report['braking_prediction']=[dict(points=b[0].tolist(),times=bt[0].tolist()) for _,_,b,bt,_ in initial]
                 stationary=[t for t in tracks if not t['moving']]
                 # Escape cannot override a stationary contour in the actual braking path.
                 if unsafe_stop(initial,stationary):

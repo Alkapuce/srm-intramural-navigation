@@ -208,6 +208,11 @@ class TrajectorySafetyTests(unittest.TestCase):
                     self.assertEqual(node.state,'RUNNING');self.assertEqual(node.avoidance,{})
                 replies.append(dict(base,continuation_until=now+1.));node.update_avoidance()
                 self.assertEqual(node.state,'RUNNING');self.assertFalse(node.predictive_stop)
+                node.continuation_until=0.
+                replies.append(dict(base,seconds=.085,execution_failure=False,continuation_until=now+.3))
+                node.update_avoidance()
+                self.assertEqual(node.state,'RUNNING')
+                self.assertEqual(node.continuation_until,now+.3)
                 node.continuation_until=now-1.;node.update_avoidance()
                 self.assertEqual(node.state,'BLOCKED');np.testing.assert_array_equal(node.tracker.command,[0.,0.])
                 node.state='RUNNING';node.continuation_until=0.
