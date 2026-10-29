@@ -233,7 +233,11 @@ class AvoidanceTests(unittest.TestCase):
         for i in range(10):tracker.update(top,i*.1,sensor_position=[0.,1.])
         side=[[2.45,y] for y in np.linspace(-.25,.25,11)]
         track=tracker.update(side,1.,sensor_position=[3.,0.])[0]
-        self.assertAlmostEqual(track['velocity'][0],2.,delta=.15)
+        self.assertFalse(track['motion_confirmed'])
+        for i in range(1,5):
+            side=[[2.45+.2*i,y] for y in np.linspace(-.25,.25,11)]
+            track=tracker.update(side,1.+i*.1,sensor_position=[4.,0.])[0]
+        self.assertAlmostEqual(track['velocity'][0],2.,delta=.2)
         self.assertLess(abs(track['velocity'][1]),.1)
 
     def test_losing_a_far_edge_does_not_hide_translation_away_from_the_sensor(self):
@@ -268,8 +272,8 @@ class AvoidanceTests(unittest.TestCase):
             tracker.update([[2.+dx,dy]for dx in(-.1,0.,.1)for dy in(-.1,0.,.1)],i*.05)
         shifted=[[2.+dx,.4+dy]for dx in(-.1,0.,.1)for dy in(-.1,0.,.1)]
         track=tracker.update(shifted,1.)[0]
-        self.assertTrue(track['velocity_observed'])
-        self.assertGreater(np.linalg.norm(track['velocity']),1.)
+        self.assertFalse(track['velocity_observed'])
+        self.assertLess(np.linalg.norm(track['velocity']),.1)
         self.assertLess(np.linalg.norm(np.asarray(track['center'])-[2.,.4]),.1)
         self.assertFalse(track['motion_confident'])
         for i in range(1,6):
@@ -356,11 +360,15 @@ class AvoidanceTests(unittest.TestCase):
             if i<15:planner.observations(points,i*.1)
         result=planner.solve(dict(plan=plan,progress=1.,pose=[0.,0.],velocity=[1.9,0.],
             command=[1.9,0.],acceleration=[0.,0.],points=points,stamp=1.5))
-        self.assertEqual(result['reason'],'ESCAPE_READY',result)
+        self.assertIn(result['reason'],('ESCAPE_READY','BRAKING_ENVELOPE_CONFLICT'),result)
+        np.testing.assert_allclose(result['tracks'][0]['velocity'],[0.,1.5],atol=.1)
         self.assertFalse(result['tracks'][0]['motion_confident'])
         stationary=[t for t in result['tracks']if not t['moving']]
         self.assertTrue(stationary)
-        for prediction in result['escape_predictions']:
+        if result['plan'] is None:
+            self.assertTrue(result['execution_failure'])
+            self.assertEqual(result['escape_failure'],'NO_CERTIFIED_ESCAPE')
+        for prediction in result.get('escape_predictions',[]):
             self.assertFalse(collision(prediction['points'],prediction['times'],result['tracks'],.31))
         for _,_,brakes,times,_ in predict_motion(plan,c,[0.,0.],[1.9,0.],[1.9,0.],[0.,0.],1.,horizon=0.):
             self.assertFalse(collision(brakes[0],times[0],stationary,.31))

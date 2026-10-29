@@ -117,11 +117,15 @@ class ObstacleTracker:
                 residual=center-measurement@t['x']
                 t['association_valid']=float(residual@np.linalg.solve(innovation,residual))<=9.
                 if not t['association_valid']:
-                    # A motion start is a velocity jump, not measurement noise to average away.
-                    dt=max(.01,clusters[j][3]-t['seen'])
-                    velocity=(center-t['measurement_center'])/dt
-                    t['x']=obstacle_transition(lag)@np.r_[center,velocity,t['x'][4:]]
-                    t['p']=np.diag([.1**2]*2+[2*.02**2/dt**2]*2+[2.**2]*2)
+                    # A rejected association cannot establish velocity from its own jump.
+                    confirmed=stamp<t.get('motion_confirmed_until',-math.inf)
+                    velocity=t['x'][2:4].copy() if confirmed else np.zeros(2)
+                    variance=np.diag(t['p'])[2:4].copy() if confirmed else np.full(2,2.**2)
+                    advance=obstacle_transition(lag)
+                    t['x']=advance@np.r_[center,velocity,0.,0.]
+                    t['p']=advance@np.diag([.02**2]*2+variance.tolist()+[2.**2]*2)@advance.T
+                    t.update(observations=t['observations'] if confirmed else 0,motion_updates=0,
+                        measured_velocity=np.zeros(2),motion_anchor=center.copy(),moving_until=stamp)
                     innovation=measurement@t['p']@measurement.T+np.eye(2)*.02**2
                 k = np.linalg.solve(innovation, (t['p']@measurement.T).T).T
                 t['x'] += k@(center-measurement@t['x'])
