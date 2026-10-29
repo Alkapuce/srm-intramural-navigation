@@ -18,26 +18,34 @@ flowchart TD
         direction TB
         Mapping["srm-map 点云建图 & 地面分割"] --> PoleDet["两桩几何聚类与局部坐标系提取"]
         PoleDet --> TrajGen["双桩对称 C2 连续周期三次样条生成"]
-        TrajGen --> SpeedGen["前向/后向动态规划速度参数化<br/>(向心加速度上限 / Jerk 限制 / 底盘功率响应约束)"]
+        TrajGen --> SpeedGen["双向动态规划速度参数化<br/>(向心加速度上限 / Jerk 限制 / 底盘功率响应约束)"]
         SpeedGen --> RoutePlan[("不可变 RoutePlan 轨迹文件<br/>(点坐标, 切线, 曲率, 速度 v(s), 阶段 Gate)")]
     end
 
-    subgraph L1["【感知与状态估计层】Perception & State Estimation"]
+    subgraph L1["【感知与状态估计层】Perception & Tracking"]
         direction TB
         Lidar["Livox MID-360 激光雷达<br/>(原始点云 + 6轴 IMU)"]
         LIO["Point-LIO 紧耦合里程计 (~100Hz)<br/>(流形误差状态卡尔曼滤波 ESIKF: odom ➔ base_footprint)"]
         GICP["small_gicp 全局重定位配准 (~10Hz)<br/>(KD-Tree GICP 对齐离线先验点云: map ➔ odom)"]
         TF["统一 TF 变换树<br/>(map ➔ odom ➔ base_footprint ➔ livox_frame)"]
-        Lidar -->|"点云与IMU"| LIO
+        DynTrack["动态障碍物跟踪与预测 (Kalman Tracking)<br/>(点云去背景聚类 / 速度与衰减加速度估计 / 2s 时空预测)"]
+
+        Lidar -->|"点云与 IMU"| LIO
         LIO --> TF
         GICP --> TF
+        Lidar -->|"点云去背景与时空补偿"| DynTrack
+        TF --> DynTrack
     end
 
-    subgraph L2["【决策与任务调度层】Mission & Decision"]
+    subgraph L2["【决策与任务调度层】Mission & Trajectory Planning"]
         direction TB
         SM["10 阶段有序状态机 (FSM)<br/>(停车位出发 ➔ 下瓣切入 ➔ 逆时针下瓣 ➔ 交叉点 ➔ 上瓣切入 ➔ 顺时针上瓣 ➔ 交叉点 ➔ 返回段 ➔ 停车)"]
         ArcEngine["单调弧长进度引擎 (Monotonic Arc-Length Window)<br/>(解决 8 字交叉点自交拓扑二义性，拒绝反向回退)"]
+        AvoidPlanner["动态避障与局部重规划 (后台异步进程)<br/>(走廊约束 A* 搜索 / 动态碰撞检查 / 绕数与出入一致性)"]
+        FlyingSwitch["平滑换轨与执行边界 (Flying Switch)<br/>(当前响应前缀衔接 / 100ms 切换边界 / 终点制动后路)"]
+
         SM <--> ArcEngine
+        AvoidPlanner --> FlyingSwitch
     end
 
     subgraph L3["【控制与动力学补偿层】Control & Dynamics"]
@@ -51,10 +59,10 @@ flowchart TD
         Comp --> Tracker
     end
 
-    subgraph L4["【安全防护层】Safety & Guard (最优先控制权 / 独立守护)"]
+    subgraph L4["【两级安全防护层】Two-tier Safety Guard (最优先控制权 / 独立守护)"]
         direction TB
         Guard["motion_guard 最终安全守护者<br/>(100Hz 定频 / 唯一 cmd_vel 发布者)"]
-        RawWatch["原始雷达近距扫掠检测<br/>(逐点时空位移补偿 / Swept Volume 检查)"]
+        RawWatch["执行级：原始雷达近距扫掠与滑行制动包络<br/>(逐点时空位移补偿 / 延迟+惯性滑行 Swept Volume 物理底线)"]
         Dog["系统看门狗 & 状态校验<br/>(TF超时 / 跟踪发散 / 串口断链 / 0.25s 停稳判定)"]
         RawWatch --> Guard
         Dog --> Guard
@@ -68,22 +76,25 @@ flowchart TD
     end
 
     %% 跨层核心流动关系
-    RoutePlan ==>|"发车前单次加载"| ArcEngine
+    RoutePlan ==>|"发车前单次加载主路线"| ArcEngine
+    RoutePlan -.->|"前瞻冲突触发 (allow_bypass=true)"| AvoidPlanner
+    DynTrack -->|"2s 动态障碍物预测轨迹"| AvoidPlanner
+    TF -->|"实时位姿与进度"| AvoidPlanner
+    ArcEngine -->|"主基准路线"| FlyingSwitch
+    FlyingSwitch ==>|"当前执行轨迹 (原子快照)"| Tracker
+    FlyingSwitch ==>|"未来轨迹与制动后路包络"| RawWatch
     RoutePlan ==>|"提供目标基准速度与曲率"| FF
-    TF -->|"高频车体位姿"| ArcEngine
     TF -->|"当前位姿与实测速度反馈"| FB
-    ArcEngine -->|"当前弧长 s 与未来局部轨迹"| Tracker
-    ArcEngine -->|"近期扫掠包络预测路径"| RawWatch
-    Lidar -->|"实时无滤波点云 (逐点时空补偿)"| RawWatch
+    Lidar -->|"原始点云 (逐点时空补偿与自车回波过滤)"| RawWatch
     Tracker -->|"cmd_vel_controller 意图速度"| Guard
     Guard -->|"最终安全线速度 vx, vy / wz=0"| Serial
 ```
 
 - **离线轨迹编译（L0）**：`srm-map` 完成点云建图与地面分割后，自动聚类两桩并建立对称局部坐标系，生成曲率连续的 $C^2$ 周期三次样条，利用双向动态规划综合向心加速度、Jerk 与底盘功率响应约束生成不可变的 `RoutePlan` 轨迹。
-- **感知与状态估计（L1）**：Livox MID-360 采集点云与 6 轴 IMU；Point-LIO（~100Hz）通过流形误差状态卡尔曼滤波（ESIKF）估计连续里程计，small_gicp（~10Hz）利用 KD-Tree GICP 对齐离线先验点云发布重定位修正，维护统一坐标树 `map → odom → base_footprint → livox_frame`。传感器模式不使用 Gazebo 真值。
-- **决策与任务调度（L2）**：10 阶段状态机（FSM）覆盖从车位出发、双瓣绕行到原路回位全流程；单调弧长进度引擎在自交 8 字交叉点提供局部单调窗口，从几何拓扑上根除二义性与反向回退。障碍移除后自动从当前有序位置恢复。
+- **感知与状态估计（L1）**：Livox MID-360 采集点云与 6 轴 IMU；Point-LIO（~100Hz）通过流形误差状态卡尔曼滤波（ESIKF）估计连续里程计，small_gicp（~10Hz）利用 KD-Tree GICP 对齐离线先验点云发布重定位修正，维护统一坐标树 `map → odom → base_footprint → livox_frame`。原始点云在去背景与时空补偿后，经卡尔曼滤波跟踪器估计目标速度与衰减加速度，输出带时间维度的 2s 动态目标预测。传感器模式不使用 Gazebo 真值。
+- **决策与任务调度（L2）**：10 阶段状态机（FSM）覆盖从车位出发、双瓣绕行到原路回位全流程；单调弧长进度引擎在自交 8 字交叉点提供局部单调窗口，从几何拓扑上根除二义性与反向回退。启用避障候选时（`allow_bypass=true`），后台异步规划器在原任务走廊、双瓣绕数及出入一致性约束下执行走廊 A* 与平滑求解，并通过 Flying Switch（100ms 动态边界）衔接响应前缀实现平滑换轨与制动后路保留；障碍移除后自动恢复。
 - **控制与动力学补偿（L3）**：OmniTracker（40Hz）融合切向速度与惯性参考加速度前馈、切向/法向位置与速度闭环 PID 反馈，并显式引入底盘响应延迟（0.1s）与一阶惯性（$\tau \approx 0.09s$）的前瞻预测，消除高速弯道漂移。
-- **安全防护与仲裁门禁（L4 / 顶层守护）**：`motion_guard`（100Hz）拥有系统最优先控制权，是速度指令的唯一发布出口；通过旁路直连无滤波原始点云，结合逐点时空位移补偿对短期预测轨迹做 Swept Volume 扫掠检测，并由系统看门狗执行 TF 时效、跟踪发散与连续 0.25s 停稳多重守护。
+- **两级安全防护与仲裁门禁（L4 / 顶层守护）**：实行两级分治安全原则——规划级负责 2s 时空防撞与绕行候选认证；执行级 `motion_guard`（100Hz）拥有系统最优先控制权，是速度指令的唯一发布出口，旁路接收原始点云并进行自车回波与判障高度过滤，结合底盘延迟与惯性滑行对预测轨迹做 Swept Volume 扫掠检测，并由系统看门狗执行 TF 时效、跟踪发散与连续 0.25s 停稳多重守护。
 - **通信协议与底盘执行（L5）**：经严格校验的 19 字节二进制串口协议（100Hz / CRC8+CRC16）下发线速度（$v_x, v_y$，$w_z \equiv 0$）；实车直连 STM32 下位机全向平移底盘，仿真环境通过伪终端驱动 `sim_mcu` 模拟下位机，保证虚实链路同构。
 - **场景与模型**：使用 [赛方圆柱哨兵模型](simulation/models/sentry_robot_cylinder.xacro)和公开 MID-360 资源，导航包络半径 0.29 m。场地几何、速度和容差统一在 [arena.json](config/arena.json)。详情见[整圈轨迹导航](docs/architecture/trajectory-navigation.md)。
 
