@@ -19,6 +19,40 @@ from intramural_mission.route import curve_speed_limit, arc, line
 
 
 class ProximityTests(unittest.TestCase):
+    def test_height_band_filters_overhang_before_guard_and_planner_share_xy(self):
+        from intramural_mission.proximity import collision_height
+        cloud=PointCloud2(height=1,width=4,point_step=12,row_step=48)
+        cloud.fields=[PointField(name=k,offset=i*4,datatype=7,count=1)for i,k in enumerate(('x','y','z'))]
+        cloud.data=np.array([[.5,0.,.04],[.5,.01,.20],[.5,.02,.43],[.5,.03,.46]],dtype='<f4').tobytes()
+        m=N(atomic_command=True,c=dict(lidar_pose=[0.]*6,robot_radius=.29,raw_collision_z_bounds_m=[.19,.44]),
+            mode='sensors',touch=lambda k:None,get_clock=lambda:N(now=lambda:N(nanoseconds=0)))
+        Adapter.lidar(m,cloud)
+        np.testing.assert_allclose(m.raw_near_points,[[.5,.01],[.5,.02]],atol=1e-6)
+        for bounds in ([.4,.2],[0.,float('nan')],[.3]):
+            with self.assertRaises(ValueError):collision_height(np.empty((0,3)),bounds)
+
+    def test_stopped_guard_uses_current_speed_without_latching_pre_stop_speed(self):
+        now=time.monotonic();diagnostics=[]
+        c=dict(robot_radius=.29,minimum_clearance=.02,max_speed=2.,max_acceleration=3.5,
+            navigation_engine='trajectory',raw_collision_follow_path=True,raw_collision_min_points=3,
+            response_delay=.1,response_tau=.09)
+        m=N(get_clock=lambda:N(now=lambda:N(nanoseconds=10_000_000_000)),atomic_command=False,c=c,
+            cmd=Twist(),last={k:now for k in ['command','odom','lidar','imu']},last_tick=now-.025,
+            motion_permitted=True,enabled=True,bypassing=False,output=[0.,0.],body_velocity=[0.,0.],
+            mission_state='BLOCKED',held_speed=1.6,last_motion_direction=(1.6,0.),
+            raw_near_points=np.array([[.8,-.02],[.8,0.],[.8,.02]]),
+            body_path=lambda:line([0.,0.],[3.,0.],.05),mode='sensors',
+            pub=N(publish=lambda v:None),hazard_pub=N(publish=lambda v:None),
+            diagnostic=N(publish=lambda v:diagnostics.append(__import__('json').loads(v.data))))
+        Adapter.tick(m)
+        self.assertFalse(m.hazard)
+        self.assertAlmostEqual(diagnostics[-1]['collision_reach_m'],.37)
+        m.body_velocity=[1.6,0.];m.last_tick=time.monotonic()-.025;Adapter.tick(m)
+        self.assertTrue(m.hazard,'Actual momentum still requires the longer stopping sweep')
+        m.body_velocity=[0.,0.];m.raw_near_points=np.array([[.5,-.02],[.5,0.],[.5,.02]])
+        m.last_tick=time.monotonic()-.025;Adapter.tick(m)
+        self.assertTrue(m.hazard,'A real nearby obstacle must still block a stopped vehicle')
+
     def test_self_filter_is_local_to_the_confirmed_three_dimensional_part(self):
         points=np.array([[.16,-.30,.24],[.16,-.38,.24],[.16,-.30,.31],[.21,-.30,.24]])
         box=[[[.14,-.36,.20],[.19,-.24,.28]]]

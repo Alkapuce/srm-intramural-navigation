@@ -67,7 +67,6 @@ class TrajectoryMission(Node):
         self.clear_since = None
         self.started = 0.0
         self.finished = None
-        self.held_horizon = 0.0
         self.last_tick = time.monotonic()
         self.raw_hazard = False
         self.cancel_at = 0.0
@@ -215,7 +214,6 @@ class TrajectoryMission(Node):
                         self.channel_side,self.channel_cost,self.channel_at=result['side'],result['expected_seconds'],now
                     self.rejoin_progress = (max(self.rejoin_progress,result['rejoin_progress'])
                         if not result['side'] and self.bypassing else result['rejoin_progress'])
-                    self.held_horizon = 0.
                     if result['side']:
                         self.diagnostics.publish_path(candidate.points,self.get_clock().now().to_msg())
                     self.bypass_pub.publish(Bool(data=self.bypassing))
@@ -367,7 +365,6 @@ class TrajectoryMission(Node):
         self.index = -1
         self.blocked_count = 0
         self.detail = {}
-        self.held_horizon = 0.0
         self.clear_since = None
         self.started = self.get_clock().now().nanoseconds / 1e9
         self.finished = None
@@ -519,9 +516,6 @@ class TrajectoryMission(Node):
             np.linalg.norm(self.tracker.command), np.linalg.norm(self.tracker.velocity)
         )
         reach = collision_reach(self.c, speed, self.guard.get('raw_source_age_seconds', 0.))
-        if self.state == "BLOCKED":
-            reach = max(reach, self.held_horizon)
-        self.held_horizon = reach
         swept = np.asarray(executable_path(np.asarray(self.future())-self.pose,
                                            self.tracker.velocity,stopping_horizon(self.c,speed))) + self.pose
         return (

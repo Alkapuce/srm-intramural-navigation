@@ -206,7 +206,9 @@ def main():
     cloud = lidar_to_body(np.frombuffer(binary,dtype='<f4').reshape(-1,3), config['lidar_pose'])
     if not np.isfinite(cloud).all():
         raise ValueError('Nonfinite point cloud')
-    plane = json.loads((source/'occupancy.json').read_text())['floor_plane']['z_equals_ax_by_c']
+    floor = json.loads((source/'occupancy.json').read_text())['floor_plane']
+    plane = floor['z_equals_ax_by_c']
+    ground_z=config['lidar_pose'][2]-float(np.mean(floor['sensor_height_range_m']))
     candidates = detect_poles(cloud,plane)
     report = dict(source_map=str(source), source_pcd_sha256=hashlib.sha256(raw).hexdigest(),
         candidates=candidates, detector_scope='Isolated thin vertical objects, observed height span >=0.5m; geometric identity, no semantic classifier',
@@ -228,6 +230,8 @@ def main():
             raw_zero_intensity_min_range_m=.15,
             raw_collision_follow_path=True,
             raw_collision_min_points=3,
+            # shortcut: a fixed local floor is valid for this flat field; fit a local plane on slopes.
+            raw_collision_z_bounds_m=config.get('raw_collision_z_bounds_m',[max(.15,ground_z+.05),ground_z+.30]),
             # Operator-approved SRM self/near-echo regions, measured before motion compensation.
             raw_self_filter_boxes=config.get('raw_self_filter_boxes',[
                 [[.14,-.36,.20],[.19,-.24,.28]], [[.24,-.18,.19],[.51,.17,.69]]]),

@@ -5,6 +5,13 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 
+def collision_height(points, bounds):
+    bounds=np.asarray(bounds,dtype=float)
+    if bounds.shape!=(2,) or not np.isfinite(bounds).all() or bounds[0]>=bounds[1]:
+        raise ValueError('Collision height requires finite increasing body Z bounds')
+    return (points[:,2]>=bounds[0])&(points[:,2]<=bounds[1])
+
+
 def outside_self(points, boxes):
     keep=np.ones(len(points),dtype=bool)
     for box in boxes:

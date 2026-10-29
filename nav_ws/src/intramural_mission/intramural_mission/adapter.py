@@ -15,7 +15,7 @@ from nav_msgs.msg import Odometry, Path as RosPath
 from sensor_msgs.msg import PointCloud2, Imu, PointField
 from std_msgs.msg import Bool, String
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster, Buffer, TransformListener, TransformException
-from intramural_mission.proximity import obstacle_near, obstacle_on_path, lidar_to_body, surface_support, outside_self
+from intramural_mission.proximity import obstacle_near, obstacle_on_path, lidar_to_body, surface_support, outside_self, collision_height
 from intramural_mission.route import curve_speed_limit
 from intramural_mission.safety import executable_path, response_horizon, stopping_horizon, collision_reach, compensate_motion, map_motion_pose, braking_paths
 
@@ -30,6 +30,7 @@ class Adapter(Node):
         self.declare_parameter("arena_config", "/work/config/arena.json")
         self.c = json.loads(Path(self.get_parameter("arena_config").value).read_text())
         outside_self(np.empty((0,3)),self.c.get('raw_self_filter_boxes',[]))
+        collision_height(np.empty((0,3)),self.c.get('raw_collision_z_bounds_m',[.15,1.4]))
         self.enabled = False
         self.bypassing = False
         self.cmd = Twist()
@@ -297,7 +298,7 @@ class Adapter(Node):
             body = lidar_to_body(xyz, self.c["lidar_pose"])
             if np.any(np.sum(body[:,:2]**2,axis=1)>self.c["robot_radius"]**2) and abs(self.get_clock().now().nanoseconds/1e9-stamp)<.7:
                 self.touch("lidar")
-            mask = ((body[:, 2] > .15) & (body[:, 2] < 1.4)
+            mask = (collision_height(body,self.c.get('raw_collision_z_bounds_m',[.15,1.4]))
                     & (np.sum(body[:, :2] ** 2, axis=1) > self.c["robot_radius"] ** 2))
             mask &= outside_self(body,self.c.get('raw_self_filter_boxes',[]))
             if self.atomic_command:
@@ -479,9 +480,6 @@ class Adapter(Node):
         if math.hypot(*observed_velocity) > .05:
             self.last_motion_direction = tuple(observed_velocity)
         speed = max(math.hypot(*scheduled), math.hypot(*self.output), math.hypot(*observed_velocity))
-        if self.c.get('navigation_engine')=='trajectory':
-            if getattr(self,'mission_state','')=='BLOCKED':speed=max(speed,getattr(self,'held_speed',0.))
-            else:self.held_speed=speed
         radial = self.c['robot_radius'] + self.c.get('minimum_clearance', .1)
         if self.c.get('navigation_engine') == 'trajectory':
             stop_radius = radial + collision_reach(self.c, speed, sensor_age) - self.c.get('minimum_clearance', 0.)

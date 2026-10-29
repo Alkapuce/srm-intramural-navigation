@@ -24,6 +24,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TrajectorySafetyTests(unittest.TestCase):
+    def test_stopped_costmap_check_does_not_keep_the_old_high_speed_horizon(self):
+        grid=OccupancyGrid();grid.header.frame_id='map';grid.info.resolution=.05
+        grid.info.width=80;grid.info.height=40;grid.info.origin.position.x=-1.;grid.info.origin.position.y=-1.
+        grid.info.origin.orientation.w=1.;grid.data=[0]*3200
+        grid.data[20*80+36]=100
+        transform=TransformStamped();transform.transform.rotation.w=1.
+        m=N(costmap=grid,tf=N(lookup_transform=lambda *args:transform),pose=[0.,0.],
+            tracker=N(command=np.zeros(2),velocity=np.zeros(2)),state='BLOCKED',held_horizon=.7,
+            c=dict(robot_radius=.29,minimum_clearance=.02,response_delay=.1,response_tau=.09),
+            guard={},execution_blocked=False,predictive_stop=False,raw_hazard=False,
+            future=lambda:[[float(x),0.]for x in np.linspace(0.,3.,61)])
+        self.assertFalse(TrajectoryMission.obstacle(m))
+        m.tracker.velocity=np.array([1.6,0.])
+        self.assertTrue(TrajectoryMission.obstacle(m),'The moving vehicle still checks its full stopping horizon')
+
     def test_two_fresh_feasible_observations_resume_but_latest_raw_obstacle_still_stops(self):
         from collections import deque
         from intramural_mission.planning import GridMap

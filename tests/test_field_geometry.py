@@ -29,7 +29,7 @@ class FieldGeometryTest(unittest.TestCase):
                         points.append([cx+.07*math.cos(a),cy+.07*math.sin(a),h])
             raw=np.asarray(points,dtype='<f4').tobytes()
             (source/'prior.pcd').write_bytes(b'FIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\nDATA binary\n'+raw)
-            (source/'occupancy.json').write_text(json.dumps({'floor_plane':{'z_equals_ax_by_c':[0.,0.,0.]}}))
+            (source/'occupancy.json').write_text(json.dumps({'floor_plane':{'z_equals_ax_by_c':[0.,0.,0.],'sensor_height_range_m':[0.,0.]}}))
             config=json.loads((root/'config/arena.json').read_text());config['lidar_pose']=[0.]*6
             if bypass is not None:config['allow_bypass']=not bypass
             config['optimized_route']=dict(shape=[20.,20.,.5],entry_angle=0.,transition_scale=1.25)
@@ -106,6 +106,7 @@ class FieldGeometryTest(unittest.TestCase):
                 self.assertEqual(actual['minimum_clearance'],.02)
                 self.assertTrue(actual['raw_collision_follow_path'])
                 self.assertEqual(actual['raw_collision_min_points'],3)
+                np.testing.assert_allclose(actual['raw_collision_z_bounds_m'],[.15,.30])
                 from intramural_mission.proximity import outside_self
                 echoes=np.array([[.16,-.30,.24],[.328,-.011,.422],[.405,.033,.317],
                                  [.60,0.,.30],[.36,.25,.30],[.36,0.,.80],[-.35,0.,.30]])
