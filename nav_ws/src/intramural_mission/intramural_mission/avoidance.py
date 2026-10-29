@@ -11,7 +11,7 @@ import time
 import numpy as np
 from scipy.ndimage import label,binary_dilation
 from scipy.optimize import linear_sum_assignment
-from scipy.spatial import cKDTree
+from scipy.spatial import cKDTree, ConvexHull, QhullError
 from intramural_mission.bypass import entry_path, winding
 from intramural_mission.trajectory import RoutePlan, Progress
 from intramural_mission.route import quintic_curve
@@ -29,6 +29,15 @@ def obstacle_transition(dt):
     f=np.eye(6);f[:2,2:4]=np.eye(2)*dt;f[:2,4:]=np.eye(2)*position
     f[2:4,4:]=np.eye(2)*velocity;f[4:,4:]=np.eye(2)*decay
     return f
+
+
+def contour(points):
+    points=np.unique(points,axis=0)
+    if len(points)>2:
+        try:return points[ConvexHull(points).vertices]
+        except QhullError:pass
+    axis=int(np.argmax(np.ptp(points,axis=0)))
+    return points[[np.argmin(points[:,axis]),np.argmax(points[:,axis])]]
 
 
 class ObstacleTracker:
@@ -62,12 +71,13 @@ class ObstacleTracker:
             groups, count = label(binary_dilation(occupied), np.ones((3, 3)))
             ids = groups[tuple(cells.T)]
             for i in range(1, count+1):
-                cluster = points[ids == i]
-                if sum(weights[ids == i]) >= 3:
+                selected=np.flatnonzero(ids==i)
+                cluster = points[selected]
+                if sum(weights[selected]) >= 3:
                     center = (cluster.min(axis=0)+cluster.max(axis=0))/2
                     clusters.append((center, float(max(np.linalg.norm(cluster-center, axis=1)))+.025,
                                      (cluster.max(axis=0)-cluster.min(axis=0))/2+.025,
-                                     float(np.average(point_times[ids==i],weights=weights[ids==i]))))
+                                     float(np.average(point_times[selected],weights=weights[selected])),contour(cluster)))
         self.tracks = [t for t in self.tracks if stamp-t['seen'] <= .6]
         for t in self.tracks:
             dt = stamp-t['stamp']
@@ -146,8 +156,9 @@ class ObstacleTracker:
                         np.linalg.norm(t['x'][4:])>max(.4,max(sigma[4:])) or onset):t['moving_until']=stamp+.3
                 t['observed_x']=measurement@t['x']
                 t['observed_p']=measurement@t['p']@measurement.T
+                t['contour']=clusters[j][4]-t['observed_x']
                 used.add(j)
-        for j, (center, radius, extent, source_time) in enumerate(clusters):
+        for j, (center, radius, extent, source_time, vertices) in enumerate(clusters):
             if j not in used:
                 self.serial += 1
                 initial=np.diag([.02**2]*2+[.5**2]*2+[2.**2]*2)
@@ -155,13 +166,13 @@ class ObstacleTracker:
                 self.tracks.append(dict(id=self.serial, x=np.r_[center, 0., 0.,0.,0.],
                     p=advance@initial@advance.T,
                     radius=radius,extent=extent,stamp=stamp,seen=source_time,measurement_center=center,
-                    motion_anchor=center.copy(),observations=1,moving_until=stamp,association_valid=True))
+                    motion_anchor=center.copy(),observations=1,moving_until=stamp,association_valid=True,contour=vertices-center))
                 if sensor_position is not None:self.tracks[-1]['visible_side']=np.sign(center-sensor_position)
         return self.snapshot(stamp)
 
     def snapshot(self, stamp):
         tracks=[dict(id=t['id'], center=t['x'][:2].tolist(), velocity=t['x'][2:4].tolist(),acceleration=t['x'][4:].tolist(),
-                     covariance=t['p'].tolist(), radius=t['radius'], extent=t['extent'].tolist(), age=max(0., stamp-t['seen']),
+                     covariance=t['p'].tolist(), radius=t['radius'], extent=t['extent'].tolist(), contour=t['contour'].tolist(), age=max(0., stamp-t['seen']),
                      velocity_observed=t['observations']>=2,
                      acceleration_observed=bool(t.get('association_valid',False) and
                          np.linalg.norm(t['x'][4:])>max(.4,.5*math.sqrt(max(np.diag(t['p'])[4:])))),
@@ -185,9 +196,35 @@ class ObstacleTracker:
 
 def obstacle_gap(points, track):
     delta=np.asarray(points)-track['center']
+    if 'contour' in track:
+        shape=delta.shape[:-1];flat=delta.reshape(-1,2)
+        return (segment_contour_distance(flat,flat,track['contour'])-.025).reshape(shape)
     if 'extent' in track:
         return np.linalg.norm(np.maximum(np.abs(delta)-track['extent'],0.),axis=-1)
     return np.linalg.norm(delta,axis=-1)-track['radius']
+
+
+def segment_contour_distance(a,b,vertices):
+    vertices=np.asarray(vertices);edge=np.roll(vertices,-1,axis=0)-vertices
+    edge2=np.maximum(1e-12,np.sum(edge*edge,axis=1))
+    if np.all(a==b):
+        points,inverse=np.unique(a,axis=0,return_inverse=True)
+        delta=points[:,None,:]-vertices
+        fraction=np.clip(np.sum(delta*edge,axis=2)/edge2,0.,1.)
+        distance=np.linalg.norm(delta-fraction[:,:,None]*edge,axis=2).min(axis=1)
+        if len(vertices)>2:distance=np.where(np.all(np.cross(edge,delta)>=-1e-12,axis=1),0.,distance)
+        return distance[inverse]
+    d=b-a;da=a[:,None,:]-vertices;db=b[:,None,:]-vertices
+    fa=np.clip(np.sum(da*edge,axis=2)/edge2,0.,1.)
+    fb=np.clip(np.sum(db*edge,axis=2)/edge2,0.,1.)
+    distance=np.minimum(np.linalg.norm(da-fa[:,:,None]*edge,axis=2),np.linalg.norm(db-fb[:,:,None]*edge,axis=2))
+    f=np.clip(-np.sum(da*d[:,None,:],axis=2)/np.maximum(1e-12,np.sum(d*d,axis=1))[:,None],0.,1.)
+    distance=np.minimum(distance,np.linalg.norm(da+f[:,:,None]*d[:,None,:],axis=2))
+    ca,cb=np.cross(edge,da),np.cross(edge,db)
+    crossing=(ca*cb<=0.)&(np.cross(d[:,None,:],-da)*np.cross(d[:,None,:],edge-da)<=0.)&(np.abs(np.cross(d[:,None,:],edge))>1e-12)
+    distance=np.where(crossing,0.,distance).min(axis=1)
+    if len(vertices)>2:distance=np.where(np.all(ca>=-1e-12,axis=1)|np.all(cb>=-1e-12,axis=1),0.,distance)
+    return distance
 
 
 def segment_box_distance(a, b, extent):
@@ -257,11 +294,15 @@ def collision_segments(start,end,begin,finish,tracks,radius):
         if track.get('moving',True):
             uncertainty+=np.linalg.norm(acceleration)*(np.asarray(finish)-np.asarray(begin))**2/8
         broad=np.linalg.norm(a+f[:,None]*d,axis=1)
-        bound=np.linalg.norm(track['extent']) if 'extent' in track else track['radius']
-        if not np.any(broad<=radius+bound+uncertainty):
+        bound=(max(np.linalg.norm(track['contour'],axis=1))+.025 if 'contour' in track else
+               np.linalg.norm(track['extent']) if 'extent' in track else track['radius'])
+        near=broad<=radius+bound+uncertainty
+        if not np.any(near):
             continue
-        gap=(segment_box_distance(a,b,track['extent']) if 'extent' in track
-             else np.linalg.norm(a+f[:, None]*d,axis=1)-track['radius'])
+        a,b,uncertainty=a[near],b[near],uncertainty[near]
+        gap=(segment_contour_distance(a,b,track['contour'])-.025 if 'contour' in track else
+             segment_box_distance(a,b,track['extent']) if 'extent' in track
+             else np.linalg.norm(a+f[near,None]*d[near],axis=1)-track['radius'])
         if np.any(gap <= radius+uncertainty):
             return True
     return False

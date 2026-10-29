@@ -17,6 +17,17 @@ def send_fragmented_result(writer, ready, release, hold):
 
 
 class AvoidanceTests(unittest.TestCase):
+    def test_rotated_box_does_not_fill_empty_axis_aligned_corners(self):
+        from intramural_mission.avoidance import obstacle_gap
+        rotation=np.array([[1.,1.],[-1.,1.]])/np.sqrt(2)
+        cloud=np.array([[x,y]for x in(-.3,0.,.3)for y in(-.2,0.,.2)])@rotation
+        track=ObstacleTracker().update(cloud,0.)[0]
+        point=np.array([.38,.38])
+        self.assertGreater(obstacle_gap(point,track),.18)
+        self.assertFalse(collision([point,point],[0.,.1],[track],.15))
+        self.assertTrue(collision([[-1.,0.],[1.,0.]],[0.,.1],[track],.15))
+        self.assertTrue(collision([[0.,0.],[0.,0.]],[0.,.1],[track],.15))
+
     def test_unconfirmed_nearby_contour_stays_at_its_measured_location(self):
         from intramural_mission.avoidance import stopped_collision
         tracker=ObstacleTracker()

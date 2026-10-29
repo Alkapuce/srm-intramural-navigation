@@ -5,6 +5,23 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 
+def outside_self(points, boxes):
+    keep=np.ones(len(points),dtype=bool)
+    for box in boxes:
+        box=np.asarray(box,dtype=float)
+        if box.shape!=(2,3) or not np.isfinite(box).all() or np.any(box[0]>box[1]):
+            raise ValueError('Self-filter boxes require finite ordered XYZ bounds')
+        keep &= ~np.all((points>=box[0])&(points<=box[1]),axis=1)
+    return keep
+
+
+def surface_support(points, min_points):
+    """Reject isolated scan returns; keep compact surfaces without a temporal delay."""
+    if min_points<=1:return np.ones(len(points),dtype=bool)
+    if not len(points):return np.empty(0,dtype=bool)
+    return cKDTree(points).query_ball_point(points,.08,return_length=True)>=min_points
+
+
 def lidar_to_body(points, pose):
     """Apply the configured sensor-to-body rigid transform once."""
     px, py, pz, roll, pitch, yaw = pose

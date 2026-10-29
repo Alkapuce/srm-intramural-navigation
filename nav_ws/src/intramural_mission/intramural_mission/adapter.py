@@ -15,7 +15,7 @@ from nav_msgs.msg import Odometry, Path as RosPath
 from sensor_msgs.msg import PointCloud2, Imu, PointField
 from std_msgs.msg import Bool, String
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster, Buffer, TransformListener, TransformException
-from intramural_mission.proximity import obstacle_near, obstacle_on_path, lidar_to_body
+from intramural_mission.proximity import obstacle_near, obstacle_on_path, lidar_to_body, surface_support, outside_self
 from intramural_mission.route import curve_speed_limit
 from intramural_mission.safety import executable_path, response_horizon, stopping_horizon, collision_reach, compensate_motion, map_motion_pose, braking_paths
 
@@ -29,6 +29,7 @@ class Adapter(Node):
         self.motion_permitted = self.get_parameter("motion_permitted").value
         self.declare_parameter("arena_config", "/work/config/arena.json")
         self.c = json.loads(Path(self.get_parameter("arena_config").value).read_text())
+        outside_self(np.empty((0,3)),self.c.get('raw_self_filter_boxes',[]))
         self.enabled = False
         self.bypassing = False
         self.cmd = Twist()
@@ -298,6 +299,10 @@ class Adapter(Node):
                 self.touch("lidar")
             mask = ((body[:, 2] > .15) & (body[:, 2] < 1.4)
                     & (np.sum(body[:, :2] ** 2, axis=1) > self.c["robot_radius"] ** 2))
+            mask &= outside_self(body,self.c.get('raw_self_filter_boxes',[]))
+            if self.atomic_command:
+                selected=np.flatnonzero(mask)
+                mask[selected]=surface_support(body[selected],self.c.get('raw_collision_min_points',1))
             tag = raw_fields.get("tag")
             offset = raw_fields.get('offset_time')
             self.raw_point_times = None

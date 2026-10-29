@@ -228,6 +228,8 @@ def main():
             raw_zero_intensity_min_range_m=.15,
             raw_collision_follow_path=True,
             raw_collision_min_points=3,
+            # Right lower chassis structure confirmed on the SRM vehicle, 2026-10-29.
+            raw_self_filter_boxes=config.get('raw_self_filter_boxes',[[[.14,-.36,.20],[.19,-.24,.28]]]),
             continuous_segments=True,
             pole_clearance_from_map=True,
             bounds=[metadata['origin'][0],metadata['origin'][0]+grid.shape[1]*metadata['resolution'],

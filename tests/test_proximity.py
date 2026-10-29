@@ -14,10 +14,25 @@ from array import array
 from intramural_mission.adapter import Adapter
 from intramural_base.transport import CommandPolicy
 from intramural_mission.proximity import obstacle_near, obstacle_on_path, lidar_to_body
+from intramural_mission.proximity import surface_support, outside_self
 from intramural_mission.route import curve_speed_limit, arc, line
 
 
 class ProximityTests(unittest.TestCase):
+    def test_self_filter_is_local_to_the_confirmed_three_dimensional_part(self):
+        points=np.array([[.16,-.30,.24],[.16,-.38,.24],[.16,-.30,.31],[.21,-.30,.24]])
+        box=[[[.14,-.36,.20],[.19,-.24,.28]]]
+        np.testing.assert_array_equal(outside_self(points,box),[False,True,True,True])
+        with self.assertRaises(ValueError):outside_self(points,[[[0,0,0],[float('inf'),1,1]]])
+
+    def test_isolated_scan_returns_are_removed_without_delaying_a_near_surface(self):
+        points=np.array([[.30,0.,.3],[.31,.01,.3],[.30,.02,.3],
+                         [.4,.4,.3],[.4,-.4,.3],[.4,0.,1.]])
+        kept=surface_support(points,3)
+        np.testing.assert_array_equal(kept,[True,True,True,False,False,False])
+        self.assertTrue(obstacle_near(points[kept,:2],(1.,0.),radial=.31,forward=.5,lateral=.31,min_points=3))
+        self.assertTrue(surface_support(points,1).all())
+
     def test_sweep_pruning_matches_independent_point_segment_distances(self):
         rng=np.random.default_rng(20261026)
         for _ in range(100):
