@@ -141,6 +141,15 @@ srm-nav drive
 srm-nav drive cache/my-navigation
 ```
 
+启动时可选择障碍处理方式，无需重新建图或重新规划整圈路线：
+
+```bash
+srm-nav drive --allow-bypass  # 允许主动绕障
+srm-nav drive --no-bypass     # 遇障停车，移除后恢复
+```
+
+也可指定配置目录，如 `srm-nav drive cache/my-navigation --allow-bypass`。省略选项沿用所选配置原有设置；两种选项均保留停车保护。切换前先结束任务、停稳并退出当前导航，再重新 `drive`。命令为该次启动创建独立配置，保留停车点、速度档位与路线版本校验；原配置不改。代码更新导致路线版本不一致时仍需从原图重新生成场地配置。
+
 串口不能唯一识别时，可用 `INTRAMURAL_SERIAL_DEVICE` 指定，或作为 `drive` 的第二个参数传入。个人车辆配置不使用默认目录时，在仓库根目录设置 `export INTRAMURAL_VEHICLE_CONFIG="$PWD/cache/vehicle-01"` 并在传感器与导航终端保持一致。`INTRAMURAL_NAVIGATION_CONFIG` 可固定导航配置，优先于自动选择；显式路径参数优先于环境变量。任务、控制器和个人车辆限速须一致；入口拒绝超出个人车辆限速或 2.0 软件上限的任务配置。
 
 该终端持续输出日志是正常运行。不要在这里重复启动第二套导航，第三终端用于控制任务。

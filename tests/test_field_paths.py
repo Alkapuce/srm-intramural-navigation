@@ -1,5 +1,6 @@
 """Exercise default field selection through the actual shell CLI without hardware."""
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,7 +23,8 @@ class FieldPathsTests(unittest.TestCase):
         self.root = Path(temporary.name)
         (self.root/'scripts/internal').mkdir(parents=True)
         for name in ('srm-nav', 'vehicle-navigation.sh', 'internal/env.sh',
-                     'internal/field_paths.py', 'internal/site-mapping.py', 'internal/field_preview.py'):
+                     'internal/field_paths.py', 'internal/site-mapping.py', 'internal/field_preview.py',
+                     'internal/drive-policy.py'):
             shutil.copy2(ROOT/'scripts'/name, self.root/'scripts'/name)
         run = self.root/'scripts/run.sh'
         run.write_text('#!/usr/bin/env python3\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n')
@@ -72,6 +74,38 @@ class FieldPathsTests(unittest.TestCase):
         result=self.cli('drive','cache/navigation-old','/dev/null')
         self.assertIn('navigation_config:=/work/cache/navigation-old',json.loads(result.stdout.splitlines()[-1]))
         self.assertEqual(module.latest('navigation',self.root),self.root/'cache/navigation-new')
+
+    def test_drive_selects_policy_without_changing_original_or_route_version(self):
+        original=self.output('artifacts/mapping/run/navigation',200)
+        (original/'arena.json').write_text(json.dumps({'navigation_engine':'trajectory',
+            'allow_bypass':False,'parking':[0.4,0.1],'max_speed':0.65}))
+        for name in ('route-plan.json','route-analysis.json'):
+            (original/name).write_text('{}')
+        files={name:hashlib.sha256((original/name).read_bytes()).hexdigest()
+               for name in ('arena.json','route-plan.json','route-analysis.json')}
+        marker=original/'manifest.json'
+        marker.write_text(json.dumps({'field_geometry_verified':True,'files_sha256':files,
+                                      'route_sources_sha256':{'mission.py':'old-source-hash'}}))
+        before={p.name:p.read_bytes() for p in original.iterdir()}
+        for flag, expected in (('--allow-bypass',True),('--no-bypass',False)):
+            result=self.cli('drive',flag)
+            args=json.loads(result.stdout.splitlines()[-1])
+            config=next(a.split(':=',1)[1] for a in args if a.startswith('navigation_config:='))
+            derived=self.root/config.removeprefix('/work/')
+            arena=json.loads((derived/'arena.json').read_text())
+            manifest=json.loads((derived/'manifest.json').read_text())
+            self.assertEqual(arena['allow_bypass'],expected)
+            self.assertEqual(arena['parking'],[0.4,0.1])
+            self.assertEqual(arena['max_speed'],0.65)
+            self.assertEqual(manifest['route_sources_sha256'],{'mission.py':'old-source-hash'})
+            self.assertEqual(manifest['files_sha256']['arena.json'],hashlib.sha256((derived/'arena.json').read_bytes()).hexdigest())
+            self.assertFalse((derived/'nav.yaml').is_symlink())
+            self.assertEqual({p.name:p.read_bytes() for p in original.iterdir()},before)
+        (original/'route-plan.json').write_text('{"changed":true}')
+        failure=self.cli('drive','--allow-bypass',check=False)
+        self.assertNotEqual(failure.returncode,0)
+        self.assertNotIn('navigation_config:=',failure.stdout)
+        self.assertNotEqual(self.cli('drive','--allow-bypass','--no-bypass',check=False).returncode,0)
 
     def test_map_commands_default_to_latest_exported_map(self):
         self.output('cache/vehicle-navigation-old',100,accepted=False)

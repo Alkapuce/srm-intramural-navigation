@@ -16,7 +16,8 @@ SRM 导航调试（在执行本命令的机器上运行，不自动 SSH）
   srm-nav field [MAP_DIR] [--parking-here|--parking X Y] [--profile safe|candidate] [--allow-bypass|--no-bypass] [--response-model FILE] [--output cache/DIR]
                     从本次地图识别两桩，联合优化完整路线和速度；--parking-here 自动记录当前发车位
   srm-nav localize [MAP_DIR]          静止采样匹配旧图，更新下次导航的定位初值，不发车
-  srm-nav drive [MAP_DIR] [DEVICE]    启用最新已确认场地的导航与串口，任务仍需手动 start
+  srm-nav drive [MAP_DIR] [DEVICE] [--allow-bypass|--no-bypass]
+                    启用导航与串口，可选择主动绕障或遇障停车；任务仍需手动 start
   srm-nav check-standby [MAP_DIR]     检查已启动的地图待机，不打开串口
   srm-nav start                      发车并持续显示进度，结束打印摘要；Ctrl-C 取消
   srm-nav prepare                    从当前位置预先规划接入和整圈路线，不发车；随后 start 复用
@@ -118,9 +119,26 @@ case "$command" in
     "$root/scripts/run.sh" python3 /work/scripts/internal/prepare-return.py --trace "$trace" --navigation-config "$config" --output "/work/cache/${output##*/}"
     exec "$root/scripts/srm-nav" drive "$output" ;;
   drive)
-    [[ $# -le 2 ]] || { usage >&2; exit 2; }
-    config="$(select_path navigation "${1:-${INTRAMURAL_NAVIGATION_CONFIG:-}}")"
-    device="$(serial_device "${2:-}")"
+    drive_args=(); policy=
+    for arg in "$@"; do
+      case "$arg" in
+        --allow-bypass|--no-bypass)
+          [[ -z "$policy" ]] || { echo '绕障选项只能指定一次' >&2; exit 2; }
+          policy="$arg" ;;
+        --*) usage >&2; exit 2 ;;
+        *) drive_args+=("$arg") ;;
+      esac
+    done
+    [[ ${#drive_args[@]} -le 2 ]] || { usage >&2; exit 2; }
+    config="$(select_path navigation "${drive_args[0]:-${INTRAMURAL_NAVIGATION_CONFIG:-}}")"
+    device="$(serial_device "${drive_args[1]:-}")"
+    if [[ -n "$policy" ]]; then
+      host_config="$config"
+      [[ "$config" != /work/* ]] || host_config="$root/${config#/work/}"
+      derived="$(python3 "$root/scripts/internal/drive-policy.py" "$host_config" "$policy")"
+      echo "使用绕障配置: $derived" >&2
+      config="$(runtime_path "$derived")"
+    fi
     export INTRAMURAL_NAVIGATION_CONFIG="$config"
     exec "$root/scripts/vehicle-navigation.sh" "enable_motion:=true" "serial_device:=$device" ;;
   check-standby)

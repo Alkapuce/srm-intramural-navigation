@@ -37,7 +37,7 @@ class TrajectoryClosedLoopTests(unittest.TestCase):
         c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['safe'])
         c.update(lower_pole=[1.,0.],upper_pole=[1.,1.4],loop_radius=.7,parking=[-.5,-.5],
                  bounds=[-2.,4.,-2.,4.],lidar_pose=[0.]*6,optimize_route=False,max_speed=.65)
-        c['allow_bypass'] = persistent
+        c['allow_bypass'] = not persistent
         with tempfile.TemporaryDirectory(dir=ROOT/'cache') as folder:
             source=Path(folder)/'map';source.mkdir();prepared=Path(folder)/'navigation'
             from PIL import Image
@@ -48,7 +48,7 @@ class TrajectoryClosedLoopTests(unittest.TestCase):
             (source/'prior.pcd').write_bytes(b'FIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\nDATA binary\n'
                                             +np.asarray(points,dtype='<f4').tobytes())
             (source/'arena.json').write_text(json.dumps(c))
-            (source/'occupancy.json').write_text(json.dumps(dict(floor_plane=dict(z_equals_ax_by_c=[0.,0.,0.]))))
+            (source/'occupancy.json').write_text(json.dumps(dict(floor_plane=dict(z_equals_ax_by_c=[0.,0.,0.],sensor_height_range_m=[0.,0.]))))
             Image.fromarray(np.full((120,120),254,dtype=np.uint8)).save(source/'map.pgm')
             (source/'map.yaml').write_text(yaml.safe_dump(dict(image='map.pgm',resolution=.05,origin=[-2.,-2.,0.])))
             (source/'manifest.json').write_text(json.dumps(dict(motion_permitted=False,start_permitted=False)))
@@ -60,10 +60,19 @@ class TrajectoryClosedLoopTests(unittest.TestCase):
                 '--map-config',str(source),'--output',str(prepared),'--profile','safe',
                 '--parking',*map(str,c['parking'])],text=True,capture_output=True,timeout=25)
             self.assertEqual(result.returncode,0,result.stderr)
+            result=subprocess.run([sys.executable,str(ROOT/'scripts/internal/drive-policy.py'),str(prepared),
+                '--allow-bypass' if persistent else '--no-bypass'],text=True,capture_output=True,timeout=5)
+            self.assertEqual(result.returncode,0,result.stderr)
+            derived=Path(result.stdout.strip())
+            self.addCleanup(shutil.rmtree,derived)
+            self.assertEqual(json.loads((prepared/'arena.json').read_text())['allow_bypass'],not persistent)
+            prepared=derived
             file=prepared/'arena.json';c=json.loads(file.read_text())
             rclpy.init(domain_id=87,args=['--ros-args','-p',f'arena_config:={file}',
                                         '-r','cmd_vel_nav2_result:=cmd_vel_controller'])
             mission=TrajectoryMission();guard=Adapter();peer=rclpy.create_node('closed_loop_sensors')
+            self.assertEqual(mission.c['allow_bypass'],persistent)
+            self.assertEqual(guard.c['allow_bypass'],persistent)
             executor=SingleThreadedExecutor()
             for node in (mission,guard,peer):executor.add_node(node)
             ground=peer.create_publisher(PointCloud2,'livox/lidar',10)
@@ -99,7 +108,7 @@ class TrajectoryClosedLoopTests(unittest.TestCase):
                         if norm>.05 and not blocked and (not persistent or 'person_point' not in locals()):
                             person_point=plant.pose+sent/norm*(1.1 if persistent else .45)
                         if 'person_point' in locals():
-                            xy=person_point-plant.pose;xyz=[[xy[0]+dx,xy[1],.3] for dx in (-.01,0.,.01)]
+                            xy=person_point-plant.pose;xyz=[[xy[0]+dx,xy[1],.2] for dx in (-.01,0.,.01)]
                     cloud=PointCloud2(height=1,width=len(xyz),point_step=12,row_step=12*len(xyz))
                     cloud.header=msg.header;cloud.fields=[PointField(name=k,offset=4*i,datatype=7,count=1) for i,k in enumerate('xyz')]
                     cloud.data=array('B',np.asarray(xyz,dtype='<f4').tobytes());ground.publish(cloud)
