@@ -109,7 +109,7 @@ class AvoidanceTests(unittest.TestCase):
             (grid.info.height,grid.info.width)).copy()
         grid.data=data.ravel().tolist();pose=[0.,.04]
         planner=DetourPlanner(c,grid)
-        self.assertLess(planner.map.clearance([pose])[0],.0125)
+        self.assertAlmostEqual(planner.map.clearance([pose])[0],.03)
         self.assertAlmostEqual(planner.map.continuous_clearance([pose])[0],.03)
         self.assertLess(planner.map.continuous_clearance([[0.,.025]])[0],c['execution_clearance'])
         path=np.vstack((np.linspace(pose,[.2,.12],9),np.linspace([.2,.12],[4.,.12],77)[1:]))

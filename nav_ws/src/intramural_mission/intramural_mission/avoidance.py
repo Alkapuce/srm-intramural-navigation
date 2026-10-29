@@ -445,6 +445,7 @@ class DetourPlanner:
         row,col=np.mgrid[:grid.info.height,:grid.info.width]
         xy=np.column_stack(((col.ravel()+.5)*self.map.res,(row.ravel()+.5)*self.map.res))
         self.grid_points=xy@np.array([[self.map.co,self.map.si],[-self.map.si,self.map.co]])+self.map.origin
+        self.grid_clearance=self.map.clearance(self.grid_points,include_poles=not config.get('pole_clearance_from_map',False))
 
     def observations(self, points, stamp, weights=None,sensor_position=None,point_times=None):
         points = np.asarray(points, dtype=float).reshape(-1, 2)
@@ -710,9 +711,10 @@ class DetourPlanner:
             if join <= start+2:
                 continue
             corridor_tree = cKDTree(reference[start:join+1])
-            def clearance(p):
+            def clearance(p, map_gap=None):
                 p = np.asarray(p)
-                gap = map_clearance(p, include_poles=not self.c.get('pole_clearance_from_map', False))
+                gap = (map_clearance(p, include_poles=not self.c.get('pole_clearance_from_map', False))
+                       if map_gap is None else map_gap.copy())
                 for track in tracks:
                     # Search the observed contour; arrival-time uncertainty is checked on timed candidates.
                     uncertainty=prediction_uncertainty(track,0.)
@@ -724,7 +726,7 @@ class DetourPlanner:
             local=np.all((self.grid_points>=region.min(axis=0)-margin)&
                          (self.grid_points<=region.max(axis=0)+margin),axis=1)
             free_mask=np.zeros(len(self.grid_points),bool)
-            free_mask[local]=clearance(self.grid_points[local])>self.c['path_spacing']/2
+            free_mask[local]=clearance(self.grid_points[local],self.grid_clearance[local])>self.c['path_spacing']/2
             free_mask=free_mask.reshape(self.map.free.shape)
             delta=pose-self.map.origin
             col=math.floor((self.map.co*delta[0]+self.map.si*delta[1])/self.map.res)
