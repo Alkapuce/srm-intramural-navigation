@@ -777,6 +777,30 @@ class AvoidanceTests(unittest.TestCase):
         self.assertIsNotNone(result['plan'], result)
         self.assertGreater(max(abs(y) for x,y in result['plan'].points), .4)
 
+    def test_stopped_replan_can_finish_after_a_slow_observation_cycle(self):
+        import time
+        from unittest.mock import patch
+        from intramural_mission.avoidance import DetourPlanner, planning_budget
+        c,grid,plan,points=self.case()
+        planner=DetourPlanner(c,grid)
+        for i in range(6):planner.observations(points,i*.1)
+        clock=time.monotonic;calls=0
+        def delayed_clock():
+            nonlocal calls
+            calls+=1
+            return clock() + (.09 if calls>1 else 0.)
+        with patch('time.monotonic',delayed_clock):
+            result=planner.solve(dict(plan=plan,progress=0.,pose=[0.,0.],velocity=[0.,0.],
+                command=[0.,0.],acceleration=[0.,0.],points=points,stamp=.6,motion_active=False))
+        self.assertIsNotNone(result['plan'],result)
+        self.assertGreater(result['seconds'],.08)
+        self.assertLess(result['seconds'],result['planning_budget'])
+        self.assertNotIn('continuation_until',result)
+        self.assertEqual(result['plan'].points[-1],plan.points[-1])
+        for active,velocity,command in ((True,[0.,0.],[0.,0.]),(False,[.06,0.],[0.,0.]),
+                                         (False,[0.,0.],[.06,0.]),(None,[0.,0.],[0.,0.])):
+            self.assertEqual(planning_budget(active,velocity,command),.08)
+
     def test_narrow_free_corridor_does_not_require_bounding_circle_waypoints(self):
         from intramural_mission.avoidance import DetourPlanner,preview
         c,grid,plan,_=self.case()

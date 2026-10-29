@@ -21,7 +21,7 @@ from tf2_ros import Buffer, TransformListener, TransformException
 from intramural_base.runtime import run
 from intramural_mission.planning import compile_route, GridMap
 from intramural_mission.trajectory import OmniTracker, RoutePlan, Progress
-from intramural_mission.avoidance import PlanningWorker, collision, preview
+from intramural_mission.avoidance import PlanningWorker, collision, preview, planning_budget
 from intramural_mission.proximity import obstacle_on_path
 from intramural_mission.route import line
 from intramural_mission.recording import StatusLog
@@ -160,7 +160,9 @@ class TrajectoryMission(Node):
         if result and result.get('run_id')==self.run_id and result['route_id'] == self.plan.route_id and now-result['stamp'] < .5:
             plan_json=result.pop('plan_json',None)
             escape_predictions=result.pop('escape_predictions',None)
-            if result['seconds']>.08:
+            budget = min(result.get('planning_budget', .08), planning_budget(
+                self.state == 'RUNNING', self.tracker.velocity, self.tracker.command))
+            if result['seconds'] > budget:
                 result.update(plan=None,reason='PLANNING_TIMEOUT')
             candidate = result.pop('plan')
             accepted=False

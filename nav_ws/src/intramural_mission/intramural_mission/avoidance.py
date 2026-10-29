@@ -425,6 +425,11 @@ def splice(plan, progress, bridge, join_s, limits, clearance, initial_speed):
     return replace(updated, speed=tuple(speeds)), start_s
 
 
+def planning_budget(motion_active, velocity, command):
+    # A stopped robot can wait for a checked detour; moving switches keep the short deadline.
+    return .30 if motion_active is False and max(np.linalg.norm(velocity), np.linalg.norm(command)) < .06 else .08
+
+
 class DetourPlanner:
     def __init__(self, config, grid):
         from intramural_mission.planning import GridMap
@@ -484,6 +489,8 @@ class DetourPlanner:
 
     def solve(self, request):
         began = time.monotonic()
+        budget = planning_budget(request.get('motion_active'), request['velocity'],
+                                 request.get('command', request['velocity']))
         for observation in request.get('observation_history',()):self.observe_request(observation)
         tracks = self.observe_request(request)
         plan, progress = request['plan'], request['progress']
@@ -508,7 +515,7 @@ class DetourPlanner:
         tracks += [dict(t,velocity=[0.,0.],acceleration=[0.,0.],moving=False,stationary_hypothesis=True)
                    for t in tracks if t['moving'] and t.get('motion_confirmed',True) and not t['motion_confident']]
         report = dict(stamp=request['stamp'], route_id=plan.route_id, run_id=request.get('run_id'),tracks=tracks,
-                      plan=None, blocked=False, imminent=False,reason='', side=0, rejected={})
+                      plan=None, blocked=False, imminent=False,reason='', side=0, rejected={}, planning_budget=budget)
         models=self.c.get('response_models',[(self.c.get('response_delay',.2),self.c.get('response_tau',.15))])
         endpoints=[max(models,key=sum)]
         if any(t['moving'] for t in tracks):
@@ -623,7 +630,7 @@ class DetourPlanner:
                     timed_conflict=collision(fast,arrival,tracks,radius)
                     restore_conflict |= timed_conflict
                     if timed_conflict or not executable(proposal,progress):
-                        if time.monotonic()-began>.06:break
+                        if time.monotonic()-began>budget-.02:break
                         continue
                     key=request.get('run_id'),plan.route_id,nominal.route_id,scale
                     count=(previous[1]+int(request['stamp']>previous[2]) if previous and previous[0]==key else 1)
@@ -645,7 +652,7 @@ class DetourPlanner:
                             rejoin_progress=plan.s[last],scale=scale,expected_seconds=remaining_seconds(proposal,first),
                             reason='RETIME_READY')
                         break
-                    if time.monotonic()-began>.06:break
+                    if time.monotonic()-began>budget-.02:break
             improve_speed=restore_conflict and not report['blocked']
             if report['plan'] is not None or not tracks or (not report['blocked'] and not improve_speed):
                 return dict(report, seconds=time.monotonic()-began)
@@ -656,7 +663,8 @@ class DetourPlanner:
         coast = np.stack((current_pose, current_pose+velocity*stop_horizon))
         if collision(coast, [0., stop_horizon], tracks, radius):
             report.update(blocked=True,imminent=True,reason='STOPPING_PREFIX_CONFLICT')
-        if not escape_until and not report['imminent'] and executable(plan,progress,horizon=.3):
+        if (request.get('motion_active', True) and not escape_until and not report['imminent']
+                and executable(plan,progress,horizon=.3)):
             # Reserve a checked continuation before search can consume the solve budget.
             report['continuation_until']=request['stamp']+age+.3
             report['execution_failure']=False
@@ -696,7 +704,7 @@ class DetourPlanner:
         for offset in offsets:
             elapsed=time.monotonic()-began
             # Preserve a verified winner before building another grid that cannot be searched.
-            if elapsed > .06 or (winners and elapsed+self.prediction_seconds+.012 > .070):
+            if (winners and budget > .08) or elapsed > budget-.02 or (winners and elapsed+self.prediction_seconds+.012 > budget-.01):
                 break
             join = min(join_limit,len(lengths)-2, int(np.searchsorted(lengths, lengths[blocked_index]+offset)))
             if join <= start+2:
@@ -731,14 +739,14 @@ class DetourPlanner:
             # Search the actual free corridor before forcing clearance waypoints around a bounding circle.
             sides=[0]+sorted(((-1,1) if attempt%2==0 else (1,-1)),key=side_clearance,reverse=True)
             for side in sides:
-                if time.monotonic()-began>.06 or (winners and time.monotonic()-began+self.prediction_seconds+.012 > .070):
+                if (winners and budget > .08) or time.monotonic()-began>budget-.02 or (winners and time.monotonic()-began+self.prediction_seconds+.012 > budget-.01):
                     break
                 waypoint = np.asarray(threat['center'])+normal*side*distance
                 legs = []
                 waypoints = ([pose, reference[join]] if side==0 else
                              [pose, waypoint-tangent*.35, waypoint+tangent*.35, reference[join]])
                 for a, b in zip(waypoints, waypoints[1:]):
-                    leg = entry_path(self.c, a, b, self.grid, free_mask=free_mask,deadline=began+.06,
+                    leg = entry_path(self.c, a, b, self.grid, free_mask=free_mask,deadline=began+budget-.02,
                                      continuous_start=precise_start and not legs)
                     if leg is None:
                         reject('search')
@@ -780,7 +788,7 @@ class DetourPlanner:
                         reject('smooth_clearance')
                         continue
                     for scale in (1., .8, .6):
-                        if time.monotonic()-began>.065:
+                        if time.monotonic()-began>budget-.015:
                             break
                         limits = dict(self.c)
                         try:
@@ -816,18 +824,18 @@ class DetourPlanner:
                         rejoin = proposal.s[min(len(proposal.s)-1, first+len(bridge)-1)]
                         winners.append((duration, -float(min(clearance(bridge))), proposal, start_s, side, lengths[join], scale, rejoin))
                         break
-        if not escape_until and (report.get('execution_failure') or
+        if not (winners and budget > .08) and not escape_until and (report.get('execution_failure') or
                 any(t['velocity_observed'] and t['moving'] for t in tracks)):
             # Compare slowing on the current line with detours using the same finish-time score.
             join=min(len(lengths)-1,int(np.searchsorted(lengths,progress+max(1.,speed*2.))))
             for scale in (.8,.6,.4,.2,.1):
-                if time.monotonic()-began+self.prediction_seconds+.012>.08:break
+                if time.monotonic()-began+self.prediction_seconds+.012>budget:break
                 proposal=retimed(scale,join)
                 points,arrival=preview(proposal,progress,speed)
                 if not collision(points,arrival,tracks,radius) and executable(proposal,progress):
                     winners.append((remaining_seconds(proposal,start),0.,proposal,progress,0,lengths[join],scale,lengths[join]))
                     break
-                if time.monotonic()-began>.05:break
+                if time.monotonic()-began>budget-.03:break
         if winners:
             best = min(winners, key=lambda x: x[:2])
             duration, gap, proposal, start_s, side, join_s, scale, rejoin = best

@@ -185,6 +185,42 @@ class TrajectorySafetyTests(unittest.TestCase):
                 if node.worker:node.worker.close();node.worker=None
                 node.destroy_node();rclpy.shutdown()
 
+    def test_stopped_detour_budget_still_requires_stopped_state_and_fresh_clear_scan(self):
+        from collections import deque
+        from tests.test_avoidance import AvoidanceTests
+        from intramural_mission.avoidance import DetourPlanner
+        c,grid,plan,points=AvoidanceTests().case()
+        with tempfile.TemporaryDirectory(dir=ROOT/'cache') as folder:
+            config=Path(folder)/'arena.json';config.write_text(json.dumps(c))
+            rclpy.init(domain_id=89,args=['--ros-args','-p',f'arena_config:={config}'])
+            node=TrajectoryMission();replies=deque()
+            node.worker=N(poll=lambda:replies.popleft() if replies else None)
+            try:
+                planner=DetourPlanner(c,grid)
+                now=node.get_clock().now().nanoseconds/1e9
+                result=planner.solve(dict(run_id='stopped',plan=plan,progress=0.,pose=[0.,0.],
+                    velocity=[0.,0.],command=[0.,0.],acceleration=[0.,0.],points=points,
+                    stamp=now,motion_active=False))
+                self.assertIsNotNone(result['plan'],result)
+                # The process boundary reports a valid solve longer than the moving deadline.
+                result['seconds']=max(.12,result['seconds'])
+                for state,velocity,age,raw,accepted in (
+                    ('BLOCKED',[0.,0.],0.,[],True),
+                    ('RUNNING',[0.,0.],0.,[],False),
+                    ('BLOCKED',[.1,0.],0.,[],False),
+                    ('BLOCKED',[0.,0.],.6,[],False),
+                    ('BLOCKED',[0.,0.],0.,[[.1,0.]],False)):
+                    with self.subTest(state=state,velocity=velocity,age=age,raw=raw):
+                        node.plan=plan;node.tracker=OmniTracker(plan,c)
+                        node.tracker.velocity=np.array(velocity);node.pose=[0.,0.]
+                        node.run_id='stopped';node.state=state;node.avoidance={}
+                        now=node.get_clock().now().nanoseconds/1e9
+                        node.observation=dict(stamp=now,points=raw);node.submitted_stamp=now
+                        replies.append(dict(result,stamp=now-age));node.update_avoidance()
+                        self.assertEqual(node.plan.route_id!=plan.route_id,accepted)
+            finally:
+                node.worker=None;node.destroy_node();rclpy.shutdown()
+
     def test_missing_tf_lookup_keeps_only_the_still_fresh_snapshot(self):
         from tf2_ros import LookupException
         c=json.loads((ROOT/'config/arena.json').read_text());c['allow_bypass']=False
