@@ -12,6 +12,18 @@
 
 新机器的安装与构建见 [NUC 部署](deployment/nuc.md)，车辆参数准备见[实车接口](vehicle/reference.md)。这些命令在当前用户的 `~/.local/bin/`，只操作当前机器；同一物理雷达和串口仍需独占使用。
 
+### Tab 补全
+
+执行一次 `scripts/install-cli.sh`，即可为现有全局入口 `srm-nav`、`srm-map`、`srm-pulse` 和开发机上的 `srm-rviz` 安装 Bash 补全。NUC 沿用已有三个入口。新终端自动加载；已有终端可在项目根目录执行：
+
+```bash
+source scripts/internal/srm-completion.bash
+```
+
+输入 `srm-` 后按 Tab 可补全命令名；`srm-nav st<Tab>` 补全子命令，连续按两次 Tab 列出候选。参数同样支持，例如 `srm-map --pro<Tab>`、`srm-nav field --profile c<Tab>`；地图、bag、配置文件和串口设备使用普通路径补全，支持空格和 `~/`。`srm-nav map/pulse` 共用对应入口的参数补全，`srm-nav ros` 复用当前 ROS 环境提供的 `ros2` 补全。
+
+补全文件仅安装到当前用户的 `${XDG_DATA_HOME:-~/.local/share}/bash-completion/completions/`，依赖 Bash 的 `bash-completion`，不修改系统配置。Tab 不会执行建图、导航或点动。
+
 ## 现场建图
 
 ### 1. 上电并检查设备

@@ -80,6 +80,8 @@ export PATH="$HOME/.local/bin:$PATH"
 srm-nav help
 ```
 
+安装同时注册现有入口的 Bash Tab 补全，新终端自动加载。当前终端执行 `source scripts/internal/srm-completion.bash` 即可使用；用法见[Tab 补全](../field-cli.md#tab-补全)。
+
 真实车辆的配置、现场建图与三终端导航流程见[现场命令手册](../field-cli.md)。命令不自动 SSH；在开发机执行不会转到 NUC。
 
 ## 桌面仿真

@@ -4,7 +4,7 @@
 
 | 用途 | 入口 |
 |---|---|
-| 个人用户全局命令安装与日常实车调试 | `install-cli.sh`；`srm-nav`、`srm-map`、`srm-pulse`，见[CLI 手册](../docs/field-cli.md) |
+| 个人用户全局命令与 Bash Tab 补全安装 | `install-cli.sh`；`srm-nav`、`srm-map`、`srm-pulse`、`srm-rviz`，见[CLI 手册](../docs/field-cli.md) |
 | 统一仿真、导航、串口模拟、探索建图和诊断 | `candidate.sh <模式>` |
 | 镜像、工作区构建和环境检查 | `build-image.sh`、`build-workspace.sh`、`check-environment.sh` |
 | 进入隔离运行环境 | `run.sh [命令]` |
