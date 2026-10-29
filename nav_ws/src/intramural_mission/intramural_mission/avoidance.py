@@ -85,6 +85,9 @@ class ObstacleTracker:
                 t = self.tracks[i]
                 if costs[i, j] > .45 + 2*math.sqrt(max(np.diag(t['p'])[:2])):
                     continue
+                if clusters[j][3]<=t['seen']:
+                    used.add(j)
+                    continue
                 extent=np.maximum(t['extent'],clusters[j][2])
                 lag=stamp-clusters[j][3]
                 measurement=obstacle_transition(-lag)[:2]
@@ -103,6 +106,12 @@ class ObstacleTracker:
                 t['x'][:2]+=shape_shift
                 t['motion_anchor']=t.get('motion_anchor',t['measurement_center']).copy()+shape_shift
                 t['measurement_center']+=shape_shift
+                elapsed=clusters[j][3]-t['seen']
+                measured_velocity=(center-t['measurement_center'])/max(.01,elapsed)
+                previous=t.get('measured_velocity',np.zeros(2))
+                consistent=(0.<elapsed<=.25 and np.dot(previous,measured_velocity)>0.
+                    and np.linalg.norm(measured_velocity-previous)<=max(.5,.5*np.linalg.norm(previous)))
+                t['measured_velocity']=measured_velocity
                 innovation = measurement@t['p']@measurement.T+np.eye(2)*.02**2
                 residual=center-measurement@t['x']
                 t['association_valid']=float(residual@np.linalg.solve(innovation,residual))<=9.
@@ -121,6 +130,8 @@ class ObstacleTracker:
                     observations=t['observations']+1)
                 # A small derivative inside its own uncertainty is scan jitter, not motion evidence.
                 sigma=np.sqrt(np.maximum(0.,np.diag(t['p'])))
+                if consistent and np.linalg.norm(t['x'][2:4])>max(.08,2*max(sigma[2:4])):
+                    t['motion_confirmed_until']=stamp+.3
                 displacement=center-t['motion_anchor']
                 onset=(np.linalg.norm(displacement)>.02 and np.linalg.norm(t['x'][2:4])>.05
                        and np.dot(t['x'][2:4],displacement)>0.)
@@ -128,6 +139,8 @@ class ObstacleTracker:
                 if sensor_position is not None:t['visible_side']=np.sign(clusters[j][0]-sensor_position)
                 if (np.linalg.norm(t['x'][2:4])>max(.08,max(sigma[2:4])) or
                         np.linalg.norm(t['x'][4:])>max(.4,max(sigma[4:])) or onset):t['moving_until']=stamp+.3
+                t['observed_x']=measurement@t['x']
+                t['observed_p']=measurement@t['p']@measurement.T
                 used.add(j)
         for j, (center, radius, extent, source_time) in enumerate(clusters):
             if j not in used:
@@ -142,15 +155,27 @@ class ObstacleTracker:
         return self.snapshot(stamp)
 
     def snapshot(self, stamp):
-        return [dict(id=t['id'], center=t['x'][:2].tolist(), velocity=t['x'][2:4].tolist(),acceleration=t['x'][4:].tolist(),
+        tracks=[dict(id=t['id'], center=t['x'][:2].tolist(), velocity=t['x'][2:4].tolist(),acceleration=t['x'][4:].tolist(),
                      covariance=t['p'].tolist(), radius=t['radius'], extent=t['extent'].tolist(), age=max(0., stamp-t['seen']),
                      velocity_observed=t['observations']>=2,
                      acceleration_observed=bool(t.get('association_valid',False) and
                          np.linalg.norm(t['x'][4:])>max(.4,.5*math.sqrt(max(np.diag(t['p'])[4:])))),
-                     motion_confident=bool(t['observations']>=2 and t.get('association_valid',False) and
+                     motion_confirmed=stamp<t.get('motion_confirmed_until',-math.inf),
+                     motion_confident=bool(stamp<t.get('motion_confirmed_until',-math.inf) and t.get('association_valid',False) and
                          np.linalg.norm(t['x'][2:4])>max(.08,2*math.sqrt(max(np.diag(t['p'])[2:4])))),
                      moving=bool(t['observations']<3 or stamp<t['moving_until']))
                 for t in self.tracks]
+        for track,t in zip(tracks,self.tracks):
+            if track['moving'] and not track['motion_confirmed']:
+                # Unmatched scan fragments must not coast into the route for two seconds.
+                track['center']=t.get('observed_x',t['measurement_center']).tolist()
+                covariance=np.asarray(track['covariance'])
+                covariance[:2,:2]=t.get('observed_p',np.eye(2)*.02**2)
+                covariance[:2,2:]=0.;covariance[2:,:2]=0.
+                track['covariance']=covariance.tolist()
+                track['center_age']=track['age']
+                track['prediction_age']=track['age']
+        return tracks
 
 
 def obstacle_gap(points, track):
@@ -189,7 +214,7 @@ def prediction_uncertainty(track,horizon):
     horizon=np.asarray(horizon)+track.get('prediction_age',0.)
     if not track.get('moving',True):
         return np.maximum(0.,2*math.sqrt(max(np.diag(covariance)[:2]))+.02*horizon-track.get('shared_margin',0.))
-    h=horizon if track.get('velocity_observed',True) else np.minimum(horizon,.15)
+    h=horizon if track.get('motion_confirmed',True) and track.get('velocity_observed',True) else np.minimum(horizon,.2)
     variance=np.maximum(covariance[0,0]+2*h*covariance[0,2]+h*h*covariance[2,2],
                         covariance[1,1]+2*h*covariance[1,3]+h*h*covariance[3,3])
     if len(covariance)==6 and track.get('acceleration_observed',True):
@@ -199,11 +224,12 @@ def prediction_uncertainty(track,horizon):
             covariance[1,1]+2*h*covariance[1,3]+h*h*covariance[3,3]
             +a*a*covariance[5,5]+2*a*covariance[1,5]+2*h*a*covariance[3,5])
     # The collision radius already contains the shared static error budget.
-    return np.maximum(0.,2*np.sqrt(np.maximum(0.,variance))+.025*horizon*horizon-track.get('shared_margin',0.))
+    return np.maximum(0.,2*np.sqrt(np.maximum(0.,variance))+.025*h*h-track.get('shared_margin',0.))
 
 
 def obstacle_positions(track,times):
     t=np.asarray(times)+track.get('prediction_age',0.)
+    if track.get('moving',True) and not track.get('motion_confirmed',True):t=np.minimum(t,.2)
     positions=np.asarray(track['center'])+t[...,None]*np.asarray(track['velocity'])
     acceleration=np.asarray(track.get('acceleration',[0.,0.]))
     if track.get('moving',True) and track.get('acceleration_observed',True) and np.any(acceleration):
@@ -424,7 +450,7 @@ class DetourPlanner:
         switch_stamp=prediction_stamp+.1
         for t in tracks:
             t['age'] += age
-            t['prediction_age'] = age
+            t['prediction_age'] = t.get('prediction_age',0.)+age
         # Uncertain motion must remain safe even if the observed contour stays where it is.
         tracks += [dict(t,velocity=[0.,0.],acceleration=[0.,0.],moving=False,stationary_hypothesis=True)
                    for t in tracks if t['moving'] and not t['motion_confident']]

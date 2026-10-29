@@ -178,8 +178,8 @@ class TrajectoryMission(Node):
                 changed_side = bool(result['side']) and self.bypassing and result['side'] != self.channel_side
                 worthwhile = result['expected_seconds'] < .9*max(0.,self.channel_cost-(now-self.channel_at))
                 samples,times=preview(candidate,progress.s,float(np.linalg.norm(self.tracker.velocity)))
-                tracks=[dict(t,prediction_age=max(0.,now-result['stamp']),
-                    age=t['age']+max(0.,now-result['stamp']-t.get('prediction_age',0.))) for t in result['tracks']]
+                tracks=[dict(t,prediction_age=t.get('center_age',0.)+max(0.,now-result['stamp']),
+                    age=t['age']+max(0.,now-result['stamp']-t.get('prediction_age',0.)+t.get('center_age',0.))) for t in result['tracks']]
                 checked=[dict(points=samples,times=times)]
                 if result.get('escape_active'):
                     checked=[]

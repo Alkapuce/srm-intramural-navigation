@@ -17,6 +17,42 @@ def send_fragmented_result(writer, ready, release, hold):
 
 
 class AvoidanceTests(unittest.TestCase):
+    def test_two_scan_jump_and_missing_returns_do_not_invent_an_incoming_actor(self):
+        from intramural_mission.avoidance import stopped_collision
+        tracker=ObstacleTracker()
+        brakes=np.array([[[0.,0.],[0.,0.]]]);times=np.array([[0.,.1]])
+        for i in range(7):
+            source=i*.1
+            cloud=([[x,1.8-.12*i+y]for x in(-.05,0.,.05)for y in(-.05,0.,.05)]
+                   if i<2 else [])
+            tracks=tracker.update(cloud,source+.14,point_times=np.full(len(cloud),source))
+            self.assertFalse(stopped_collision(brakes,times,tracks,.31))
+            for track in tracks:
+                self.assertFalse(track['motion_confident'])
+        # A third independent, consistent observation confirms genuine approach.
+        tracker=ObstacleTracker()
+        for i in range(6):
+            cloud=[[x,1.8-.12*i+y]for x in(-.05,0.,.05)for y in(-.05,0.,.05)]
+            tracks=tracker.update(cloud,i*.1+.14,point_times=np.full(9,i*.1))
+        self.assertTrue(tracks[0]['motion_confirmed'])
+        self.assertTrue(stopped_collision(brakes,times,tracks,.31))
+
+    def test_scan_jitter_does_not_block_clear_route_but_near_obstacle_still_does(self):
+        from intramural_mission.avoidance import DetourPlanner
+        c,grid,plan,_=self.case();planner=DetourPlanner(c,grid)
+        rng=np.random.default_rng(31)
+        request=dict(plan=plan,progress=0.,pose=[0.,0.],velocity=[0.,0.],command=[0.,0.])
+        for i in range(15):
+            center=np.array([0.,1.8])+rng.normal(0.,.02,2)
+            cloud=[center+[x,y]for x in(-.1,0.,.1)for y in(-.1,0.,.1)]
+            result=planner.solve(dict(request,points=cloud,stamp=i*.1+.14,source_stamp=i*.1))
+            self.assertFalse(result.get('execution_failure',False),result)
+            self.assertFalse(result['blocked'],result)
+        close=[[.35+x,y]for x in(-.1,0.,.1)for y in(-.1,0.,.1)]
+        result=planner.solve(dict(request,points=close,stamp=2.))
+        self.assertTrue(result['blocked'])
+        self.assertEqual(result['reason'],'BRAKING_ENVELOPE_CONFLICT')
+
     def test_transfer_path_detects_a_local_loop_without_rejecting_a_hairpin(self):
         from intramural_mission.avoidance import self_crossing
         self.assertFalse(self_crossing([[0.,0.],[1.,0.],[1.,1.],[0.,1.]]))
