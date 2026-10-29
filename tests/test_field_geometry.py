@@ -106,6 +106,11 @@ class FieldGeometryTest(unittest.TestCase):
                 self.assertEqual(actual['minimum_clearance'],.02)
                 self.assertTrue(actual['raw_collision_follow_path'])
                 self.assertEqual(actual['raw_collision_min_points'],3)
+                from intramural_mission.proximity import outside_self
+                echoes=np.array([[.16,-.30,.24],[.328,-.011,.422],[.405,.033,.317],
+                                 [.60,0.,.30],[.36,.25,.30],[.36,0.,.80],[-.35,0.,.30]])
+                np.testing.assert_array_equal(outside_self(echoes,actual['raw_self_filter_boxes']),
+                                              [False,False,False,True,True,True,True])
                 params=yaml.safe_load((out/'nav.yaml').read_text())
                 follow=params['controller_server']['ros__parameters']['FollowPath']
                 self.assertEqual(follow['v_linear_max'],.65)

@@ -128,7 +128,7 @@ class MotionGuardTests(unittest.TestCase):
                         for i, k in enumerate(("x", "y", "z"))]
         cloud.data = array("B", np.array([[0, 0, 0], [.03, 0, 0], [.95, .3, .1],
                                          [float("nan"), 0, 0]], dtype="<f4").tobytes())
-        guard = N(c={"lidar_pose": [.15, -.15, .22, 0, 0, 0], "robot_radius": .29},
+        guard = N(atomic_command=False,c={"lidar_pose": [.15, -.15, .22, 0, 0, 0], "robot_radius": .29},
                   mode="sensors", touch=lambda key: None,get_clock=lambda:N(now=lambda:N(nanoseconds=0)))
         Adapter.lidar(guard, cloud)
         np.testing.assert_allclose(guard.raw_near_points, [[1.1, .15]], atol=1e-6)
