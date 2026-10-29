@@ -777,6 +777,23 @@ class AvoidanceTests(unittest.TestCase):
         self.assertIsNotNone(result['plan'], result)
         self.assertGreater(max(abs(y) for x,y in result['plan'].points), .4)
 
+    def test_narrow_free_corridor_does_not_require_bounding_circle_waypoints(self):
+        from intramural_mission.avoidance import DetourPlanner,preview
+        c,grid,plan,_=self.case()
+        c.update(bounds=[-2.,6.,-1.35,1.35],minimum_clearance=.02)
+        points=[[1.2+x,float(y)]for x in(-.1,0.,.1)for y in np.arange(-.6,.61,.05)]
+        planner=DetourPlanner(c,grid)
+        result={}
+        for i in range(8):
+            result=planner.solve(dict(plan=plan,progress=0.,pose=[0.,0.],velocity=[0.,0.],
+                command=[0.,0.],acceleration=[0.,0.],points=points,stamp=i*.1))
+            if result['plan'] is not None and result['plan'].points!=plan.points:break
+        self.assertIsNotNone(result['plan'],result)
+        self.assertGreater(max(abs(y)for x,y in result['plan'].points),.6)
+        route,times=preview(result['plan'],result['progress'],0.)
+        self.assertFalse(collision(route,times,result['tracks'],c['robot_radius']+.02))
+        self.assertEqual(result['plan'].points[-1],plan.points[-1])
+
     def test_far_conflict_can_continue_only_a_checked_prefix_with_a_stop_tail(self):
         from intramural_mission.avoidance import DetourPlanner
         c,grid,plan,_=self.case();c['drive_acceleration_limit']=2.
