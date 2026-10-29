@@ -38,7 +38,8 @@ class GridMap:
             + repr((self.res, self.origin.tolist(), self.yaw)).encode()
         ).hexdigest()
 
-    def clearance(self, points, include_poles=True):
+    def clearance(self, points, include_poles=None):
+        if include_poles is None:include_poles = not self.c.get("pole_clearance_from_map", False)
         p = np.asarray(points) - self.origin
         x = (self.co * p[:, 0] + self.si * p[:, 1]) / self.res
         y = (-self.si * p[:, 0] + self.co * p[:, 1]) / self.res
@@ -70,8 +71,9 @@ class GridMap:
                                     - self.c.get("minimum_clearance", .02))
         return result
 
-    def continuous_clearance(self, points, include_poles=True):
+    def continuous_clearance(self, points, include_poles=None):
         """Check occupied cell squares at continuous poses, capped beyond the required footprint."""
+        if include_poles is None:include_poles = not self.c.get("pole_clearance_from_map", False)
         world=np.asarray(points);delta=world-self.origin
         local=delta@np.array([[self.co,-self.si],[self.si,self.co]])
         margin=self.c['robot_radius']+self.c.get('minimum_clearance',.02)
