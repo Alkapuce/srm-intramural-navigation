@@ -494,8 +494,9 @@ class Adapter(Node):
             yaw=self.odom_history[-1][3] if self.odom_history else 0.
             co,si=math.cos(yaw),math.sin(yaw)
             history=[(t-now_ros,co*x+si*y,-si*x+co*y)for t,x,y in self.motion_history]
+            # Past scan motion is already compensated; its age reserve stays on the ordered path.
             brakes=braking_paths(self.c,observed_velocity,scheduled,history,
-                reaction=max(self.c.get('pose_update_period',.1),sensor_age)+.035)
+                reaction=self.c.get('pose_update_period',.1)+.035)
         brake_reaches=[sum(math.dist(a,b)for a,b in zip(branch,branch[1:]))for branch in brakes]
         self.hazard = False if path is not None else obstacle_near(raw_points, self.last_motion_direction,
             radial=radial, forward=stop_radius, lateral=lateral, immediate=lateral, min_points=min_points)
@@ -507,6 +508,7 @@ class Adapter(Node):
                 self.hazard = obstacle_on_path(raw_points, path,
                     reach=stop_radius-radial+self.c.get('minimum_clearance', 0.), radius=self.c['robot_radius'], min_points=min_points)
                 self.guard_mode = 'ordered_path'
+        path_hazard=self.hazard
         braking_hazard=any(obstacle_on_path(raw_points,branch,reach=reach,radius=radial,min_points=min_points)
                            for branch,reach in zip(brakes,brake_reaches))
         self.hazard |= braking_hazard
@@ -557,6 +559,7 @@ class Adapter(Node):
                         "wz_disabled": True,
                         "raw_lidar_hazard": self.hazard,
                         "raw_braking_hazard":braking_hazard,
+                        "raw_path_hazard":path_hazard,
                         "raw_hazard_unconfirmed": getattr(self, "pending_raw_stamp", None) is not None and not self.hazard,
                         "collision_check": self.guard_mode,
                         "collision_reach_m": stop_radius-radial+self.c.get('minimum_clearance', 0.),

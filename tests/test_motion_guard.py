@@ -43,6 +43,30 @@ class MotionGuardTests(unittest.TestCase):
             self.assertEqual(guard.raw_motion_problem,'ODOMETRY_HISTORY_WARMUP')
             self.assertEqual(guard.output,[0.,0.])
 
+    def test_compensated_scan_age_does_not_hold_a_stale_tangent_through_a_turn(self):
+        from collections import deque
+        guard,output=self.guard();guard.atomic_command=True
+        guard.c.update(navigation_engine='trajectory',max_speed=2.,max_acceleration=3.5,
+            minimum_clearance=.02,response_delay=.1,response_tau=.09,
+            drive_acceleration_limit=3.5,raw_collision_follow_path=True)
+        guard.c.pop('drive_acceleration_limit')
+        guard.body_velocity=np.array([0.,-1.2])
+        guard.odom_history=deque([(9.6,0.,0.,0.),(10.,0.,-.48,0.)])
+        guard.motion_history=deque([(9.6,0.,-1.2),(9.9,-.4,-1.4)])
+        guard.cmd.linear.x=-.73;guard.cmd.linear.y=-1.41;guard.output=[-.73,-1.41]
+        guard.body_path=lambda:[[0.,0.],[-.4,-.6],[-.9,-.5]]
+        guard.collision_pose_stamp=10.
+        guard.raw_stamp=9.73;guard.raw_point_times=np.array([9.73])
+        guard.raw_near_points=np.array([[-.2,-1.244]])
+        self.tick(guard)
+        self.assertFalse(guard.hazard,guard.diagnostics[-1].data)
+        self.assertGreater(np.linalg.norm(guard.output),0.)
+        self.assertGreater(json.loads(guard.diagnostics[-1].data)['collision_reach_m'],.7)
+        guard.raw_near_points=np.array([[-.05,-.5]])
+        guard.raw_compensation_cache=None;self.tick(guard)
+        self.assertTrue(guard.hazard)
+        self.assertEqual(output[-1],Twist())
+
     def test_queued_turn_stops_even_when_the_ordered_ray_is_clear(self):
         from collections import deque
         guard,output=self.guard()
