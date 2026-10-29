@@ -3,7 +3,7 @@ set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 bin="$HOME/.local/bin"
 mkdir -p "$bin"
-for name in srm-map srm-pulse srm-nav; do
+for name in srm-map srm-pulse srm-nav srm-rviz; do
   target="$bin/$name"
   if [[ -e "$target" || -L "$target" ]]; then
     [[ -L "$target" && "$(readlink -f -- "$target")" == "$root/scripts/$name" ]] || {
@@ -11,7 +11,7 @@ for name in srm-map srm-pulse srm-nav; do
     }
   fi
 done
-for name in srm-map srm-pulse srm-nav; do
+for name in srm-map srm-pulse srm-nav srm-rviz; do
   [[ -L "$bin/$name" ]] || ln -s "$root/scripts/$name" "$bin/$name"
   echo "$name -> $root/scripts/$name"
 done

@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""Display NUC raw LiDAR locally without starting vehicle processes."""
+import base64
+import fcntl
+import os
+from pathlib import Path
+import re
+import signal
+import struct
+import subprocess
+import sys
+import time
+
+
+def stream(mode):
+    import rclpy
+    from rclpy.qos import qos_profile_sensor_data
+    from rclpy.serialization import deserialize_message, serialize_message
+    from sensor_msgs.msg import PointCloud2
+
+    rclpy.init()
+    node = rclpy.create_node('lidar_readonly_' + mode)
+    topic = '/intramural_robot/livox/lidar'
+    try:
+        if mode == 'send':
+            def send(msg):
+                data = serialize_message(msg)
+                sys.stdout.buffer.write(struct.pack('!I', len(data)) + data)
+                sys.stdout.buffer.flush()
+            node.create_subscription(PointCloud2, topic, send, qos_profile_sensor_data)
+            rclpy.spin(node)
+        else:
+            pub = node.create_publisher(PointCloud2, topic, qos_profile_sensor_data)
+            source = sys.stdin.buffer
+            while True:
+                header = source.read(4)
+                if not header:
+                    break
+                if len(header) != 4:
+                    raise ValueError('incomplete point cloud header')
+                size, = struct.unpack('!I', header)
+                if size > 16 * 1024 * 1024:
+                    raise ValueError('point cloud frame exceeds limit')
+                data = source.read(size)
+                if len(data) != size:
+                    raise ValueError('incomplete point cloud frame')
+                pub.publish(deserialize_message(data, PointCloud2))
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+def main():
+    def stop_on_term(_signum, _frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, stop_on_term)
+    root = Path(__file__).resolve().parent.parent
+    runtime = root / 'cache/runtime'
+    runtime.mkdir(parents=True, exist_ok=True)
+    with (runtime / 'srm-rviz.lock').open('w') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print('雷达查看窗口已运行。', file=sys.stderr)
+            return 1
+        ssh = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=6', 'nuc']
+        check = subprocess.run(ssh + ['cd ~/workspaces/srm/intramural && timeout 7 scripts/run.sh ros2 topic info /intramural_robot/livox/lidar'], capture_output=True, text=True, timeout=15)
+        if check.returncode or not re.search(r'Publisher count:\s*[1-9]\d*', check.stdout):
+            print('NUC 雷达点云未就绪；先在 NUC 启动传感器和待机或已有导航。', file=sys.stderr)
+            if check.stderr.strip():
+                print(check.stderr.strip(), file=sys.stderr)
+            return 1
+        encoded = base64.b64encode(Path(__file__).resolve().read_bytes()).decode('ascii')
+        remote = "cd ~/workspaces/srm/intramural && scripts/run.sh python3 -u -c \"exec(__import__('base64').b64decode('" + encoded + "'))\" --send"
+        env = {**os.environ, 'INTRAMURAL_ROS_DOMAIN_ID': '121'}
+        processes = []
+        try:
+            producer = subprocess.Popen(ssh + [remote], stdout=subprocess.PIPE, start_new_session=True)
+            processes.append(producer)
+            receiver = subprocess.Popen([str(root / 'scripts/run.sh'), 'python3', '-u', '/work/scripts/srm-rviz', '--receive'], stdin=producer.stdout, env=env, start_new_session=True)
+            processes.append(receiver)
+            producer.stdout.close()
+            viewer = subprocess.Popen([str(root / 'scripts/run.sh'), 'rviz2', '-d', '/work/config/lidar-view.rviz'], env=env, start_new_session=True)
+            processes.append(viewer)
+            print('雷达窗口已启动；关闭窗口或按 Ctrl-C 结束。', flush=True)
+            while viewer.poll() is None:
+                if producer.poll() is not None or receiver.poll() is not None:
+                    print('雷达传输已断开。', file=sys.stderr)
+                    return 1
+                time.sleep(0.2)
+            return viewer.returncode
+        except KeyboardInterrupt:
+            return 0
+        finally:
+            for process in reversed(processes):
+                if process.poll() is None:
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+            for process in reversed(processes):
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait()
+
+
+if __name__ == '__main__':
+    if sys.argv[1:] in (['--send'], ['--receive']):
+        stream(sys.argv[1][2:])
+    elif sys.argv[1:] in (['-h'], ['--help']):
+        print('用法: srm-rviz\n连接 NUC 的现有雷达话题，在本机打开 RViz。')
+    elif sys.argv[1:]:
+        print('用法: srm-rviz', file=sys.stderr)
+        sys.exit(2)
+    else:
+        try:
+            sys.exit(main())
+        except (OSError, subprocess.TimeoutExpired) as error:
+            print('无法启动雷达查看: ' + str(error), file=sys.stderr)
+            sys.exit(1)
