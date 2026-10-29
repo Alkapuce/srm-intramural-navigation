@@ -164,7 +164,8 @@ def capture(namespace):
         odometry[:3, 3] = [pose.position.x, pose.position.y, pose.position.z]
         cloud = np.concatenate(clouds)
         cloud = cloud[np.linalg.norm(cloud-odometry[:3, 3], axis=1) < 12.]
-        return downsample(cloud), odometry
+        # Fit the floor before voxel reduction; match() downsamples registration points separately.
+        return cloud, odometry
     finally:
         node.destroy_node()
         rclpy.shutdown()
