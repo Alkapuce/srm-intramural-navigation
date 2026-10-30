@@ -279,6 +279,12 @@ def compile_route(c, grid, start=None):
                 for shape in refine(seed,c):
                     for angle in (0.,math.pi):
                         evaluate(shape,angle)
+        # Shorten both outer ends when pole spacing would push the loops into nearby objects.
+        if not results and family == "joint":
+            for seed in shapes(c):
+                for end_scale in (.8,.6):
+                    for angle in (0.,math.pi):
+                        evaluate((*seed,end_scale),angle)
         if results:
             best = min(results,key=lambda x:x[2]["expected_duration"])[2]["optimized_route"]
             if best["shape"] is not None:

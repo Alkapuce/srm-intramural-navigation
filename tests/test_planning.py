@@ -15,6 +15,35 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlanningTests(unittest.TestCase):
+    def test_obstacles_beyond_both_poles_allow_compact_ordered_loops(self):
+        c=json.loads((ROOT/'config/arena.json').read_text())
+        c.update(json.loads((ROOT/'config/navigation-profiles.json').read_text())['candidate'])
+        c.update(lower_pole=[0.,0.],upper_pole=[0.,2.],loop_radius=1.,
+                 parking=[-1.2,0.],bounds=[-3.,3.,-2.,4.])
+        g=OccupancyGrid();g.header.frame_id='map';g.info.width=g.info.height=120
+        g.info.resolution=.05;g.info.origin.position.x=-3.;g.info.origin.position.y=-2.
+        g.info.origin.orientation.w=1.;yy,xx=np.mgrid[:120,:120]
+        x,y=-3+(xx+.5)*.05,-2+(yy+.5)*.05
+        pixels=np.where((y < -1.) | (y > 3.),100,0)
+        for px,py in (c['lower_pole'],c['upper_pole']):
+            pixels[np.hypot(x-px,y-py)<.15]=100
+        g.data=pixels.astype(np.int8).ravel().tolist()
+        plan,route,report=compile_route(c,g)
+        self.assertLess(report['optimized_route']['shape'][3],1.)
+        self.assertEqual(len(plan.gates),10)
+        self.assertEqual(plan.points[0],tuple(c['parking']))
+        self.assertEqual(plan.points[-1],tuple(c['parking']))
+        from intramural_mission.bypass import winding
+        loop=[p for _,points in route[1:-1] for p in points]
+        self.assertEqual([winding(loop,c[k]) for k in ('lower_pole','upper_pole')],[1,-1])
+        for prediction in [report['execution_prediction'],*report['response_predictions']]:
+            self.assertTrue(prediction['passed'],prediction)
+            self.assertGreaterEqual(prediction['minimum_stopping_clearance'],c['execution_clearance'])
+        frozen=dict(c,optimized_route=report['optimized_route'])
+        reloaded,_,_=compile_route(frozen,g)
+        np.testing.assert_allclose(reloaded.points,plan.points,atol=1e-10)
+        np.testing.assert_allclose(reloaded.speed,plan.speed,atol=1e-10)
+
     def test_tangent_entry_uses_short_approach_when_side_guides_are_blocked(self):
         c=json.loads((ROOT/'config/arena.json').read_text())
         c.update(lower_pole=[0.,0.],upper_pole=[-1.65,-.60],loop_radius=.878,

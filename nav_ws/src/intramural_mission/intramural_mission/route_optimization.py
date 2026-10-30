@@ -11,10 +11,11 @@ def spline_route(c, shape, entry_angle):
     distance = float(np.linalg.norm(upper-lower))
     direction = (upper-lower)/distance
     normal = np.array([direction[1], -direction[0]])
-    width_lower, width_upper, fraction = shape
+    width_lower, width_upper, fraction = shape[:3]
+    end_scale = shape[3] if len(shape) > 3 else 1.
     h = fraction*distance
-    anchors = np.array([[0, h], [-width_lower, 0], [0, -h], [width_lower, 0],
-                        [0, h], [-width_upper, distance], [0, 2*distance-h],
+    anchors = np.array([[0, h], [-width_lower, 0], [0, -h*end_scale], [width_lower, 0],
+                        [0, h], [-width_upper, distance], [0, distance+(distance-h)*end_scale],
                         [width_upper, distance], [0, h]])
     anchors = lower+anchors[:, :1]*normal+anchors[:, 1:]*direction
     knots = np.r_[0., np.cumsum(np.linalg.norm(np.diff(anchors, axis=0), axis=1))]
