@@ -105,6 +105,9 @@ class OccupancyExportTests(unittest.TestCase):
         folder, result = self.scene()
         self.assertEqual(result.returncode, 0, result.stderr)
         folder = folder / "map"
+        self.assertEqual(json.loads((folder/'arena.json').read_text())['robot_radius'],.27)
+        params=yaml.safe_load((folder/'nav.yaml').read_text())
+        self.assertEqual(params['local_costmap']['local_costmap']['ros__parameters']['robot_radius'],.27)
         data = json.loads((folder / "occupancy.json").read_text())
         self.assertAlmostEqual(data["floor_plane"]["z_equals_ax_by_c"][2], .13, delta=.01)
         metadata = yaml.safe_load((folder / "map.yaml").read_text())

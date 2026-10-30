@@ -65,6 +65,7 @@
   },
   "geometry": {
     "reference_nav2_radius_m": 0.27,
+    "navigation_radius_confirmation": "Operator confirmed on 2026-10-30: organizer-provided radius includes the actual vehicle and a small margin",
     "footprint_measured_for_current_vehicle": false
   }
 }

@@ -203,6 +203,7 @@ def main():
     if not all(item in lines for item in ('FIELDS x y z','SIZE 4 4 4','TYPE F F F','COUNT 1 1 1')) or len(binary)%12:
         raise ValueError('Expected project-exported binary XYZ map')
     config = json.loads((source/'arena.json').read_text())
+    config['robot_radius'] = json.loads((root/'config/vehicle-srm-reference.json').read_text())['geometry']['reference_nav2_radius_m']
     cloud = lidar_to_body(np.frombuffer(binary,dtype='<f4').reshape(-1,3), config['lidar_pose'])
     if not np.isfinite(cloud).all():
         raise ValueError('Nonfinite point cloud')
@@ -271,6 +272,7 @@ def main():
                 params=yaml.safe_load((source/'nav.yaml').read_text())
                 params['small_gicp_relocalization']['ros__parameters']['prior_pcd_file']=str(out/'prior.pcd')
                 params['map_server']['ros__parameters']['yaml_filename']=str(out/'map.yaml')
+                params['local_costmap']['local_costmap']['ros__parameters']['robot_radius']=config['robot_radius']
                 speed=config['max_speed']
                 params['controller_server']['ros__parameters']['FollowPath'].update(v_linear_min=-speed,v_linear_max=speed,
                     lookahead_dist=profile.get('lookahead_dist',.4),use_velocity_scaled_lookahead_dist=False,min_lookahead_dist=profile.get('lookahead_dist',.4),max_lookahead_dist=profile.get('lookahead_dist',.4),

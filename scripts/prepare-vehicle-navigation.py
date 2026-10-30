@@ -28,8 +28,10 @@ if not any(out.is_relative_to(root / d) for d in ("cache", "artifacts")) or out.
 for name in ("handoff.json", "point-lio.yaml", "base-vehicle.json"):
     if not (vehicle/name).is_file():
         raise ValueError("Missing vehicle configuration: " + name)
-reference = json.loads((root/"config/vehicle-srm-reference.json").read_text())["mid360"]
+vehicle_reference = json.loads((root/"config/vehicle-srm-reference.json").read_text())
+reference = vehicle_reference["mid360"]
 arena = json.loads((root/"config/arena.json").read_text())
+arena["robot_radius"] = vehicle_reference["geometry"]["reference_nav2_radius_m"]
 if args.arena_config:
     arena = json.loads(Path(args.arena_config).read_text())
     from intramural_mission.route import segments, clearance

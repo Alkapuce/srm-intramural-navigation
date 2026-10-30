@@ -39,6 +39,7 @@ class FieldGeometryTest(unittest.TestCase):
             (source/'manifest.json').write_text(json.dumps(dict(motion_permitted=False,start_permitted=False)))
             (source/'nav.yaml').write_text(yaml.safe_dump({
                 'small_gicp_relocalization':{'ros__parameters':{}},'map_server':{'ros__parameters':{}},
+                'local_costmap':{'local_costmap':{'ros__parameters':{'robot_radius':.29}}},
                 'controller_server':{'ros__parameters':{'FollowPath':{},'general_goal_checker':{}}},'velocity_smoother':{'ros__parameters':{}}}))
             command=[sys.executable,str(root/'scripts/internal/field_geometry.py'),
                 '--map-config',str(source),'--output',str(out),'--profile','safe']
@@ -59,6 +60,7 @@ class FieldGeometryTest(unittest.TestCase):
             self.assertEqual((source/'prior.pcd').read_bytes().split(b'DATA binary\n',1)[1],raw)
             if report['passed']:
                 actual=json.loads((out/'arena.json').read_text())
+                self.assertEqual(actual['robot_radius'],.27)
                 self.assertEqual(actual['allow_bypass'],False if bypass is None else bypass)
                 self.assertEqual(json.loads((out/'manifest.json').read_text())['obstacle_policy'],
                     'predictive_detour' if actual['allow_bypass'] else 'stop_and_wait')
@@ -113,6 +115,7 @@ class FieldGeometryTest(unittest.TestCase):
                 np.testing.assert_array_equal(outside_self(echoes,actual['raw_self_filter_boxes']),
                                               [False,False,False,True,True,True,True])
                 params=yaml.safe_load((out/'nav.yaml').read_text())
+                self.assertEqual(params['local_costmap']['local_costmap']['ros__parameters']['robot_radius'],.27)
                 follow=params['controller_server']['ros__parameters']['FollowPath']
                 self.assertEqual(follow['v_linear_max'],.65)
                 self.assertEqual(follow['translation_kp'],3.4)
